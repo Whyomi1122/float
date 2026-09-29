@@ -15,7 +15,6 @@ import {
   type EnsembleTurn,
 } from "@/lib/ensemble-storage";
 import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
-import { resolveBinding, resolveUserIdentity } from "@/lib/settings-storage";
 
 type EnsembleAppProps = {
   onClose: () => void;
@@ -30,7 +29,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   const [scripts, setScripts] = useState<EnsembleScript[]>([]);
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
 
-  // 新建 Persona 弹窗
   const [showNewPersonaModal, setShowNewPersonaModal] = useState(false);
   const [newPersonaName, setNewPersonaName] = useState("");
   const [newPersonaTag, setNewPersonaTag] = useState("");
@@ -54,8 +52,8 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     }
   }, [currentScript?.turns.length, view]);
 
-  // 处理返回
-  const handleBack = (e?: React.MouseEvent) => {
+  // 强化版返回控制：支持多层退回 + 移动端触摸
+  const handleBack = (e?: React.SyntheticEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -66,13 +64,12 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     } else if (view === "scripts") {
       setView("personas");
     } else {
-      // 顶层退回桌面
       if (typeof onClose === "function") {
         onClose();
       }
     }
   };
-  
+
   const handleSelectPersona = (p: EnsemblePersona) => {
     setSelectedPersona(p);
     setView("scripts");
@@ -209,15 +206,16 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     <div className="absolute inset-0 z-50 flex flex-col h-full bg-[#f6f6f8] text-[#1c1c1e] select-none font-sans overflow-hidden">
       {/* 视图 1：Persona 选皮页 */}
       {view === "personas" && (
-        <div className="flex flex-col h-full p-4 overflow-y-auto">
+        <div className="flex flex-col h-full pt-10 px-4 pb-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
             <button
               type="button"
               onClick={handleBack}
-              className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-95 transition-all text-neutral-700"
+              onTouchEnd={handleBack}
+              className="w-12 h-12 -ml-2 flex items-center justify-center rounded-full active:bg-black/10 transition-colors text-neutral-800 touch-manipulation"
               aria-label="返回桌面"
             >
-              <ChevronLeft size={24} />
+              <ChevronLeft size={28} />
             </button>
             <div className="text-center">
               <h1 className="text-lg font-bold tracking-tight">Ensemble</h1>
@@ -226,10 +224,11 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             <button
               type="button"
               onClick={() => setShowNewPersonaModal(true)}
-              className="p-2 -mr-2 rounded-full hover:bg-black/5 text-neutral-700"
+              onTouchEnd={() => setShowNewPersonaModal(true)}
+              className="w-12 h-12 -mr-2 flex items-center justify-center rounded-full active:bg-black/10 text-neutral-800 touch-manipulation"
               title="添加新身份"
             >
-              <Plus size={20} />
+              <Plus size={24} />
             </button>
           </div>
 
@@ -270,7 +269,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl space-y-3">
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold text-sm">创建群像主视角 (Persona)</h3>
-                  <button onClick={() => setShowNewPersonaModal(false)}><X size={18} /></button>
+                  <button onClick={() => setShowNewPersonaModal(false)} className="p-2"><X size={18} /></button>
                 </div>
                 <input
                   type="text"
@@ -307,21 +306,22 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
 
       {/* 视图 2：剧本列表与选角 */}
       {view === "scripts" && selectedPersona && (
-        <div className="flex flex-col h-full p-4 overflow-y-auto">
+        <div className="flex flex-col h-full pt-10 px-4 pb-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <button
               type="button"
               onClick={handleBack}
-              className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-95 transition-all text-neutral-700"
+              onTouchEnd={handleBack}
+              className="w-12 h-12 -ml-2 flex items-center justify-center rounded-full active:bg-black/10 transition-colors text-neutral-800 touch-manipulation"
               aria-label="返回上级"
             >
-              <ChevronLeft size={24} />
+              <ChevronLeft size={28} />
             </button>
             <div className="text-center">
               <h1 className="text-base font-bold">{selectedPersona.name} {selectedPersona.identityTag ? `（${selectedPersona.identityTag}）` : ""}</h1>
               <p className="text-[10px] tracking-widest text-neutral-400 uppercase">Group Story Workspace</p>
             </div>
-            <div className="w-8" />
+            <div className="w-12" />
           </div>
 
           <div className="flex gap-2 my-4">
@@ -432,14 +432,15 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
       {/* 视图 3：演播室 Workspace */}
       {view === "workspace" && currentScript && (
         <div className="flex flex-col h-full bg-[#f8f9fa] relative">
-          <div className="px-4 py-3 bg-white/80 backdrop-blur-md border-b border-black/5 flex items-center justify-between z-10 shrink-0">
+          <div className="pt-10 px-4 pb-3 bg-white/80 backdrop-blur-md border-b border-black/5 flex items-center justify-between z-10 shrink-0">
             <button
               type="button"
               onClick={handleBack}
-              className="p-1 -ml-1 rounded-full hover:bg-black/5 active:scale-95 transition-all text-neutral-700"
+              onTouchEnd={handleBack}
+              className="w-12 h-12 -ml-3 flex items-center justify-center rounded-full active:bg-black/10 transition-colors text-neutral-800 touch-manipulation"
               aria-label="返回剧本列表"
             >
-              <ChevronLeft size={22} />
+              <ChevronLeft size={28} />
             </button>
             <div className="flex flex-col items-center">
               <span className="font-bold text-sm tracking-tight text-neutral-800">{currentScript.title}</span>
@@ -456,8 +457,8 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                   );
                 })}
               </div>
-              <button className="p-1 rounded-full hover:bg-black/5 text-neutral-600">
-                <MoreHorizontal size={18} />
+              <button className="p-2 rounded-full hover:bg-black/5 text-neutral-600">
+                <MoreHorizontal size={20} />
               </button>
             </div>
           </div>
@@ -524,7 +525,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             )}
           </div>
 
-          <div className="bg-white/90 backdrop-blur-md border-t border-neutral-200/80 px-3 py-2 shrink-0">
+          <div className="bg-white/90 backdrop-blur-md border-t border-neutral-200/80 px-3 py-2 pb-6 shrink-0">
             <div className="flex items-center justify-between px-1 mb-2 text-neutral-600">
               <div className="flex items-center gap-3">
                 <button
