@@ -54,17 +54,25 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     }
   }, [currentScript?.turns.length, view]);
 
-  // 处理全局返回
-  const handleBack = () => {
+  // 处理返回
+  const handleBack = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     if (view === "workspace") {
       setView("scripts");
     } else if (view === "scripts") {
       setView("personas");
     } else {
-      onClose(); // 退出应用回到桌面
+      // 顶层退回桌面
+      if (typeof onClose === "function") {
+        onClose();
+      }
     }
   };
-
+  
   const handleSelectPersona = (p: EnsemblePersona) => {
     setSelectedPersona(p);
     setView("scripts");
