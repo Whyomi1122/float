@@ -3984,12 +3984,6 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
       );
     }
 
-    if (activeApp === "ensemble") {
-      return (
-        <EnsembleApp onClose={() => setActiveApp(null)} />
-      );
-    }
-
       if (activeApp === "theme") {
       return (
         <PhoneThemeApp
@@ -4061,6 +4055,10 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
       return <DiaryApp onClose={() => setActiveApp(null)} onNotice={setNotice} />;
     }
 
+    if (activeApp === "ensemble") {
+      return <EnsembleApp onClose={() => setActiveApp(null)} />;
+    }
+    
     if (activeApp === "xiaohongshu") {
       return null;
     }
