@@ -2,6 +2,7 @@
 
 import { Component, memo, useCallback, useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ErrorInfo, type ReactNode } from "react";
 
+import { EnsembleApp } from "@/components/ensemble/ensemble-app";
 import { updateStatusBarTone } from "@/lib/bg-tone";
 import { startDiaryEntryTimerService, stopDiaryEntryTimerService } from "@/lib/diary-entry-timer-service";
 import { startFollowUpService, stopFollowUpService } from "@/lib/follow-up-service";
@@ -3983,7 +3984,13 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
       );
     }
 
-    if (activeApp === "theme") {
+    if (activeApp === "ensemble") {
+      return (
+        <EnsembleApp onClose={() => setActiveApp(null)} />
+      );
+    }
+
+      if (activeApp === "theme") {
       return (
         <PhoneThemeApp
           draft={draftTheme}
