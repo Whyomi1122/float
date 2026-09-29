@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { ChevronLeft, MoreHorizontal, Plus, Play, Zap, FileText, Link as LinkIcon, Send, Trash2, Edit3, X, Users } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { ChevronLeft, MoreHorizontal, Play, Zap, FileText, Link as LinkIcon, Send, Trash2, Edit3, Plus, X } from "lucide-react";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 import {
   loadEnsemblePersonas,
+  saveEnsemblePersonas,
   loadEnsembleScripts,
   saveOrUpdateEnsembleScript,
   deleteEnsembleScript,
@@ -21,7 +22,6 @@ type EnsembleAppProps = {
 };
 
 export function EnsembleApp({ onClose }: EnsembleAppProps) {
-  // 视图状态: "personas" (选皮) | "scripts" (选剧本/选角) | "workspace" (演播厅)
   const [view, setView] = useState<"personas" | "scripts" | "workspace">("personas");
   const [characters, setCharacters] = useState<Character[]>([]);
   const [personas, setPersonas] = useState<EnsemblePersona[]>([]);
@@ -30,7 +30,12 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   const [scripts, setScripts] = useState<EnsembleScript[]>([]);
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
 
-  // 演播厅输入与生成状态
+  // 新建 Persona 弹窗
+  const [showNewPersonaModal, setShowNewPersonaModal] = useState(false);
+  const [newPersonaName, setNewPersonaName] = useState("");
+  const [newPersonaTag, setNewPersonaTag] = useState("");
+  const [newPersonaDesc, setNewPersonaDesc] = useState("");
+
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<"my_ensembles" | "new_cast">("my_ensembles");
@@ -49,18 +54,44 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     }
   }, [currentScript?.turns.length, view]);
 
-  // 选择 Persona
+  // 处理全局返回
+  const handleBack = () => {
+    if (view === "workspace") {
+      setView("scripts");
+    } else if (view === "scripts") {
+      setView("personas");
+    } else {
+      onClose(); // 退出应用回到桌面
+    }
+  };
+
   const handleSelectPersona = (p: EnsemblePersona) => {
     setSelectedPersona(p);
     setView("scripts");
   };
 
-  // 创建新剧本进入演播室
+  const handleCreatePersona = () => {
+    if (!newPersonaName.trim()) return;
+    const newP: EnsemblePersona = {
+      id: "persona_" + Date.now(),
+      name: newPersonaName.trim(),
+      identityTag: newPersonaTag.trim() || undefined,
+      description: newPersonaDesc.trim() || undefined,
+    };
+    const nextList = [...personas, newP];
+    setPersonas(nextList);
+    saveEnsemblePersonas(nextList);
+    setShowNewPersonaModal(false);
+    setNewPersonaName("");
+    setNewPersonaTag("");
+    setNewPersonaDesc("");
+  };
+
   const handleStartNewScript = () => {
     if (!selectedPersona || selectedCastIds.length === 0) return;
     const newScript: EnsembleScript = {
       id: "script_" + Date.now(),
-      title: "新群像剧本",
+      title: `${selectedPersona.name}的群像剧`,
       personaId: selectedPersona.id,
       cast: selectedCastIds.map((id) => ({ characterId: id })),
       turns: [],
@@ -74,13 +105,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     setView("workspace");
   };
 
-  // 进入已有剧本
-  const handleOpenScript = (script: EnsembleScript) => {
-    setCurrentScript(script);
-    setView("workspace");
-  };
-
-  // 发送玩家行动/旁白
   const handleSendTurn = async (forcedNarration = false) => {
     if (!inputText.trim() || !currentScript || isGenerating) return;
     const text = inputText.trim();
@@ -90,6 +114,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
       id: "turn_" + Date.now(),
       senderType: forcedNarration ? "narration" : "user",
       senderName: forcedNarration ? "旁白" : selectedPersona?.name || "你",
+      senderAvatar: forcedNarration ? undefined : selectedPersona?.avatarUrl,
       content: text,
       timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
     };
@@ -99,40 +124,33 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     setCurrentScript(updatedScript);
     saveOrUpdateEnsembleScript(updatedScript);
 
-    // 触发 AI 协同演算
     await triggerAiTurn(updatedScript);
   };
 
-  // AI 推动演算
   const triggerAiTurn = async (script: EnsembleScript) => {
     if (isGenerating) return;
     setIsGenerating(true);
 
     try {
-      // 组装群像上下文字符串
       const castCharacters = script.cast
         .map((c) => characters.find((ch) => ch.id === c.characterId))
         .filter(Boolean) as Character[];
 
-      // 提取最近的对话与描写
       const historyContext = script.turns
         .slice(-10)
         .map((t) => `[${t.senderName}]: ${t.content}`)
         .join("\n\n");
 
-      // 构造群像小说推进专用 Prompt 指令
       const ensembleDirective = `
 【群像剧情演播室 - 小说叙事要求】
 你正在协同创作一部群像小说。
 当前在场角色：${castCharacters.map((c) => c.name).join("、")}。
 玩家设定身份：${selectedPersona?.name}（${selectedPersona?.identityTag || "无"}）。
 请基于上述剧情进展，继续推动场景。每个角色的发言与动作需遵循其人设，重点展现肢体动作、心理活动与环境交互。
-输出格式要求：按以下格式输出发言与旁白（可以同时包含多位角色的动作描写与对话）：
+输出格式要求：按以下格式输出发言与动作（可以同时包含多位角色的动作描写与对话）：
 [角色名]: (动作与神态描写) 对白
 `;
 
-      // 借用 Float 原生的 group-chat 驱动
-      const binding = resolveBinding();
       const firstChar = castCharacters[0];
       if (firstChar) {
         const dummySession: any = {
@@ -180,19 +198,31 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#f6f6f8] text-[#1c1c1e] select-none font-sans overflow-hidden">
-      {/* 视图 1：Persona 选皮页（参考 Chill 图 3） */}
+    <div className="absolute inset-0 z-50 flex flex-col h-full bg-[#f6f6f8] text-[#1c1c1e] select-none font-sans overflow-hidden">
+      {/* 视图 1：Persona 选皮页 */}
       {view === "personas" && (
         <div className="flex flex-col h-full p-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={onClose} className="p-2 -ml-2 rounded-full hover:bg-black/5">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-95 transition-all text-neutral-700"
+              aria-label="返回桌面"
+            >
               <ChevronLeft size={24} />
             </button>
             <div className="text-center">
               <h1 className="text-lg font-bold tracking-tight">Ensemble</h1>
               <p className="text-[10px] tracking-widest text-neutral-400 uppercase">Select Persona · 群像</p>
             </div>
-            <div className="w-8" />
+            <button
+              type="button"
+              onClick={() => setShowNewPersonaModal(true)}
+              className="p-2 -mr-2 rounded-full hover:bg-black/5 text-neutral-700"
+              title="添加新身份"
+            >
+              <Plus size={20} />
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-3 pb-8">
@@ -200,13 +230,15 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               <div
                 key={p.id}
                 onClick={() => handleSelectPersona(p)}
-                className="relative bg-white rounded-2xl p-3 border border-black/5 shadow-sm hover:shadow transition-all cursor-pointer flex flex-col justify-between h-[210px]"
+                className="relative bg-white rounded-2xl p-3 border border-black/5 shadow-sm hover:shadow transition-all Antigravity-pointer flex flex-col justify-between h-[210px]"
               >
                 <div className="w-full h-[120px] rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden">
                   {p.avatarUrl ? (
                     <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-3xl text-neutral-300 font-serif">P</span>
+                    <span className="text-3xl text-neutral-300 font-serif">
+                      {p.name.slice(0, 1)}
+                    </span>
                   )}
                   <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
                     0{index + 1}
@@ -223,14 +255,58 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               </div>
             ))}
           </div>
+
+          {/* 新增 Persona 弹窗 */}
+          {showNewPersonaModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+              <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl space-y-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-bold text-sm">创建群像主视角 (Persona)</h3>
+                  <button onClick={() => setShowNewPersonaModal(false)}><X size={18} /></button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="身份名称 (如: 岳霖玉)"
+                  value={newPersonaName}
+                  onChange={(e) => setNewPersonaName(e.target.value)}
+                  className="w-full bg-neutral-100 p-2.5 rounded-xl text-xs outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="标签 (如: 学生 / 侦探)"
+                  value={newPersonaTag}
+                  onChange={(e) => setNewPersonaTag(e.target.value)}
+                  className="w-full bg-neutral-100 p-2.5 rounded-xl text-xs outline-none"
+                />
+                <textarea
+                  placeholder="人设简述..."
+                  value={newPersonaDesc}
+                  onChange={(e) => setNewPersonaDesc(e.target.value)}
+                  className="w-full bg-neutral-100 p-2.5 rounded-xl text-xs outline-none resize-none h-16"
+                />
+                <button
+                  onClick={handleCreatePersona}
+                  disabled={!newPersonaName.trim()}
+                  className="w-full py-2.5 bg-black text-white rounded-xl text-xs font-bold disabled:opacity-30"
+                >
+                  确认添加
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* 视图 2：剧本列表与选角（参考 Chill 图 2） */}
+      {/* 视图 2：剧本列表与选角 */}
       {view === "scripts" && selectedPersona && (
         <div className="flex flex-col h-full p-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
-            <button onClick={() => setView("personas")} className="p-2 -ml-2 rounded-full hover:bg-black/5">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-95 transition-all text-neutral-700"
+              aria-label="返回上级"
+            >
               <ChevronLeft size={24} />
             </button>
             <div className="text-center">
@@ -240,7 +316,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             <div className="w-8" />
           </div>
 
-          {/* 切换 Tab */}
           <div className="flex gap-2 my-4">
             <button
               onClick={() => setActiveTab("my_ensembles")}
@@ -267,8 +342,11 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                 .map((s) => (
                   <div
                     key={s.id}
-                    onClick={() => handleOpenScript(s)}
-                    className="p-4 bg-white rounded-2xl border border-black/5 shadow-sm hover:shadow cursor-pointer flex justify-between items-center"
+                    onClick={() => {
+                      setCurrentScript(s);
+                      setView("workspace");
+                    }}
+                    className="p-4 bg-white rounded-2xl border border-black/5 shadow-sm hover:shadow Antigravity-pointer flex justify-between items-center"
                   >
                     <div>
                       <h3 className="font-bold text-sm text-neutral-800">{s.title}</h3>
@@ -307,7 +385,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                           isSelected ? prev.filter((id) => id !== c.id) : [...prev, c.id]
                         );
                       }}
-                      className={`relative bg-white rounded-2xl p-3 border transition-all cursor-pointer flex flex-col justify-between h-[210px] ${
+                      className={`relative bg-white rounded-2xl p-3 border transition-all Antigravity-pointer flex flex-col justify-between h-[210px] ${
                         isSelected ? "border-black shadow-md ring-2 ring-black/5" : "border-black/5 shadow-sm"
                       }`}
                     >
@@ -343,12 +421,16 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
         </div>
       )}
 
-      {/* 视图 3：群像演播室 Workspace（参考 Chill 图 1） */}
+      {/* 视图 3：演播室 Workspace */}
       {view === "workspace" && currentScript && (
         <div className="flex flex-col h-full bg-[#f8f9fa] relative">
-          {/* 顶部标题栏 */}
           <div className="px-4 py-3 bg-white/80 backdrop-blur-md border-b border-black/5 flex items-center justify-between z-10 shrink-0">
-            <button onClick={() => setView("scripts")} className="p-1 -ml-1 rounded-full hover:bg-black/5">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="p-1 -ml-1 rounded-full hover:bg-black/5 active:scale-95 transition-all text-neutral-700"
+              aria-label="返回剧本列表"
+            >
               <ChevronLeft size={22} />
             </button>
             <div className="flex flex-col items-center">
@@ -372,7 +454,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             </div>
           </div>
 
-          {/* 小说式叙事消息流 */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             {currentScript.turns.map((turn) => {
               const isUser = turn.senderType === "user";
@@ -401,12 +482,10 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                     </div>
                   </div>
 
-                  {/* 叙述文本 */}
                   <div className="text-sm text-neutral-800 leading-relaxed whitespace-pre-wrap font-sans my-2">
                     {turn.content}
                   </div>
 
-                  {/* 底部元数据 */}
                   <div className="mt-3 pt-2 border-t border-neutral-100 flex items-center justify-between text-[10px] text-neutral-400 font-mono">
                     <div>
                       <span>DATE {turn.timestamp}</span>
@@ -437,9 +516,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             )}
           </div>
 
-          {/* 底部工具条与输入框（参考 Chill 截图 1 底部） */}
           <div className="bg-white/90 backdrop-blur-md border-t border-neutral-200/80 px-3 py-2 shrink-0">
-            {/* 顶排快捷指令 */}
             <div className="flex items-center justify-between px-1 mb-2 text-neutral-600">
               <div className="flex items-center gap-3">
                 <button
@@ -465,7 +542,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               </div>
             </div>
 
-            {/* 输入区 */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleSendTurn(true)}
