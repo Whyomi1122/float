@@ -503,9 +503,20 @@ async function buildGroupChatPromptMessages(
             role: "system",
             content: "本次自定义 APP AI 任务只输出严格 JSON。不要输出 Markdown 代码块、解释文字或聊天富媒体指令。",
         });
+    } else {
+        // 群像剧情等普通任务：追加三色格式约束
+        llmMessages.push({
+            role: "system",
+            content: '群像剧情输出格式要求：\n'
+                + '1. 每个角色的发言以 [角色名]: 开头；\n'
+                + '2. 角色的对白必须用英文双引号包裹，例如 "你好。"；\n'
+                + '3. 角色的动作、神态、场景描写用全角圆括号包裹，例如（他缓缓抬起头）；\n'
+                + '4. 角色的内心活动用实心方头括号【】包裹，例如【他到底在想什么】；\n'
+                + '5. 严格使用上述标记，不要用 Markdown 或其它符号替代，以便前端分色渲染。',
+        });
     }
-    appendEmptyGenerateGuardMessage(llmMessages, config, history);
 
+    appendEmptyGenerateGuardMessage(llmMessages, config, history);
     return { llmMessages, config, preset, regexes, nameToId, memberNames, enabledTools, userName, appTags: activeAppTags };
 }
 
