@@ -5,6 +5,61 @@ import { ChevronLeft, MoreHorizontal, Play, Zap, FileText, Link as LinkIcon, Sen
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 import type { ChatMessage } from "@/lib/chat-storage";
+
+/** ISO / 中文格式都能显示 */
+function formatTurnTime(raw: string): string {
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleString("zh-CN", { hour12: false });
+}
+
+/** 三色配色（韩系灰，白天） */
+const GS_COLORS = {
+  dial: "#2b2b2b",   // 对白：深灰近黑
+  act:  "#9b9691",   // 动作：暖灰
+  inn:  "#a8895f",   // 内心：灰金
+  rc:   "#b5b0aa",   // 收据/键值：浅灰
+};
+
+/** 把一段文本按 对白"" / 动作（） / 内心【】 切成带类型的片段 */
+type TextSeg = { type: "dial" | "act" | "inn" | "plain"; text: string };
+function parseTriColor(raw: string): TextSeg[] {
+  const segs: TextSeg[] = [];
+  // 依次匹配：【内心】、（动作）、"对白"
+  const re = /【([^】]*)】|（([^）]*)）|"([^"]*)"|“([^”]*)”/g;
+  let last = 0, m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    if (m.index > last) segs.push({ type: "plain", text: raw.slice(last, m.index) });
+    if (m[1] !== undefined) segs.push({ type: "inn", text: m[1] });
+    else if (m[2] !== undefined) segs.push({ type: "act", text: m[2] });
+    else if (m[3] !== undefined) segs.push({ type: "dial", text: m[3] });
+    else if (m[4] !== undefined) segs.push({ type: "dial", text: m[4] });
+    last = re.lastIndex;
+  }
+  if (last < raw.length) segs.push({ type: "plain", text: raw.slice(last) });
+  return segs;
+}
+
+/** 渲染三色文本 */
+function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
+  const segs = parseTriColor(raw);
+  return (
+    <span className="whitespace-pre-wrap leading-relaxed">
+      {segs.map((s, i) => {
+        if (s.type === "plain") return <span key={i}>{s.text}</span>;
+        const color =
+          s.type === "dial" ? GS_COLORS.dial :
+          s.type === "act"  ? GS_COLORS.act  :
+                              GS_COLORS.inn;
+        const wrap =
+          s.type === "dial" ? `"${s.text}"` :
+          s.type === "act"  ? `（${s.text}）` :
+                              `【${s.text}】`;
+        return <span key={i} style={{ color }}>{wrap}</span>;
+      })}
+    </span>
+  );
+}
 import type { ChatCompletionCallbacks } from "@/lib/chat-engine";
 import {
   loadEnsembleScripts,
@@ -95,7 +150,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
       senderName: forcedNarration ? "旁白" : (activeIdentity?.name || "你"),
       senderAvatar: forcedNarration ? undefined : activeIdentity?.avatarUrl,
       content: text,
-      timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
+      timestamp: new Date().toISOString(),
     };
 
     const updatedScript = { ...currentScript, turns: [...currentScript.turns, userTurn] };
@@ -110,14 +165,12 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   const triggerAiTurn = async (script: EnsembleScript) => {
     if (isGenerating) return;
     setIsGenerating(true);
-
     try {
       const castCharacters = script.cast
         .map((c) => characters.find((ch) => ch.id === c.characterId))
         .filter(Boolean) as Character[];
       if (castCharacters.length === 0) return;
 
-      // 1) 剧本历史 → 引擎要的 ChatMessage[]
       const historyMessages: ChatMessage[] = script.turns.map((t, idx) => {
         const parsed = new Date(t.timestamp);
         return {
@@ -133,23 +186,19 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
         };
       });
 
-      // 2) session 字段名必须匹配 group-chat-engine 的读取
       const dummySession: any = {
         id: script.id,
-        participantIds: script.cast.map((c) => c.characterId),  // 引擎读 participantIds
-        groupName: script.title,                                 // 引擎读 groupName
+        participantIds: script.cast.map((c) => c.characterId),
+        groupName: script.title,
         isSpectator: false,
       };
 
-      // 3) 收集本轮 AI 气泡
       const aiTurns: EnsembleTurn[] = [];
-
-      // 4) 正确调用：第2参 ChatMessage[]，第3参回调对象
       const results = await generateGroupChatCompletion(
         dummySession,
         historyMessages,
         {
-          onStreamDelta: () => { /* 预留：可在此实时预览 */ },
+          onStreamDelta: () => {},
           onTextPart: (text, info) => {
             const charObj = characters.find((c) => c.id === info?.characterId);
             aiTurns.push({
@@ -161,12 +210,11 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               content: text,
               timestamp: new Date().toISOString(),
               tokens: Math.round(text.length * 1.3),
-            });
+            });s
           },
         },
       );
 
-      // 5) 兜底：引擎若没触发 onTextPart，用返回值构造
       if (aiTurns.length === 0 && Array.isArray(results)) {
         results.forEach((r, i) => {
           const charObj = characters.find((c) => c.id === r.characterId);
@@ -194,8 +242,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     } finally {
       setIsGenerating(false);
     }
-  };
-    
+  };    
   // 兼容：老剧本 personaId 找不到对应面具时，回退到当前激活面具
   const belongsToActive = (s: EnsembleScript) =>
     activeIdentity ? s.personaId === activeIdentity.id : true;
@@ -326,8 +373,9 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
 
       {/* 视图：演播室 Workspace */}
       {view === "workspace" && currentScript && (
-        <div className="flex flex-col h-full bg-[#f8f9fa] relative">
-          <div className="pt-10 px-4 pb-3 bg-white/80 backdrop-blur-md border-b border-black/5 flex items-center justify-between z-10 shrink-0">
+        <div className="flex flex-col h-full bg-[#f2f1ef] relative">
+          {/* 顶栏：磨砂 + 圆角 */}
+          <div className="pt-10 px-4 pb-3 bg-white/75 backdrop-blur-xl rounded-b-[18px] shadow-[0_1px_0_rgba(0,0,0,.04)] flex items-center justify-between z-10 shrink-0">
             <button
               type="button"
               onClick={handleBack}
@@ -337,16 +385,16 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             >
               <ChevronLeft size={28} />
             </button>
-            <div className="flex flex-col items-center">
-              <span className="font-bold text-sm tracking-tight text-neutral-800">{currentScript.title}</span>
-              <span className="text-[10px] text-neutral-400 font-mono tracking-wider">{currentScript.cast.length} CAST</span>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="font-bold text-sm tracking-[2px] text-[#1a1a1a]">{currentScript.title}</span>
+              <span className="text-[10px] text-black/20 font-mono tracking-wider">{currentScript.cast.length} CAST</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="flex -space-x-1.5 overflow-hidden">
                 {currentScript.cast.slice(0, 3).map((item) => {
                   const ch = characters.find((c) => c.id === item.characterId);
                   return (
-                    <div key={item.characterId} className="inline-block h-6 w-6 rounded-full ring-2 ring-white overflow-hidden bg-neutral-200">
+                    <div key={item.characterId} className="inline-block h-6 w-6 rounded-full ring-[1.5px] ring-white/90 overflow-hidden bg-neutral-200">
                       {ch?.avatar ? <img src={ch.avatar} alt={ch.name} className="h-full w-full object-cover" /> : null}
                     </div>
                   );
@@ -358,26 +406,29 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             </div>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          {/* 卡片区 */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
             {currentScript.turns.map((turn) => {
               const isUser = turn.senderType === "user";
               const isNarration = turn.senderType === "narration";
               return (
                 <div
                   key={turn.id}
-                  className={`bg-white rounded-2xl p-4 border border-black/5 shadow-sm relative ${
-                    isUser ? "border-l-4 border-l-[#007aff]" : ""
+                  className={`rounded-2xl p-4 shadow-sm relative ${
+                    isUser
+                      ? "bg-black/[0.02] border border-dashed border-black/[0.08]"
+                      : "bg-[#f6f5f3] border border-black/[0.04]"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       {turn.senderAvatar && (
-                        <img src={turn.senderAvatar} alt="" className="w-8 h-8 rounded-full object-cover border border-neutral-100" />
+                        <img src={turn.senderAvatar} alt="" className="w-8 h-8 rounded-full object-cover border border-white/90" />
                       )}
-                      <div>
-                        <span className="font-bold text-xs text-neutral-900">{turn.senderName}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-[#1a1a1a] tracking-wide">{turn.senderName}</span>
                         {isNarration && (
-                          <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-50 text-[10px] text-blue-500 font-medium">
+                          <span className="px-1.5 py-0.5 rounded bg-black/[0.06] text-[10px] text-black/40 font-medium tracking-wider">
                             NARRATION
                           </span>
                         )}
@@ -385,17 +436,17 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                     </div>
                   </div>
 
-                  <div className="text-sm text-neutral-800 leading-relaxed whitespace-pre-wrap font-sans my-2">
-                    {turn.content}
+                  <div className="text-sm text-[#1a1a1a] leading-relaxed my-2">
+                    <TriColorText raw={turn.content} />
                   </div>
 
-                  <div className="mt-3 pt-2 border-t border-neutral-100 flex items-center justify-between text-[10px] text-neutral-400 font-mono">
+                  <div className="mt-3 pt-2 border-t border-black/[0.05] flex items-center justify-between text-[10px] font-mono" style={{ color: GS_COLORS.rc }}>
                     <div>
-                      <span>DATE {turn.timestamp}</span>
+                      <span>DATE {formatTurnTime(turn.timestamp)}</span>
                       {turn.tokens && <span className="ml-3">TOKENS {turn.tokens}</span>}
                     </div>
                     <div className="flex items-center gap-2">
-                      <button className="hover:text-neutral-600"><Edit3 size={13} /></button>
+                      <button className="hover:opacity-70"><Edit3 size={13} /></button>
                       <button
                         onClick={() => {
                           const nextTurns = currentScript.turns.filter((t) => t.id !== turn.id);
@@ -403,7 +454,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                           setCurrentScript(sc);
                           saveOrUpdateEnsembleScript(sc);
                         }}
-                        className="hover:text-red-500"
+                        className="hover:text-red-400"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -413,34 +464,35 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               );
             })}
             {isGenerating && (
-              <div className="text-center py-3 text-xs text-neutral-400 animate-pulse">
+              <div className="text-center py-3 text-xs text-black/30 animate-pulse">
                 剧本演播推进中...
               </div>
             )}
           </div>
 
-          <div className="bg-white/90 backdrop-blur-md border-t border-neutral-200/80 px-3 py-2 pb-6 shrink-0">
-            <div className="flex items-center justify-between px-1 mb-2 text-neutral-600">
+          {/* 底部输入栏 */}
+          <div className="bg-white/80 backdrop-blur-xl rounded-t-[18px] border-t border-black/[0.04] px-3 py-2 pb-6 shrink-0">
+            <div className="flex items-center justify-between px-1 mb-2 text-black/45">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => triggerAiTurn(currentScript)}
                   disabled={isGenerating}
-                  className="p-1.5 hover:bg-neutral-100 rounded-lg text-neutral-700 disabled:opacity-40"
+                  className="p-1.5 hover:bg-black/[0.04] rounded-lg disabled:opacity-40"
                   title="继续推进"
                 >
                   <Play size={16} />
                 </button>
-                <button className="p-1.5 hover:bg-neutral-100 rounded-lg text-neutral-700" title="剧情拐点">
+                <button className="p-1.5 hover:bg-black/[0.04] rounded-lg" title="剧情拐点">
                   <Zap size={16} />
                 </button>
-                <button className="p-1.5 hover:bg-neutral-100 rounded-lg text-neutral-700" title="剧本便签">
+                <button className="p-1.5 hover:bg-black/[0.04] rounded-lg" title="剧本便签">
                   <FileText size={16} />
                 </button>
-                <button className="p-1.5 hover:bg-neutral-100 rounded-lg text-neutral-700" title="关联网络">
+                <button className="p-1.5 hover:bg-black/[0.04] rounded-lg" title="关联网络">
                   <LinkIcon size={16} />
                 </button>
               </div>
-              <div className="text-[10px] font-mono text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full">
+              <div className="text-[10px] font-mono bg-black/[0.04] px-2 py-0.5 rounded-full">
                 0 tk
               </div>
             </div>
@@ -448,7 +500,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleSendTurn(true)}
-                className="px-2 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-600 rounded-xl text-[11px] font-semibold tracking-wide"
+                className="px-2 py-1.5 bg-black/[0.04] hover:bg-black/[0.07] text-black/50 rounded-xl text-[11px] font-semibold tracking-wide"
                 title="作为旁白发出"
               >
                 旁白
@@ -464,12 +516,12 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                   }
                 }}
                 placeholder="Write your line..."
-                className="flex-1 bg-neutral-100 border-none outline-none rounded-xl px-3 py-2 text-xs text-neutral-800 placeholder:text-neutral-400"
+                className="flex-1 bg-black/[0.03] border-none outline-none rounded-xl px-3 py-2 text-xs text-[#1a1a1a] placeholder:text-black/25"
               />
               <button
                 disabled={!inputText.trim() || isGenerating}
                 onClick={() => handleSendTurn(false)}
-                className="p-2 bg-[#007aff] text-white rounded-xl disabled:opacity-40 transition-opacity"
+                className="p-2 bg-[#1a1a1a] text-white rounded-xl disabled:opacity-40 transition-opacity"
               >
                 <Send size={15} />
               </button>
@@ -477,6 +529,3 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
