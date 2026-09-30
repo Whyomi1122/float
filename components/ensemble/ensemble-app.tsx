@@ -43,25 +43,44 @@ function parseTriColor(raw: string): TextSeg[] {
 /** 渲染三色文本 */
 function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
   const segs = parseTriColor(raw);
+  
+  // 过滤掉连续无意义的纯空白
   return (
-    <div className="space-y-2 text-[15px] leading-relaxed">
+    <div className="text-[14.5px] leading-[1.8] tracking-wide text-[#2c2c2c] space-y-3">
       {segs.map((s, i) => {
         if (s.type === "plain") {
-          // 处理空行与换行
-          return <span key={i} className="whitespace-pre-wrap">{s.text}</span>;
+          const text = s.text.trim();
+          if (!text) return null;
+          return (
+            <div key={i} className="whitespace-pre-wrap">
+              {text}
+            </div>
+          );
         }
         const color =
-          s.type === "dial" ? GS_COLORS.dial :
-          s.type === "act"  ? GS_COLORS.act  :
-                              GS_COLORS.inn;
+          s.type === "dial"
+            ? GS_COLORS.dial
+            : s.type === "act"
+            ? GS_COLORS.act
+            : GS_COLORS.inn;
+            
         const wrap =
-          s.type === "dial" ? `"${s.text}"` :
-          s.type === "act"  ? `（${s.text}）` :
-                              `【${s.text}】`;
+          s.type === "dial"
+            ? `"${s.text}"`
+            : s.type === "act"
+            ? `（${s.text}）`
+            : `【${s.text}】`;
+
         return (
-          <span key={i} style={{ color }} className="inline whitespace-pre-wrap">
+          <div
+            key={i}
+            style={{ color }}
+            className={`whitespace-pre-wrap ${
+              s.type === "act" ? "opacity-75" : s.type === "dial" ? "font-medium" : "opacity-90"
+            }`}
+          >
             {wrap}
-          </span>
+          </div>
         );
       })}
     </div>
@@ -90,6 +109,18 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
 
   const [scripts, setScripts] = useState<EnsembleScript[]>([]);
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
+  const [showNarrationModal, setShowNarrationModal] = useState(false);
+  const [narrationSettingText, setNarrationSettingText] = useState("");
+
+  // 当切换或打开不同剧本时，自动同步旁白背景设定
+  useEffect(() => {
+    if (currentScript) {
+      setNarrationSettingText(currentScript.background || "");
+    }
+  }, [currentScript?.id]);
+
+  const [showNarrationModal, setShowNarrationModal] = useState(false);
+  const [narrationSettingText, setNarrationSettingText] = useState("");
 
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -177,9 +208,24 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
         .filter(Boolean) as Character[];
       if (castCharacters.length === 0) return;
 
-      const historyMessages: ChatMessage[] = script.turns.map((t, idx) => {
+      const historyMessages: ChatMessage[] = [];
+
+      // 如果有旁白或剧情背景设定，注入为最优先场景感知
+      if (script.background && script.background.trim()) {
+        historyMessages.push({
+          id: "turn_bg_" + script.id,
+          sessionId: script.id,
+          role: "system",
+          content: `【剧本全局旁白与场景设定】\n${script.background.trim()}`,
+          status: "sent",
+          createdAt: new Date(0).toISOString(),
+          order: -1,
+        });
+      }
+
+      script.turns.forEach((t, idx) => {
         const parsed = new Date(t.timestamp);
-        return {
+        historyMessages.push({
           id: t.id,
           sessionId: script.id,
           role: (t.senderType === "user" || t.senderType === "narration") ? "user" : "assistant",
@@ -189,7 +235,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
           order: idx,
           senderName: t.senderName,
           senderCharacterId: t.senderId,
-        };
+        });
       });
 
       const dummySession: any = {
@@ -511,9 +557,16 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleSendTurn(true)}
-                className="px-2 py-1.5 bg-black/[0.04] hover:bg-black/[0.07] text-black/50 rounded-xl text-[11px] font-semibold tracking-wide"
-                title="作为旁白发出"
+                onClick={() => {
+                  setNarrationSettingText(currentScript.background || "");
+                  setShowNarrationModal(true);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold tracking-wide transition-colors ${
+                  currentScript.background?.trim()
+                    ? "bg-amber-100 text-amber-800 border border-amber-300"
+                    : "bg-black/[0.04] hover:bg-black/[0.07] text-black/50"
+                }`}
+                title="设置旁白与背景设定"
               >
                 旁白
               </button>
@@ -539,6 +592,65 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               </button>
             </div>
           </div>
+
+          {/* 旁白与场景设定弹窗 */}
+          {showNarrationModal && (
+            <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-xl border border-black/5 flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between pb-2 border-b border-black/5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-[#1a1a1a]">旁白与场景设定</span>
+                  </div>
+                  <button
+                    onClick={() => setShowNarrationModal(false)}
+                    className="p-1 hover:bg-black/5 rounded-full text-black/40"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="text-xs text-black/50">
+                  设定当前剧本的宏观环境、旁白氛围或隐藏剧情要求，AI 会严格遵从。
+                </div>
+
+                <textarea
+                  value={narrationSettingText}
+                  onChange={(e) => setNarrationSettingText(e.target.value)}
+                  placeholder="例如：深夜首尔街头下着淅淅沥沥的冷雨，角色们刚结束高强度的工作，彼此心情沉重但都克制着情绪..."
+                  rows={5}
+                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-xs text-[#1a1a1a] placeholder:text-black/30 outline-none focus:border-black/20 resize-none leading-relaxed"
+                />
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    onClick={() => {
+                      setNarrationSettingText("");
+                      const updated = { ...currentScript, background: "" };
+                      setCurrentScript(updated);
+                      saveOrUpdateEnsembleScript(updated);
+                      setScripts(loadEnsembleScripts());
+                      setShowNarrationModal(false);
+                    }}
+                    className="px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg"
+                  >
+                    清空
+                  </button>
+                  <button
+                    onClick={() => {
+                      const updated = { ...currentScript, background: narrationSettingText.trim() };
+                      setCurrentScript(updated);
+                      saveOrUpdateEnsembleScript(updated);
+                      setScripts(loadEnsembleScripts());
+                      setShowNarrationModal(false);
+                    }}
+                    className="px-4 py-1.5 bg-[#1a1a1a] text-white rounded-xl text-xs font-medium"
+                  >
+                    保存设定
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
