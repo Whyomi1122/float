@@ -1,50 +1,77 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, MoreHorizontal, Play, Send, Trash2, Edit3, X } from "lucide-react";
-import { loadCharacters } from "@/lib/character-storage";
-import type { Character } from "@/lib/character-types";
-import type { ChatMessage } from "@/lib/chat-storage";
+import {
+  ChevronLeft,
+  MoreHorizontal,
+  Plus,
+  Play,
+  Send,
+  Trash2,
+  Edit2,
+  Users,
+  Compass,
+  X,
+} from "lucide-react";
+import { Character, ChatMessage } from "@/types";
+import {
+  EnsembleScript,
+  EnsembleTurn,
+  loadEnsembleScripts,
+  saveOrUpdateEnsembleScript,
+  deleteEnsembleScript,
+  appendEnsembleTurn,
+  deleteEnsembleTurn,
+  updateEnsembleTurn,
+} from "@/lib/ensemble-storage";
+import { ensembleGenerateNextTurn } from "@/lib/ensemble-engine";
 
-/** ISO / 中文格式都能显示 */
-function formatTurnTime(raw: string): string {
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return raw;
-  return d.toLocaleString("zh-CN", { hour12: false });
-}
-
-/** 三色配色（韩系灰，白天） */
-const GS_COLORS = {
-  dial: "#2b2b2b",   // 对白：深灰近黑
-  act:  "#9b9691",   // 动作：暖灰
-  inn:  "#a8895f",   // 内心：灰金
-  rc:   "#b5b0aa",   // 收据/键值：浅灰
+// 三色视觉定义（GS典雅群像规范）
+export const GS_COLORS = {
+  dial: "#1a1a1a", // 对话：高质感深黑粗体
+  act: "#6e6e73",  // 动作与描写：典雅克制灰
+  inn: "#a16207",  // 心理与神态：暗金琥珀
 };
 
-/** 把一段文本按 对白"" / 动作（） / 内心【】 切成带类型的片段 */
-type TextSeg = { type: "dial" | "act" | "inn" | "plain"; text: string };
-function parseTriColor(raw: string): TextSeg[] {
-  const segs: TextSeg[] = [];
-  // 依次匹配：【内心】、（动作）、"对白"
-  const re = /【([^】]*)】|（([^）]*)）|"([^"]*)"|“([^”]*)”/g;
-  let last = 0, m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) {
-    if (m.index > last) segs.push({ type: "plain", text: raw.slice(last, m.index) });
-    if (m[1] !== undefined) segs.push({ type: "inn", text: m[1] });
-    else if (m[2] !== undefined) segs.push({ type: "act", text: m[2] });
-    else if (m[3] !== undefined) segs.push({ type: "dial", text: m[3] });
-    else if (m[4] !== undefined) segs.push({ type: "dial", text: m[4] });
-    last = re.lastIndex;
-  }
-  if (last < raw.length) segs.push({ type: "plain", text: raw.slice(last) });
-  return segs;
+interface TriColorSegment {
+  type: "act" | "dial" | "inn" | "plain";
+  text: string;
 }
 
-/** 渲染三色文本 */
+// 解析三色格式
+export function parseTriColor(raw: string): TriColorSegment[] {
+  if (!raw) return [];
+  const segments: TriColorSegment[] = [];
+  const regex = /(?:[（\(]([^）\)]*)[）\)])|(?:["“]([^"”]*)[”"])|(?:[【\[]([^】\]]*)[】\]])/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(raw)) !== null) {
+    if (match.index > lastIndex) {
+      const plainText = raw.slice(lastIndex, match.index);
+      if (plainText) segments.push({ type: "plain", text: plainText });
+    }
+    if (match[1] !== undefined) {
+      segments.push({ type: "act", text: match[1] });
+    } else if (match[2] !== undefined) {
+      segments.push({ type: "dial", text: match[2] });
+    } else if (match[3] !== undefined) {
+      segments.push({ type: "inn", text: match[3] });
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < raw.length) {
+    const trailing = raw.slice(lastIndex);
+    if (trailing) segments.push({ type: "plain", text: trailing });
+  }
+
+  return segments;
+}
+
+// 三色文本分段排版组件
 function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
   const segs = parseTriColor(raw);
-  
-  // 过滤掉连续无意义的纯空白
   return (
     <div className="text-[14.5px] leading-[1.8] tracking-wide text-[#2c2c2c] space-y-3">
       {segs.map((s, i) => {
@@ -63,7 +90,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
             : s.type === "act"
             ? GS_COLORS.act
             : GS_COLORS.inn;
-            
+
         const wrap =
           s.type === "dial"
             ? `"${s.text}"`
@@ -76,7 +103,11 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
             key={i}
             style={{ color }}
             className={`whitespace-pre-wrap ${
-              s.type === "act" ? "opacity-75" : s.type === "dial" ? "font-medium" : "opacity-90"
+              s.type === "act"
+                ? "opacity-75"
+                : s.type === "dial"
+                ? "font-medium"
+                : "opacity-90"
             }`}
           >
             {wrap}
@@ -86,20 +117,12 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
     </div>
   );
 }
-import type { ChatCompletionCallbacks } from "@/lib/chat-engine";
-import {
-  loadEnsembleScripts,
-  saveOrUpdateEnsembleScript,
-  deleteEnsembleScript,
-  type EnsembleScript,
-  type EnsembleTurn,
-} from "@/lib/ensemble-storage";
-import { resolveUserIdentity, loadUserIdentities, loadPresets } from "@/lib/settings-storage";
-import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 
-type EnsembleAppProps = {
-  onClose: () => void;
-};
+interface EnsembleAppProps {
+  characters: Character[];
+  currentUser?: { name: string; avatar?: string };
+  onBack?: () => void;
+}
 
 export function EnsembleApp({
   characters = [],
@@ -128,93 +151,48 @@ export function EnsembleApp({
       setNarrationSettingText(currentScript.background || "");
     }
   }, [currentScript?.id]);
-  const [activeTab, setActiveTab] = useState<"my_ensembles" | "new_cast">("my_ensembles");
-  const [selectedCastIds, setSelectedCastIds] = useState<string[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const all = loadCharacters();
-    const ids = loadUserIdentities();
-    const active = resolveUserIdentity();   // 当前激活面具（不传角色 = 全局默认）
-    setActiveIdentity(active);
-    setScripts(loadEnsembleScripts());
-
-    // ★ 核心：只保留「绑定到当前激活面具」的角色
-    const activeId = active?.id;
-    const castable = activeId
-      ? all.filter(ch => resolveUserIdentity(ch.id)?.id === activeId)
-      : all;
-    setCharacters(castable);
-
-    // 若已有面具（ids 非空）但 active 为空，兜底取第一个
-    if (!active && ids.length > 0) setActiveIdentity(ids[0]);
-  }, []);
-
-  useEffect(() => {
-    if (view === "workspace" && scrollRef.current) {
+    if (view === "detail" && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [currentScript?.turns.length, view]);
+  }, [currentScript?.turns.length, isGenerating, view]);
 
-  const handleBack = (e?: React.SyntheticEvent) => {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    if (view === "workspace") setView("scripts");
-    else if (typeof onClose === "function") onClose();
-  };
-
-  const handleStartNewScript = () => {
-    if (!activeIdentity || selectedCastIds.length === 0) return;
+  // 新建剧本
+  const handleCreateScript = () => {
+    if (!titleInput.trim()) return;
+    const chosenChars = characters.filter((c) => selectedCastIds.includes(c.id));
     const newScript: EnsembleScript = {
-      id: "script_" + Date.now(),
-      title: `${activeIdentity.name}的群像剧`,
-      personaId: activeIdentity.id,          // ← 真实面具 id
-      cast: selectedCastIds.map((id) => ({ characterId: id })),
-      turns: [],
+      id: "ens_" + Date.now(),
+      title: titleInput.trim(),
+      background: bgInput.trim(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      maxTokensPerTurn: 1000,
+      cast: chosenChars.map((c) => ({
+        id: c.id,
+        name: c.name,
+        avatar: c.avatar,
+        persona: c.systemPrompt || c.description || "",
+      })),
+      turns: [],
     };
     saveOrUpdateEnsembleScript(newScript);
     setScripts(loadEnsembleScripts());
     setCurrentScript(newScript);
-    setView("workspace");
+    setTitleInput("");
+    setBgInput("");
+    setSelectedCastIds([]);
+    setView("detail");
   };
 
-  const handleSendTurn = async (forcedNarration = false) => {
-    if (!inputText.trim() || !currentScript || isGenerating) return;
-    const text = inputText.trim();
-    setInputText("");
-
-    const userTurn: EnsembleTurn = {
-      id: "turn_" + Date.now(),
-      senderType: forcedNarration ? "narration" : "user",
-      senderName: forcedNarration ? "旁白" : (activeIdentity?.name || "你"),
-      senderAvatar: forcedNarration ? undefined : activeIdentity?.avatarUrl,
-      content: text,
-      timestamp: new Date().toISOString(),
-    };
-
-    const updatedScript = { ...currentScript, turns: [...currentScript.turns, userTurn] };
-    setCurrentScript(updatedScript);
-    saveOrUpdateEnsembleScript(updatedScript);
-
-    await triggerAiTurn(updatedScript);
-  };
-
-  // ⚠️ 注意：此函数在 v5.1.1a 中保留了旧的（签名错误的）调用形式，
-  // 将在 v5.1.1b 用正确的 ChatMessage[] 调用替换。暂不影响 UI 验证。
+  // 触发 AI 生成下一个轮次
   const triggerAiTurn = async (script: EnsembleScript) => {
-    if (isGenerating) return;
+    if (isGenerating || script.cast.length === 0) return;
     setIsGenerating(true);
     try {
-      const castCharacters = script.cast
-        .map((c) => characters.find((ch) => ch.id === c.characterId))
-        .filter(Boolean) as Character[];
-      if (castCharacters.length === 0) return;
-
       const historyMessages: ChatMessage[] = [];
 
-      // 如果有旁白或剧情背景设定，注入为最优先场景感知
+      // 注入全局旁白与场景设定
       if (script.background && script.background.trim()) {
         historyMessages.push({
           id: "turn_bg_" + script.id,
@@ -232,7 +210,7 @@ export function EnsembleApp({
         historyMessages.push({
           id: t.id,
           sessionId: script.id,
-          role: (t.senderType === "user" || t.senderType === "narration") ? "user" : "assistant",
+          role: t.senderType === "user" ? "user" : "assistant",
           content: t.content,
           status: "sent",
           createdAt: isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(),
@@ -242,301 +220,377 @@ export function EnsembleApp({
         });
       });
 
-      const dummySession: any = {
-        id: script.id,
-        participantIds: script.cast.map((c) => c.characterId),
-        groupName: script.title,
-        isSpectator: false,
-      };
+      const nextTurn = await ensembleGenerateNextTurn({
+        scriptId: script.id,
+        cast: script.cast,
+        history: historyMessages,
+        background: script.background,
+        userRole: currentUser?.name ? { name: currentUser.name, persona: "剧本中的观察者与互动者" } : undefined,
+      });
 
-      // 1. 获取群像专用预设
-      const allPresets = loadPresets();
-      const ensemblePreset =
-        allPresets.find((p) => p.id === "ensemble_group_v1") ||
-        allPresets.find((p) => p.name?.includes("群像") || (Array.isArray(p.tags) && p.tags.includes("ensemble")));
-
-      const aiTurns: EnsembleTurn[] = [];
-      const results = await generateGroupChatCompletion(
-        dummySession,
-        historyMessages,
-        {
-          onStreamDelta: () => {},
-          onTextPart: (text, info) => {
-            const charObj = characters.find((c) => c.id === info?.characterId);
-            aiTurns.push({
-              id: "turn_ai_" + Date.now() + "_" + aiTurns.length,
-              senderType: "character",
-              senderId: info?.characterId,
-              senderName: info?.characterName || charObj?.name || "角色",
-              senderAvatar: charObj?.avatar,
-              content: text,
-              timestamp: new Date().toISOString(),
-              tokens: Math.round(text.length * 1.3),
-            });
-          },
-        },
-        {
-          appTags: ["ensemble"],
-          disableTools: true,
-          promptProfile: ensemblePreset
-            ? {
-                presetId: ensemblePreset.id,
-              }
-            : undefined,
-        }
-      );
-
-      if (aiTurns.length === 0 && Array.isArray(results)) {
-        results.forEach((r, i) => {
-          const charObj = characters.find((c) => c.id === r.characterId);
-          aiTurns.push({
-            id: "turn_ai_" + Date.now() + "_" + i,
-            senderType: "character",
-            senderId: r.characterId,
-            senderName: charObj?.name || r.characterName,
-            senderAvatar: charObj?.avatar,
-            content: r.responseText,
-            timestamp: new Date().toISOString(),
-            tokens: Math.round(r.responseText.length * 1.3),
-          });
-        });
-      }
-
-      if (aiTurns.length > 0) {
-        const finalScript = { ...script, turns: [...script.turns, ...aiTurns] };
-        setCurrentScript(finalScript);
-        saveOrUpdateEnsembleScript(finalScript);
+      const updated = appendEnsembleTurn(script.id, nextTurn);
+      if (updated) {
+        setCurrentScript(updated);
         setScripts(loadEnsembleScripts());
       }
     } catch (e) {
-      console.error("[Ensemble] AI generation failed:", e);
+      console.error("AI turn generation failed:", e);
     } finally {
       setIsGenerating(false);
     }
   };
-  // 兼容：老剧本 personaId 找不到对应面具时，回退到当前激活面具
-  const belongsToActive = (s: EnsembleScript) =>
-    activeIdentity ? s.personaId === activeIdentity.id : true;
+
+  // 发送用户自身对话轮次
+  const handleSendTurn = async (isNarration: boolean = false) => {
+    if (!inputText.trim() || !currentScript) return;
+    const text = inputText.trim();
+    setInputText("");
+
+    const newTurn: EnsembleTurn = {
+      id: "turn_" + Date.now(),
+      senderId: isNarration ? "narration" : currentUser?.name || "user",
+      senderName: isNarration ? "旁白" : currentUser?.name || "你",
+      senderType: isNarration ? "narration" : "user",
+      content: text,
+      timestamp: new Date().toISOString(),
+      tokens: Math.ceil(text.length * 1.3),
+    };
+
+    const updated = appendEnsembleTurn(currentScript.id, newTurn);
+    if (updated) {
+      setCurrentScript(updated);
+      setScripts(loadEnsembleScripts());
+      await triggerAiTurn(updated);
+    }
+  };
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col h-full bg-[#f6f6f8] text-[#1c1c1e] select-none font-sans overflow-hidden">
-      {/* 视图：剧本列表与选角 */}
-      {view === "scripts" && (
-        <div className="flex flex-col h-full pt-10 px-4 pb-4 overflow-y-auto">
-          <div className="flex items-center justify-between mb-2">
-            <button
-              type="button"
-              onClick={handleBack}
-              onTouchEnd={handleBack}
-              className="w-12 h-12 -ml-2 flex items-center justify-center rounded-full active:bg-black/10 transition-colors text-neutral-800 touch-manipulation"
-              aria-label="返回桌面"
-            >
-              <ChevronLeft size={28} />
-            </button>
-            <div className="text-center">
-              <h1 className="text-base font-bold">
-                {activeIdentity?.name || "未设置面具"}
-              </h1>
-              <p className="text-[10px] tracking-widest text-neutral-400 uppercase">Group Story Workspace</p>
+    <div className="flex flex-col h-full bg-[#f6f6f8] text-[#1a1a1a] font-sans select-none overflow-hidden">
+      {/* 视图 1：剧本列表 */}
+      {view === "list" && (
+        <div className="flex flex-col h-full">
+          {/* 顶栏 */}
+          <div className="h-14 border-b border-black/[0.06] flex items-center justify-between px-4 bg-white/70 backdrop-blur-md">
+            <div className="flex items-center gap-2">
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+              )}
+              <h1 className="text-[17px] font-semibold tracking-tight">群像剧</h1>
             </div>
-            <div className="w-12" />
+            <button
+              onClick={() => setView("create")}
+              className="p-2 -mr-2 rounded-full hover:bg-black/5 text-black/70 flex items-center gap-1 text-sm font-medium"
+            >
+              <Plus size={20} />
+            </button>
           </div>
 
-          <div className="flex gap-2 my-4">
+          {/* 标签切换 */}
+          <div className="flex items-center px-4 pt-3 pb-2 border-b border-black/[0.04] bg-white/40 gap-4">
             <button
               onClick={() => setActiveTab("my_ensembles")}
-              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
-                activeTab === "my_ensembles" ? "bg-white shadow-sm text-black border border-black/5" : "text-neutral-400"
+              className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all ${
+                activeTab === "my_ensembles"
+                  ? "border-[#1a1a1a] text-[#1a1a1a]"
+                  : "border-transparent text-black/40 hover:text-black/60"
               }`}
             >
-              我的群像
+              <Users size={14} />
+              我的剧本
             </button>
             <button
-              onClick={() => setActiveTab("new_cast")}
-              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
-                activeTab === "new_cast" ? "bg-[#1c1c1e] text-white" : "bg-neutral-100 text-neutral-400"
+              onClick={() => setActiveTab("discover")}
+              className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all ${
+                activeTab === "discover"
+                  ? "border-[#1a1a1a] text-[#1a1a1a]"
+                  : "border-transparent text-black/40 hover:text-black/60"
               }`}
             >
-              选角 New Cast
+              <Compass size={14} />
+              探索群像
             </button>
           </div>
 
-          {activeTab === "my_ensembles" ? (
-            <div className="space-y-3 pb-8">
-              {scripts.filter(belongsToActive).map((s) => (
+          {/* 列表内容 */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {scripts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-center text-black/40 space-y-3">
+                <Users size={36} className="stroke-[1.5]" />
+                <div className="text-sm">暂无群像剧</div>
+                <button
+                  onClick={() => setView("create")}
+                  className="px-4 py-2 bg-[#1a1a1a] text-white rounded-xl text-xs font-medium shadow-sm active:scale-95 transition"
+                >
+                  创建第一个群像剧
+                </button>
+              </div>
+            ) : (
+              scripts.map((s) => (
                 <div
                   key={s.id}
-                  onClick={() => { setCurrentScript(s); setView("workspace"); }}
-                  className="p-4 bg-white rounded-2xl border border-black/5 shadow-sm hover:shadow Antigravity-pointer flex justify-between items-center"
+                  onClick={() => {
+                    setCurrentScript(s);
+                    setView("detail");
+                  }}
+                  className="bg-white/80 backdrop-blur-sm border border-black/[0.04] rounded-2xl p-4 shadow-sm active:scale-[0.99] transition cursor-pointer flex flex-col gap-2.5"
                 >
-                  <div>
-                    <h3 className="font-bold text-sm text-neutral-800">{s.title}</h3>
-                    <p className="text-[11px] text-neutral-400 mt-1">
-                      {s.cast.length} 位共演 · {s.turns.length} 幕
-                    </p>
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-sm text-[#1a1a1a] line-clamp-1">
+                      {s.title}
+                    </div>
+                    <div className="text-[10px] text-black/40 font-mono">
+                      {s.cast.length} CAST
+                    </div>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteEnsembleScript(s.id);
-                      setScripts(loadEnsembleScripts());
-                    }}
-                    className="p-2 text-neutral-400 hover:text-red-500 rounded-lg hover:bg-neutral-50"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {s.background && (
+                    <div className="text-xs text-black/50 line-clamp-2 leading-relaxed">
+                      {s.background}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-1 border-t border-black/[0.02]">
+                    <div className="flex -space-x-1.5 overflow-hidden">
+                      {s.cast.map((c) => (
+                        <div
+                          key={c.id}
+                          className="w-5 h-5 rounded-full border border-white bg-black/10 overflow-hidden flex items-center justify-center text-[8px]"
+                        >
+                          {c.avatar ? (
+                            <img
+                              src={c.avatar}
+                              alt={c.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            c.name.slice(0, 1)
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-[10px] text-black/35 font-mono">
+                      {s.turns.length} 幕
+                    </div>
+                  </div>
                 </div>
-              ))}
-              {scripts.filter(belongsToActive).length === 0 && (
-                <div className="text-center py-16 text-neutral-400 text-xs">
-                  暂无群像剧本，点击上方「选角」开启第一幕
-                </div>
-              )}
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 视图 2：创建剧本 */}
+      {view === "create" && (
+        <div className="flex flex-col h-full bg-white">
+          <div className="h-14 border-b border-black/[0.06] flex items-center justify-between px-4">
+            <button
+              onClick={() => setView("list")}
+              className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <div className="text-sm font-semibold">新建群像剧</div>
+            <button
+              disabled={!titleInput.trim() || selectedCastIds.length === 0}
+              onClick={handleCreateScript}
+              className="text-xs font-semibold text-[#1a1a1a] disabled:opacity-30"
+            >
+              完成
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div>
+              <label className="text-xs font-semibold text-black/60 block mb-1.5">
+                剧本标题
+              </label>
+              <input
+                type="text"
+                value={titleInput}
+                onChange={(e) => setTitleInput(e.target.value)}
+                placeholder="例如：首尔夜色下的群像"
+                className="w-full bg-black/[0.03] border border-black/5 rounded-xl px-3 py-2.5 text-xs text-[#1a1a1a] outline-none focus:border-black/20"
+              />
             </div>
-          ) : (
-            <div className="flex flex-col h-full">
-              <div className="grid grid-cols-2 gap-3 pb-4">
-                {characters.map((c, index) => {
+
+            <div>
+              <label className="text-xs font-semibold text-black/60 block mb-1.5">
+                故事背景设定（可选）
+              </label>
+              <textarea
+                value={bgInput}
+                onChange={(e) => setBgInput(e.target.value)}
+                placeholder="简要描述发生的时间、地点、核心冲突..."
+                rows={3}
+                className="w-full bg-black/[0.03] border border-black/5 rounded-xl px-3 py-2.5 text-xs text-[#1a1a1a] outline-none focus:border-black/20 resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-black/60 block mb-2">
+                选择参演角色 ({selectedCastIds.length})
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {characters.map((c) => {
                   const isSelected = selectedCastIds.includes(c.id);
                   return (
                     <div
                       key={c.id}
                       onClick={() => {
                         setSelectedCastIds((prev) =>
-                          isSelected ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                          isSelected
+                            ? prev.filter((id) => id !== c.id)
+                            : [...prev, c.id]
                         );
                       }}
-                      className={`relative bg-white rounded-2xl p-3 border transition-all Antigravity-pointer flex flex-col justify-between h-[210px] ${
-                        isSelected ? "border-black shadow-md ring-2 ring-black/5" : "border-black/5 shadow-sm"
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition cursor-pointer ${
+                        isSelected
+                          ? "border-[#1a1a1a] bg-black/[0.04]"
+                          : "border-black/5 bg-black/[0.01]"
                       }`}
                     >
-                      <div className="w-full h-[120px] rounded-xl bg-neutral-100 overflow-hidden relative">
+                      <div className="w-8 h-8 rounded-full bg-black/10 overflow-hidden flex items-center justify-center text-xs">
                         {c.avatar ? (
-                          <img src={c.avatar} alt={c.name} className="w-full h-full object-cover" />
+                          <img
+                            src={c.avatar}
+                            alt={c.name}
+                            className="w-full h-full object-cover"
+                          />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-neutral-300 font-bold">
-                            {c.name.slice(0, 1)}
-                          </div>
+                          c.name.slice(0, 1)
                         )}
-                        <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
-                          0{index + 1}
-                        </div>
                       </div>
-                      <div className="mt-2">
-                        <div className="text-[10px] uppercase tracking-wider text-neutral-400 font-medium">AI Node</div>
-                        <div className="font-bold text-sm text-neutral-800">{c.name}</div>
-                      </div>
+                      <div className="text-xs font-medium line-clamp-1">{c.name}</div>
                     </div>
                   );
                 })}
               </div>
-              <button
-                disabled={selectedCastIds.length === 0}
-                onClick={handleStartNewScript}
-                className="w-full py-3 bg-[#1c1c1e] text-white rounded-2xl font-bold text-sm disabled:opacity-30 mt-auto mb-4"
-              >
-                开启群像演播室（已选 {selectedCastIds.length} 人）
-              </button>
             </div>
-          )}
+          </div>
         </div>
       )}
 
-      {/* 视图：演播室 Workspace */}
-      {view === "workspace" && currentScript && (
-        <div className="flex flex-col h-full bg-[#f2f1ef] relative">
-          {/* 顶栏：磨砂 + 圆角 */}
-          <div className="pt-10 px-4 pb-3 bg-white/75 backdrop-blur-xl rounded-b-[18px] shadow-[0_1px_0_rgba(0,0,0,.04)] flex items-center justify-between z-10 shrink-0">
+      {/* 视图 3：剧本剧场（详情对话） */}
+      {view === "detail" && currentScript && (
+        <div className="flex flex-col h-full relative">
+          {/* 顶栏 */}
+          <div className="h-14 border-b border-black/[0.06] flex items-center justify-between px-4 bg-white/80 backdrop-blur-md shrink-0">
             <button
-              type="button"
-              onClick={handleBack}
-              onTouchEnd={handleBack}
-              className="w-12 h-12 -ml-3 flex items-center justify-center rounded-full active:bg-black/10 transition-colors text-neutral-800 touch-manipulation"
-              aria-label="返回剧本列表"
+              onClick={() => setView("list")}
+              className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60"
             >
-              <ChevronLeft size={28} />
+              <ChevronLeft size={20} />
             </button>
-            <div className="flex flex-col items-center gap-0.5">
-              <span className="font-bold text-sm tracking-[2px] text-[#1a1a1a]">{currentScript.title}</span>
-              <span className="text-[10px] text-black/20 font-mono tracking-wider">{currentScript.cast.length} CAST</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="flex -space-x-1.5 overflow-hidden">
-                {currentScript.cast.slice(0, 3).map((item) => {
-                  const ch = characters.find((c) => c.id === item.characterId);
-                  return (
-                    <div key={item.characterId} className="inline-block h-6 w-6 rounded-full ring-[1.5px] ring-white/90 overflow-hidden bg-neutral-200">
-                      {ch?.avatar ? <img src={ch.avatar} alt={ch.name} className="h-full w-full object-cover" /> : null}
-                    </div>
-                  );
-                })}
+            <div className="flex flex-col items-center max-w-[200px]">
+              <div className="text-sm font-semibold truncate">
+                {currentScript.title}
               </div>
-              <button className="p-2 rounded-full hover:bg-black/5 text-neutral-600">
-                <MoreHorizontal size={20} />
-              </button>
+              <div className="text-[10px] text-black/40 font-mono">
+                {currentScript.cast.length} CAST
+              </div>
+            </div>
+            <div className="flex items-center -space-x-1.5">
+              {currentScript.cast.slice(0, 3).map((c) => (
+                <div
+                  key={c.id}
+                  className="w-6 h-6 rounded-full border-2 border-white bg-black/10 overflow-hidden"
+                >
+                  {c.avatar && (
+                    <img
+                      src={c.avatar}
+                      alt={c.name}
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* 卡片区 */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+          {/* 剧幕内容区 */}
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0"
+          >
             {currentScript.turns.map((turn) => {
               const isUser = turn.senderType === "user";
               const isNarration = turn.senderType === "narration";
+              const castChar = currentScript.cast.find((c) => c.id === turn.senderId);
+
               return (
                 <div
                   key={turn.id}
-                  className={`rounded-2xl p-4 shadow-sm relative ${
-                    isUser
-                      ? "bg-black/[0.02] border border-dashed border-black/[0.08]"
-                      : "bg-[#f6f5f3] border border-black/[0.04]"
-                  }`}
+                  className="bg-white rounded-2xl p-4 shadow-sm border border-black/[0.03] space-y-3"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      {turn.senderAvatar && (
-                        <img src={turn.senderAvatar} alt="" className="w-8 h-8 rounded-full object-cover border border-white/90" />
-                      )}
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-[#1a1a1a] tracking-wide">{turn.senderName}</span>
-                        {isNarration && (
-                          <span className="px-1.5 py-0.5 rounded bg-black/[0.06] text-[10px] text-black/40 font-medium tracking-wider">
-                            NARRATION
-                          </span>
+                  {/* 角色信息头部 */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-black/10 overflow-hidden flex items-center justify-center text-xs font-semibold">
+                        {castChar?.avatar ? (
+                          <img
+                            src={castChar.avatar}
+                            alt={turn.senderName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : isUser ? (
+                          currentUser?.avatar ? (
+                            <img
+                              src={currentUser.avatar}
+                              alt="Me"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            "你"
+                          )
+                        ) : (
+                          turn.senderName.slice(0, 1)
                         )}
+                      </div>
+                      <div className="font-semibold text-xs text-[#1a1a1a]">
+                        {turn.senderName}
                       </div>
                     </div>
                   </div>
 
-                  <div className="text-sm text-[#1a1a1a] leading-relaxed my-2">
-                    <TriColorText raw={turn.content} />
-                  </div>
+                  {/* 对话正文：三色优雅排版 */}
+                  <TriColorText
+                    raw={turn.content}
+                    prefix={isUser ? "u" : undefined}
+                  />
 
-                  <div className="mt-3 pt-2 border-t border-black/[0.05] flex items-center justify-between text-[10px] font-mono" style={{ color: GS_COLORS.rc }}>
-                    <div>
-                      <span>DATE {formatTurnTime(turn.timestamp)}</span>
-                      {turn.tokens && <span className="ml-3">TOKENS {turn.tokens}</span>}
+                  {/* 底部元数据 */}
+                  <div className="flex items-center justify-between pt-2 border-t border-black/[0.03] text-[10px] text-black/35 font-mono">
+                    <div className="flex items-center gap-3">
+                      <span>DATE {turn.timestamp.slice(0, 10)}</span>
+                      {turn.tokens !== undefined && <span>TOKENS {turn.tokens}</span>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button className="hover:opacity-70"><Edit3 size={13} /></button>
+                    <div className="flex items-center gap-1.5 opacity-60">
                       <button
                         onClick={() => {
-                          const nextTurns = currentScript.turns.filter((t) => t.id !== turn.id);
-                          const sc = { ...currentScript, turns: nextTurns };
-                          setCurrentScript(sc);
-                          saveOrUpdateEnsembleScript(sc);
+                          const updated = deleteEnsembleTurn(currentScript.id, turn.id);
+                          if (updated) {
+                            setCurrentScript(updated);
+                            setScripts(loadEnsembleScripts());
+                          }
                         }}
-                        className="hover:text-red-400"
+                        className="p-1 hover:text-red-500"
+                        title="删除本幕"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={12} />
                       </button>
                     </div>
                   </div>
                 </div>
               );
             })}
+
             {isGenerating && (
-              <div className="text-center py-3 text-xs text-black/30 animate-pulse">
-                剧本演播推进中...
+              <div className="p-4 bg-white/60 rounded-2xl border border-black/5 flex items-center justify-center gap-2 text-xs text-black/40">
+                <div className="w-1.5 h-1.5 rounded-full bg-black/30 animate-pulse" />
+                <span>剧本正在演进中...</span>
               </div>
             )}
           </div>
@@ -600,10 +654,12 @@ export function EnsembleApp({
           {/* 旁白与场景设定弹窗 */}
           {showNarrationModal && (
             <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-xl border border-black/5 flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-150">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-xl border border-black/5 flex flex-col gap-3">
                 <div className="flex items-center justify-between pb-2 border-b border-black/5">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-[#1a1a1a]">旁白与场景设定</span>
+                    <span className="font-semibold text-sm text-[#1a1a1a]">
+                      旁白与场景设定
+                    </span>
                   </div>
                   <button
                     onClick={() => setShowNarrationModal(false)}
@@ -641,7 +697,10 @@ export function EnsembleApp({
                   </button>
                   <button
                     onClick={() => {
-                      const updated = { ...currentScript, background: narrationSettingText.trim() };
+                      const updated = {
+                        ...currentScript,
+                        background: narrationSettingText.trim(),
+                      };
                       setCurrentScript(updated);
                       saveOrUpdateEnsembleScript(updated);
                       setScripts(loadEnsembleScripts());
