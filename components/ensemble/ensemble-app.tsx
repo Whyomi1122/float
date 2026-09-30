@@ -68,7 +68,6 @@ import {
   type EnsembleScript,
   type EnsembleTurn,
 } from "@/lib/ensemble-storage";
-import { resolveUserIdentity, loadUserIdentities } from "@/lib/settings-storage";
 import { resolveUserIdentity, loadUserIdentities, loadPresets } from "@/lib/settings-storage";
 import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 
