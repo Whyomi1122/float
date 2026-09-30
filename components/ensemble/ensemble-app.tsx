@@ -120,8 +120,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
       setNarrationSettingText(currentScript.background || "");
     }
   }, [currentScript?.id]);
-  const [inputText, setInputText] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<"my_ensembles" | "new_cast">("my_ensembles");
   const [selectedCastIds, setSelectedCastIds] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
