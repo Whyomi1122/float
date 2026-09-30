@@ -112,6 +112,8 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   const [showNarrationModal, setShowNarrationModal] = useState(false);
   const [narrationSettingText, setNarrationSettingText] = useState("");
   const [inputText, setInputText] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [activeTab, setActiveTab] = useState<"my_ensembles" | "discover">("my_ensembles");
 
   useEffect(() => {
     if (currentScript) {
