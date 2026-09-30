@@ -101,19 +101,27 @@ type EnsembleAppProps = {
   onClose: () => void;
 };
 
-export function EnsembleApp({ onClose }: EnsembleAppProps) {
-  // v5.1：去掉了 "personas" 选皮页，直接进剧本列表
-  const [view, setView] = useState<"scripts" | "workspace">("scripts");
-  const [characters, setCharacters] = useState<Character[]>([]);
-  const [activeIdentity, setActiveIdentity] = useState<UserIdentity | null>(null);
-
+export function EnsembleApp({
+  characters = [],
+  currentUser,
+  onBack,
+}: EnsembleAppProps) {
   const [scripts, setScripts] = useState<EnsembleScript[]>([]);
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
-  const [showNarrationModal, setShowNarrationModal] = useState(false);
-  const [narrationSettingText, setNarrationSettingText] = useState("");
+  const [view, setView] = useState<"list" | "detail" | "create">("list");
+  const [activeTab, setActiveTab] = useState<"my_ensembles" | "discover">("my_ensembles");
+  const [selectedCastIds, setSelectedCastIds] = useState<string[]>([]);
+  const [titleInput, setTitleInput] = useState("");
+  const [bgInput, setBgInput] = useState("");
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [activeTab, setActiveTab] = useState<"my_ensembles" | "discover">("my_ensembles");
+  const [showNarrationModal, setShowNarrationModal] = useState(false);
+  const [narrationSettingText, setNarrationSettingText] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setScripts(loadEnsembleScripts());
+  }, []);
 
   useEffect(() => {
     if (currentScript) {
