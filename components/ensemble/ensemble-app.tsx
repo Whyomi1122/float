@@ -111,17 +111,13 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
   const [showNarrationModal, setShowNarrationModal] = useState(false);
   const [narrationSettingText, setNarrationSettingText] = useState("");
+  const [inputText, setInputText] = useState("");
 
-  // 当切换或打开不同剧本时，自动同步旁白背景设定
   useEffect(() => {
     if (currentScript) {
       setNarrationSettingText(currentScript.background || "");
     }
   }, [currentScript?.id]);
-
-  const [showNarrationModal, setShowNarrationModal] = useState(false);
-  const [narrationSettingText, setNarrationSettingText] = useState("");
-
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<"my_ensembles" | "new_cast">("my_ensembles");
