@@ -529,3 +529,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
