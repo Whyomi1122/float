@@ -11,13 +11,12 @@ import {
   Compass,
   X,
 } from "lucide-react";
-import { Character, ChatMessage } from "@/types";
+import { Character } from "@/types";
 import {
   EnsembleScript,
   EnsembleTurn,
   loadEnsembleScripts,
   saveOrUpdateEnsembleScript,
-  deleteEnsembleScript,
 } from "@/lib/ensemble-storage";
 
 // 三色视觉定义（GS典雅群像规范）
@@ -33,8 +32,8 @@ interface TriColorSegment {
 }
 
 // 解析三色格式
-export function parseTriColor(raw: string): TriColorSegment[] {
-  if (!raw) return [];
+export function parseTriColor(raw?: string): TriColorSegment[] {
+  if (!raw || typeof raw !== "string") return [];
   const segments: TriColorSegment[] = [];
   const regex = /(?:[（\(]([^）\)]*)[）\)])|(?:["“]([^"”]*)[”"])|(?:[【\[]([^】\]]*)[】\]])/g;
   let lastIndex = 0;
@@ -64,8 +63,11 @@ export function parseTriColor(raw: string): TriColorSegment[] {
 }
 
 // 三色文本分段排版组件
-function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
+function TriColorText({ raw }: { raw?: string; prefix?: "u" }) {
   const segs = parseTriColor(raw);
+  if (segs.length === 0) {
+    return <div className="text-[14.5px] leading-[1.8] text-[#2c2c2c]">{raw || ""}</div>;
+  }
   return (
     <div className="text-[14.5px] leading-[1.8] tracking-wide text-[#2c2c2c] space-y-3">
       {segs.map((s, i) => {
@@ -113,7 +115,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
 }
 
 interface EnsembleAppProps {
-  characters: Character[];
+  characters?: Character[];
   currentUser?: { name: string; avatar?: string };
   onBack?: () => void;
 }
@@ -137,7 +139,18 @@ export function EnsembleApp({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setScripts(loadEnsembleScripts());
+    try {
+      const loaded = loadEnsembleScripts() || [];
+      // 统一进行数据安全清洗，防止旧缓存缺少字段
+      const safeScripts = loaded.map((s) => ({
+        ...s,
+        cast: Array.isArray(s?.cast) ? s.cast : [],
+        turns: Array.isArray(s?.turns) ? s.turns : [],
+      }));
+      setScripts(safeScripts);
+    } catch {
+      setScripts([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -155,7 +168,7 @@ export function EnsembleApp({
   // 新建剧本
   const handleCreateScript = () => {
     if (!titleInput.trim()) return;
-    const chosenChars = characters.filter((c) => selectedCastIds.includes(c.id));
+    const chosenChars = (characters || []).filter((c) => selectedCastIds.includes(c?.id));
     const newScript: EnsembleScript = {
       id: "ens_" + Date.now(),
       title: titleInput.trim(),
@@ -164,14 +177,14 @@ export function EnsembleApp({
       updatedAt: new Date().toISOString(),
       cast: chosenChars.map((c) => ({
         id: c.id,
-        name: c.name,
+        name: c.name || "未命名",
         avatar: c.avatar,
         persona: c.systemPrompt || c.description || "",
       })),
       turns: [],
     };
     saveOrUpdateEnsembleScript(newScript);
-    setScripts(loadEnsembleScripts());
+    setScripts(loadEnsembleScripts() || []);
     setCurrentScript(newScript);
     setTitleInput("");
     setBgInput("");
@@ -181,34 +194,34 @@ export function EnsembleApp({
 
   // 触发 AI 生成下一个轮次
   const triggerAiTurn = async (script: EnsembleScript) => {
-    if (isGenerating || !script.cast || script.cast.length === 0) return;
+    const castList = script?.cast || [];
+    if (isGenerating || castList.length === 0) return;
     setIsGenerating(true);
     try {
-      // 决定下一个发言角色
-      const lastTurn = script.turns[script.turns.length - 1];
-      let nextActor = script.cast[0];
+      const turnsList = script.turns || [];
+      const lastTurn = turnsList[turnsList.length - 1];
+      let nextActor = castList[0];
       if (lastTurn) {
-        const otherActors = script.cast.filter((c) => c.id !== lastTurn.senderId);
+        const otherActors = castList.filter((c) => c?.id !== lastTurn.senderId);
         if (otherActors.length > 0) {
           nextActor = otherActors[Math.floor(Math.random() * otherActors.length)];
         }
       }
 
-      // 构建系统提示词
-      const castDesc = script.cast
-        .map((c) => `- ${c.name}: ${c.persona || "暂无特别设定"}`)
+      const castDesc = castList
+        .map((c) => `- ${c?.name || "角色"}: ${c?.persona || "暂无特别设定"}`)
         .join("\n");
 
-      const systemPrompt = `你正在参与一场名为《${script.title}》的群像互动剧本。
+      const systemPrompt = `你正在参与一场名为《${script.title || "群像剧"}》的群像互动剧本。
 当前参演角色阵容：
 ${castDesc}
 
 【剧本全局旁白与背景设定】
 ${script.background || "故事自然演进中"}
 
-你现在必须【完全代入并扮演角色：${nextActor.name}】。
+你现在必须【完全代入并扮演角色：${nextActor?.name || "角色"}】。
 扮演要求：
-1. 严格以《${nextActor.name}》的视角、语气和性格回复。
+1. 严格以《${nextActor?.name || "角色"}》的视角、语气和性格回复。
 2. 格式规范（三色排版）：
    - 动作描写用圆括号：（动作或环境细节）
    - 对白台词用双引号：“台词内容”
@@ -217,9 +230,9 @@ ${script.background || "故事自然演进中"}
 
       const messagesPayload = [
         { role: "system", content: systemPrompt },
-        ...(script.turns || []).slice(-10).map((t) => ({
+        ...turnsList.slice(-10).map((t) => ({
           role: t.senderType === "user" ? "user" : "assistant",
-          content: `[${t.senderName}]: ${t.content}`,
+          content: `[${t.senderName || "角色"}]: ${t.content || ""}`,
         })),
       ];
 
@@ -237,15 +250,18 @@ ${script.background || "故事自然演进中"}
         const data = await res.json();
         replyContent = data.content || data.reply || data.choices?.[0]?.message?.content || "";
       } else {
-        replyContent = `（${nextActor.name} 陷入了短暂的沉思，目光望向窗外）\n“我们接下来该怎么做？”`;
+        replyContent = `（${nextActor?.name || "角色"} 陷入了短暂的沉思，目光望向窗外）\n“我们接下来该怎么做？”`;
       }
 
-      replyContent = replyContent.replace(new RegExp(`^\\[?${nextActor.name}\\]?[:：]?\\s*`), "").trim();
+      const actorName = nextActor?.name || "";
+      if (actorName) {
+        replyContent = replyContent.replace(new RegExp(`^\\[?${actorName}\\]?[:：]?\\s*`), "").trim();
+      }
 
       const nextTurn: EnsembleTurn = {
         id: "turn_" + Date.now(),
-        senderId: nextActor.id,
-        senderName: nextActor.name,
+        senderId: nextActor?.id || "actor",
+        senderName: nextActor?.name || "角色",
         senderType: "character",
         content: replyContent,
         timestamp: new Date().toISOString(),
@@ -260,7 +276,7 @@ ${script.background || "故事自然演进中"}
 
       saveOrUpdateEnsembleScript(updatedScript);
       setCurrentScript(updatedScript);
-      setScripts(loadEnsembleScripts());
+      setScripts(loadEnsembleScripts() || []);
     } catch (e) {
       console.error("AI turn generation failed:", e);
     } finally {
@@ -292,7 +308,7 @@ ${script.background || "故事自然演进中"}
 
     saveOrUpdateEnsembleScript(updatedScript);
     setCurrentScript(updatedScript);
-    setScripts(loadEnsembleScripts());
+    setScripts(loadEnsembleScripts() || []);
     await triggerAiTurn(updatedScript);
   };
 
@@ -307,7 +323,7 @@ ${script.background || "故事自然演进中"}
               {onBack && (
                 <button
                   onClick={onBack}
-                  className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60"
+                  className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60 cursor-pointer"
                 >
                   <ChevronLeft size={20} />
                 </button>
@@ -316,7 +332,7 @@ ${script.background || "故事自然演进中"}
             </div>
             <button
               onClick={() => setView("create")}
-              className="p-2 -mr-2 rounded-full hover:bg-black/5 text-black/70 flex items-center gap-1 text-sm font-medium"
+              className="p-2 -mr-2 rounded-full hover:bg-black/5 text-black/70 flex items-center gap-1 text-sm font-medium cursor-pointer"
             >
               <Plus size={20} />
             </button>
@@ -326,7 +342,7 @@ ${script.background || "故事自然演进中"}
           <div className="flex items-center px-4 pt-3 pb-2 border-b border-black/[0.04] bg-white/40 gap-4">
             <button
               onClick={() => setActiveTab("my_ensembles")}
-              className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all cursor-pointer ${
                 activeTab === "my_ensembles"
                   ? "border-[#1a1a1a] text-[#1a1a1a]"
                   : "border-transparent text-black/40 hover:text-black/60"
@@ -337,7 +353,7 @@ ${script.background || "故事自然演进中"}
             </button>
             <button
               onClick={() => setActiveTab("discover")}
-              className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all ${
+              className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all cursor-pointer ${
                 activeTab === "discover"
                   ? "border-[#1a1a1a] text-[#1a1a1a]"
                   : "border-transparent text-black/40 hover:text-black/60"
@@ -356,59 +372,67 @@ ${script.background || "故事自然演进中"}
                 <div className="text-sm">暂无群像剧</div>
                 <button
                   onClick={() => setView("create")}
-                  className="px-4 py-2 bg-[#1a1a1a] text-white rounded-xl text-xs font-medium shadow-sm active:scale-95 transition"
+                  className="px-4 py-2 bg-[#1a1a1a] text-white rounded-xl text-xs font-medium shadow-sm active:scale-95 transition cursor-pointer"
                 >
                   创建第一个群像剧
                 </button>
               </div>
             ) : (
-              scripts.map((s) => (
-                <div
-                  key={s.id}
-                  onClick={() => {
-                    setCurrentScript(s);
-                    setView("detail");
-                  }}
-                  className="bg-white/80 backdrop-blur-sm border border-black/[0.04] rounded-2xl p-4 shadow-sm active:scale-[0.99] transition Antigravity-pointer flex flex-col gap-2.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold text-sm text-[#1a1a1a] line-clamp-1">
-                      {s.title}
+              scripts.map((s) => {
+                const cast = Array.isArray(s?.cast) ? s.cast : [];
+                const turns = Array.isArray(s?.turns) ? s.turns : [];
+                return (
+                  <div
+                    key={s.id}
+                    onClick={() => {
+                      setCurrentScript({
+                        ...s,
+                        cast,
+                        turns,
+                      });
+                      setView("detail");
+                    }}
+                    className="bg-white/80 backdrop-blur-sm border border-black/[0.04] rounded-2xl p-4 shadow-sm active:scale-[0.99] transition cursor-pointer flex flex-col gap-2.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-sm text-[#1a1a1a] line-clamp-1">
+                        {s.title || "未命名剧本"}
+                      </div>
+                      <div className="text-[10px] text-black/40 font-mono">
+                        {cast.length} CAST
+                      </div>
                     </div>
-                    <div className="text-[10px] text-black/40 font-mono">
-                      {s.cast?.length || 0} CAST
+                    {s.background && (
+                      <div className="text-xs text-black/50 line-clamp-2 leading-relaxed">
+                        {s.background}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between pt-1 border-t border-black/[0.02]">
+                      <div className="flex -space-x-1.5 overflow-hidden">
+                        {cast.map((c, idx) => (
+                          <div
+                            key={c?.id || idx}
+                            className="w-5 h-5 rounded-full border border-white bg-black/10 overflow-hidden flex items-center justify-center text-[8px]"
+                          >
+                            {c?.avatar ? (
+                              <img
+                                src={c.avatar}
+                                alt={c.name || ""}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              (c?.name || "?").slice(0, 1)
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-[10px] text-black/35 font-mono">
+                        {turns.length} 幕
+                      </div>
                     </div>
                   </div>
-                  {s.background && (
-                    <div className="text-xs text-black/50 line-clamp-2 leading-relaxed">
-                      {s.background}
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between pt-1 border-t border-black/[0.02]">
-                    <div className="flex -space-x-1.5 overflow-hidden">
-                      {(s.cast || []).map((c) => (
-                        <div
-                          key={c.id}
-                          className="w-5 h-5 rounded-full border border-white bg-black/10 overflow-hidden flex items-center justify-center text-[8px]"
-                        >
-                          {c.avatar ? (
-                            <img
-                              src={c.avatar}
-                              alt={c.name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            c.name.slice(0, 1)
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="text-[10px] text-black/35 font-mono">
-                      {s.turns?.length || 0} 幕
-                    </div>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -420,7 +444,7 @@ ${script.background || "故事自然演进中"}
           <div className="h-14 border-b border-black/[0.06] flex items-center justify-between px-4">
             <button
               onClick={() => setView("list")}
-              className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60"
+              className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60 cursor-pointer"
             >
               <ChevronLeft size={20} />
             </button>
@@ -428,7 +452,7 @@ ${script.background || "故事自然演进中"}
             <button
               disabled={!titleInput.trim() || selectedCastIds.length === 0}
               onClick={handleCreateScript}
-              className="text-xs font-semibold text-[#1a1a1a] disabled:opacity-30"
+              className="text-xs font-semibold text-[#1a1a1a] disabled:opacity-30 cursor-pointer"
             >
               完成
             </button>
@@ -466,7 +490,7 @@ ${script.background || "故事自然演进中"}
                 选择参演角色 ({selectedCastIds.length})
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {characters.map((c) => {
+                {(characters || []).map((c) => {
                   const isSelected = selectedCastIds.includes(c.id);
                   return (
                     <div
@@ -478,7 +502,7 @@ ${script.background || "故事自然演进中"}
                             : [...prev, c.id]
                         );
                       }}
-                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition Antigravity-pointer ${
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition cursor-pointer ${
                         isSelected
                           ? "border-[#1a1a1a] bg-black/[0.04]"
                           : "border-black/5 bg-black/[0.01]"
@@ -488,14 +512,14 @@ ${script.background || "故事自然演进中"}
                         {c.avatar ? (
                           <img
                             src={c.avatar}
-                            alt={c.name}
+                            alt={c.name || ""}
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          c.name.slice(0, 1)
+                          (c.name || "?").slice(0, 1)
                         )}
                       </div>
-                      <div className="text-xs font-medium line-clamp-1">{c.name}</div>
+                      <div className="text-xs font-medium line-clamp-1">{c.name || "未命名"}</div>
                     </div>
                   );
                 })}
@@ -512,28 +536,28 @@ ${script.background || "故事自然演进中"}
           <div className="h-14 border-b border-black/[0.06] flex items-center justify-between px-4 bg-white/80 backdrop-blur-md shrink-0">
             <button
               onClick={() => setView("list")}
-              className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60"
+              className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/60 cursor-pointer"
             >
               <ChevronLeft size={20} />
             </button>
             <div className="flex flex-col items-center max-w-[200px]">
               <div className="text-sm font-semibold truncate">
-                {currentScript.title}
+                {currentScript.title || "剧本"}
               </div>
               <div className="text-[10px] text-black/40 font-mono">
-                {currentScript.cast?.length || 0} CAST
+                {(currentScript.cast || []).length} CAST
               </div>
             </div>
             <div className="flex items-center -space-x-1.5">
-              {(currentScript.cast || []).slice(0, 3).map((c) => (
+              {(currentScript.cast || []).slice(0, 3).map((c, idx) => (
                 <div
-                  key={c.id}
+                  key={c?.id || idx}
                   className="w-6 h-6 rounded-full border-2 border-white bg-black/10 overflow-hidden"
                 >
-                  {c.avatar && (
+                  {c?.avatar && (
                     <img
                       src={c.avatar}
-                      alt={c.name}
+                      alt={c.name || ""}
                       className="w-full h-full object-cover"
                     />
                   )}
@@ -549,8 +573,7 @@ ${script.background || "故事自然演进中"}
           >
             {(currentScript.turns || []).map((turn) => {
               const isUser = turn.senderType === "user";
-              const isNarration = turn.senderType === "narration";
-              const castChar = currentScript.cast?.find((c) => c.id === turn.senderId);
+              const castChar = (currentScript.cast || []).find((c) => c?.id === turn.senderId);
 
               return (
                 <div
@@ -564,7 +587,7 @@ ${script.background || "故事自然演进中"}
                         {castChar?.avatar ? (
                           <img
                             src={castChar.avatar}
-                            alt={turn.senderName}
+                            alt={turn.senderName || ""}
                             className="w-full h-full object-cover"
                           />
                         ) : isUser ? (
@@ -578,11 +601,11 @@ ${script.background || "故事自然演进中"}
                             "你"
                           )
                         ) : (
-                          turn.senderName.slice(0, 1)
+                          (turn.senderName || "?").slice(0, 1)
                         )}
                       </div>
                       <div className="font-semibold text-xs text-[#1a1a1a]">
-                        {turn.senderName}
+                        {turn.senderName || "角色"}
                       </div>
                     </div>
                   </div>
@@ -596,7 +619,7 @@ ${script.background || "故事自然演进中"}
                   {/* 底部元数据 */}
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.03] text-[10px] text-black/35 font-mono">
                     <div className="flex items-center gap-3">
-                      <span>DATE {turn.timestamp.slice(0, 10)}</span>
+                      <span>DATE {(turn.timestamp || "").slice(0, 10)}</span>
                       {turn.tokens !== undefined && <span>TOKENS {turn.tokens}</span>}
                     </div>
                     <div className="flex items-center gap-1.5 opacity-60">
@@ -604,14 +627,14 @@ ${script.background || "故事自然演进中"}
                         onClick={() => {
                           const updatedScript: EnsembleScript = {
                             ...currentScript,
-                            turns: currentScript.turns.filter((t) => t.id !== turn.id),
+                            turns: (currentScript.turns || []).filter((t) => t.id !== turn.id),
                             updatedAt: new Date().toISOString(),
                           };
                           saveOrUpdateEnsembleScript(updatedScript);
                           setCurrentScript(updatedScript);
-                          setScripts(loadEnsembleScripts());
+                          setScripts(loadEnsembleScripts() || []);
                         }}
-                        className="p-1 hover:text-red-500"
+                        className="p-1 hover:text-red-500 cursor-pointer"
                         title="删除本幕"
                       >
                         <Trash2 size={12} />
@@ -637,7 +660,7 @@ ${script.background || "故事自然演进中"}
                 <button
                   onClick={() => triggerAiTurn(currentScript)}
                   disabled={isGenerating}
-                  className="p-1.5 hover:bg-black/[0.04] rounded-lg disabled:opacity-40"
+                  className="p-1.5 hover:bg-black/[0.04] rounded-lg disabled:opacity-40 cursor-pointer"
                   title="继续推进"
                 >
                   <Play size={16} />
@@ -654,7 +677,7 @@ ${script.background || "故事自然演进中"}
                   setNarrationSettingText(currentScript.background || "");
                   setShowNarrationModal(true);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold tracking-wide transition-colors ${
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold tracking-wide transition-colors cursor-pointer ${
                   currentScript.background?.trim()
                     ? "bg-amber-100 text-amber-800 border border-amber-300"
                     : "bg-black/[0.04] hover:bg-black/[0.07] text-black/50"
@@ -679,7 +702,7 @@ ${script.background || "故事自然演进中"}
               <button
                 disabled={!inputText.trim() || isGenerating}
                 onClick={() => handleSendTurn(false)}
-                className="p-2 bg-[#1a1a1a] text-white rounded-xl disabled:opacity-40 transition-opacity"
+                className="p-2 bg-[#1a1a1a] text-white rounded-xl disabled:opacity-40 transition-opacity cursor-pointer"
               >
                 <Send size={15} />
               </button>
@@ -698,7 +721,7 @@ ${script.background || "故事自然演进中"}
                   </div>
                   <button
                     onClick={() => setShowNarrationModal(false)}
-                    className="p-1 hover:bg-black/5 rounded-full text-black/40"
+                    className="p-1 hover:bg-black/5 rounded-full text-black/40 cursor-pointer"
                   >
                     <X size={16} />
                   </button>
@@ -723,10 +746,10 @@ ${script.background || "故事自然演进中"}
                       const updated = { ...currentScript, background: "" };
                       saveOrUpdateEnsembleScript(updated);
                       setCurrentScript(updated);
-                      setScripts(loadEnsembleScripts());
+                      setScripts(loadEnsembleScripts() || []);
                       setShowNarrationModal(false);
                     }}
-                    className="px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg"
+                    className="px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg cursor-pointer"
                   >
                     清空
                   </button>
@@ -738,10 +761,10 @@ ${script.background || "故事自然演进中"}
                       };
                       saveOrUpdateEnsembleScript(updated);
                       setCurrentScript(updated);
-                      setScripts(loadEnsembleScripts());
+                      setScripts(loadEnsembleScripts() || []);
                       setShowNarrationModal(false);
                     }}
-                    className="px-4 py-1.5 bg-[#1a1a1a] text-white rounded-xl text-xs font-medium"
+                    className="px-4 py-1.5 bg-[#1a1a1a] text-white rounded-xl text-xs font-medium cursor-pointer"
                   >
                     保存设定
                   </button>
