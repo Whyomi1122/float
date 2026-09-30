@@ -18,8 +18,6 @@ import {
   loadEnsembleScripts,
   saveOrUpdateEnsembleScript,
   deleteEnsembleScript,
-  appendEnsembleTurn,
-  deleteEnsembleTurn,
 } from "@/lib/ensemble-storage";
 
 // 三色视觉定义（GS典雅群像规范）
@@ -152,7 +150,7 @@ export function EnsembleApp({
     if (view === "detail" && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [currentScript?.turns.length, isGenerating, view]);
+  }, [currentScript?.turns?.length, isGenerating, view]);
 
   // 新建剧本
   const handleCreateScript = () => {
@@ -183,10 +181,10 @@ export function EnsembleApp({
 
   // 触发 AI 生成下一个轮次
   const triggerAiTurn = async (script: EnsembleScript) => {
-    if (isGenerating || script.cast.length === 0) return;
+    if (isGenerating || !script.cast || script.cast.length === 0) return;
     setIsGenerating(true);
     try {
-      // 决定谁来发言（循环或者随机选择其他角色）
+      // 决定下一个发言角色
       const lastTurn = script.turns[script.turns.length - 1];
       let nextActor = script.cast[0];
       if (lastTurn) {
@@ -219,7 +217,7 @@ ${script.background || "故事自然演进中"}
 
       const messagesPayload = [
         { role: "system", content: systemPrompt },
-        ...script.turns.slice(-10).map((t) => ({
+        ...(script.turns || []).slice(-10).map((t) => ({
           role: t.senderType === "user" ? "user" : "assistant",
           content: `[${t.senderName}]: ${t.content}`,
         })),
@@ -242,7 +240,6 @@ ${script.background || "故事自然演进中"}
         replyContent = `（${nextActor.name} 陷入了短暂的沉思，目光望向窗外）\n“我们接下来该怎么做？”`;
       }
 
-      // 剔除可能存在的角色前缀
       replyContent = replyContent.replace(new RegExp(`^\\[?${nextActor.name}\\]?[:：]?\\s*`), "").trim();
 
       const nextTurn: EnsembleTurn = {
@@ -255,11 +252,15 @@ ${script.background || "故事自然演进中"}
         tokens: Math.ceil(replyContent.length * 1.3),
       };
 
-      const updated = appendEnsembleTurn(script.id, nextTurn);
-      if (updated) {
-        setCurrentScript(updated);
-        setScripts(loadEnsembleScripts());
-      }
+      const updatedScript: EnsembleScript = {
+        ...script,
+        turns: [...(script.turns || []), nextTurn],
+        updatedAt: new Date().toISOString(),
+      };
+
+      saveOrUpdateEnsembleScript(updatedScript);
+      setCurrentScript(updatedScript);
+      setScripts(loadEnsembleScripts());
     } catch (e) {
       console.error("AI turn generation failed:", e);
     } finally {
@@ -283,12 +284,16 @@ ${script.background || "故事自然演进中"}
       tokens: Math.ceil(text.length * 1.3),
     };
 
-    const updated = appendEnsembleTurn(currentScript.id, newTurn);
-    if (updated) {
-      setCurrentScript(updated);
-      setScripts(loadEnsembleScripts());
-      await triggerAiTurn(updated);
-    }
+    const updatedScript: EnsembleScript = {
+      ...currentScript,
+      turns: [...(currentScript.turns || []), newTurn],
+      updatedAt: new Date().toISOString(),
+    };
+
+    saveOrUpdateEnsembleScript(updatedScript);
+    setCurrentScript(updatedScript);
+    setScripts(loadEnsembleScripts());
+    await triggerAiTurn(updatedScript);
   };
 
   return (
@@ -371,7 +376,7 @@ ${script.background || "故事自然演进中"}
                       {s.title}
                     </div>
                     <div className="text-[10px] text-black/40 font-mono">
-                      {s.cast.length} CAST
+                      {s.cast?.length || 0} CAST
                     </div>
                   </div>
                   {s.background && (
@@ -381,7 +386,7 @@ ${script.background || "故事自然演进中"}
                   )}
                   <div className="flex items-center justify-between pt-1 border-t border-black/[0.02]">
                     <div className="flex -space-x-1.5 overflow-hidden">
-                      {s.cast.map((c) => (
+                      {(s.cast || []).map((c) => (
                         <div
                           key={c.id}
                           className="w-5 h-5 rounded-full border border-white bg-black/10 overflow-hidden flex items-center justify-center text-[8px]"
@@ -399,7 +404,7 @@ ${script.background || "故事自然演进中"}
                       ))}
                     </div>
                     <div className="text-[10px] text-black/35 font-mono">
-                      {s.turns.length} 幕
+                      {s.turns?.length || 0} 幕
                     </div>
                   </div>
                 </div>
@@ -516,11 +521,11 @@ ${script.background || "故事自然演进中"}
                 {currentScript.title}
               </div>
               <div className="text-[10px] text-black/40 font-mono">
-                {currentScript.cast.length} CAST
+                {currentScript.cast?.length || 0} CAST
               </div>
             </div>
             <div className="flex items-center -space-x-1.5">
-              {currentScript.cast.slice(0, 3).map((c) => (
+              {(currentScript.cast || []).slice(0, 3).map((c) => (
                 <div
                   key={c.id}
                   className="w-6 h-6 rounded-full border-2 border-white bg-black/10 overflow-hidden"
@@ -542,10 +547,10 @@ ${script.background || "故事自然演进中"}
             ref={scrollRef}
             className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0"
           >
-            {currentScript.turns.map((turn) => {
+            {(currentScript.turns || []).map((turn) => {
               const isUser = turn.senderType === "user";
               const isNarration = turn.senderType === "narration";
-              const castChar = currentScript.cast.find((c) => c.id === turn.senderId);
+              const castChar = currentScript.cast?.find((c) => c.id === turn.senderId);
 
               return (
                 <div
@@ -597,11 +602,14 @@ ${script.background || "故事自然演进中"}
                     <div className="flex items-center gap-1.5 opacity-60">
                       <button
                         onClick={() => {
-                          const updated = deleteEnsembleTurn(currentScript.id, turn.id);
-                          if (updated) {
-                            setCurrentScript(updated);
-                            setScripts(loadEnsembleScripts());
-                          }
+                          const updatedScript: EnsembleScript = {
+                            ...currentScript,
+                            turns: currentScript.turns.filter((t) => t.id !== turn.id),
+                            updatedAt: new Date().toISOString(),
+                          };
+                          saveOrUpdateEnsembleScript(updatedScript);
+                          setCurrentScript(updatedScript);
+                          setScripts(loadEnsembleScripts());
                         }}
                         className="p-1 hover:text-red-500"
                         title="删除本幕"
@@ -713,8 +721,8 @@ ${script.background || "故事自然演进中"}
                     onClick={() => {
                       setNarrationSettingText("");
                       const updated = { ...currentScript, background: "" };
-                      setCurrentScript(updated);
                       saveOrUpdateEnsembleScript(updated);
+                      setCurrentScript(updated);
                       setScripts(loadEnsembleScripts());
                       setShowNarrationModal(false);
                     }}
@@ -728,8 +736,8 @@ ${script.background || "故事自然演进中"}
                         ...currentScript,
                         background: narrationSettingText.trim(),
                       };
-                      setCurrentScript(updated);
                       saveOrUpdateEnsembleScript(updated);
+                      setCurrentScript(updated);
                       setScripts(loadEnsembleScripts());
                       setShowNarrationModal(false);
                     }}
