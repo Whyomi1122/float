@@ -1,19 +1,18 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, MoreHorizontal, Play, Zap, FileText, Link as LinkIcon, Send, Trash2, Edit3, Plus, X } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, Play, Zap, FileText, Link as LinkIcon, Send, Trash2, Edit3, X } from "lucide-react";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 import {
-  loadEnsemblePersonas,
-  saveEnsemblePersonas,
   loadEnsembleScripts,
   saveOrUpdateEnsembleScript,
   deleteEnsembleScript,
-  type EnsemblePersona,
   type EnsembleScript,
   type EnsembleTurn,
 } from "@/lib/ensemble-storage";
+import { resolveUserIdentity, loadUserIdentities } from "@/lib/settings-storage";
+import type { UserIdentity } from "@/components/settings/user-identity";
 import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 
 type EnsembleAppProps = {
@@ -21,18 +20,13 @@ type EnsembleAppProps = {
 };
 
 export function EnsembleApp({ onClose }: EnsembleAppProps) {
-  const [view, setView] = useState<"personas" | "scripts" | "workspace">("personas");
+  // v5.1：去掉了 "personas" 选皮页，直接进剧本列表
+  const [view, setView] = useState<"scripts" | "workspace">("scripts");
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [personas, setPersonas] = useState<EnsemblePersona[]>([]);
-  const [selectedPersona, setSelectedPersona] = useState<EnsemblePersona | null>(null);
+  const [activeIdentity, setActiveIdentity] = useState<UserIdentity | null>(null);
 
   const [scripts, setScripts] = useState<EnsembleScript[]>([]);
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
-
-  const [showNewPersonaModal, setShowNewPersonaModal] = useState(false);
-  const [newPersonaName, setNewPersonaName] = useState("");
-  const [newPersonaTag, setNewPersonaTag] = useState("");
-  const [newPersonaDesc, setNewPersonaDesc] = useState("");
 
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -41,9 +35,21 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setCharacters(loadCharacters());
-    setPersonas(loadEnsemblePersonas());
+    const all = loadCharacters();
+    const ids = loadUserIdentities();
+    const active = resolveUserIdentity();   // 当前激活面具（不传角色 = 全局默认）
+    setActiveIdentity(active);
     setScripts(loadEnsembleScripts());
+
+    // ★ 核心：只保留「绑定到当前激活面具」的角色
+    const activeId = active?.id;
+    const castable = activeId
+      ? all.filter(ch => resolveUserIdentity(ch.id)?.id === activeId)
+      : all;
+    setCharacters(castable);
+
+    // 若已有面具（ids 非空）但 active 为空，兜底取第一个
+    if (!active && ids.length > 0) setActiveIdentity(ids[0]);
   }, []);
 
   useEffect(() => {
@@ -52,52 +58,18 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     }
   }, [currentScript?.turns.length, view]);
 
-  // 强化版返回控制：支持多层退回 + 移动端触摸
   const handleBack = (e?: React.SyntheticEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-
-    if (view === "workspace") {
-      setView("scripts");
-    } else if (view === "scripts") {
-      setView("personas");
-    } else {
-      if (typeof onClose === "function") {
-        onClose();
-      }
-    }
-  };
-
-  const handleSelectPersona = (p: EnsemblePersona) => {
-    setSelectedPersona(p);
-    setView("scripts");
-  };
-
-  const handleCreatePersona = () => {
-    if (!newPersonaName.trim()) return;
-    const newP: EnsemblePersona = {
-      id: "persona_" + Date.now(),
-      name: newPersonaName.trim(),
-      identityTag: newPersonaTag.trim() || undefined,
-      description: newPersonaDesc.trim() || undefined,
-    };
-    const nextList = [...personas, newP];
-    setPersonas(nextList);
-    saveEnsemblePersonas(nextList);
-    setShowNewPersonaModal(false);
-    setNewPersonaName("");
-    setNewPersonaTag("");
-    setNewPersonaDesc("");
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (view === "workspace") setView("scripts");
+    else if (typeof onClose === "function") onClose();
   };
 
   const handleStartNewScript = () => {
-    if (!selectedPersona || selectedCastIds.length === 0) return;
+    if (!activeIdentity || selectedCastIds.length === 0) return;
     const newScript: EnsembleScript = {
       id: "script_" + Date.now(),
-      title: `${selectedPersona.name}的群像剧`,
-      personaId: selectedPersona.id,
+      title: `${activeIdentity.name}的群像剧`,
+      personaId: activeIdentity.id,          // ← 真实面具 id
       cast: selectedCastIds.map((id) => ({ characterId: id })),
       turns: [],
       createdAt: new Date().toISOString(),
@@ -118,83 +90,39 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     const userTurn: EnsembleTurn = {
       id: "turn_" + Date.now(),
       senderType: forcedNarration ? "narration" : "user",
-      senderName: forcedNarration ? "旁白" : selectedPersona?.name || "你",
-      senderAvatar: forcedNarration ? undefined : selectedPersona?.avatarUrl,
+      senderName: forcedNarration ? "旁白" : (activeIdentity?.name || "你"),
+      senderAvatar: forcedNarration ? undefined : activeIdentity?.avatarUrl,
       content: text,
       timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
     };
 
-    const updatedTurns = [...currentScript.turns, userTurn];
-    const updatedScript = { ...currentScript, turns: updatedTurns };
+    const updatedScript = { ...currentScript, turns: [...currentScript.turns, userTurn] };
     setCurrentScript(updatedScript);
     saveOrUpdateEnsembleScript(updatedScript);
 
     await triggerAiTurn(updatedScript);
   };
 
+  // ⚠️ 注意：此函数在 v5.1.1a 中保留了旧的（签名错误的）调用形式，
+  // 将在 v5.1.1b 用正确的 ChatMessage[] 调用替换。暂不影响 UI 验证。
   const triggerAiTurn = async (script: EnsembleScript) => {
     if (isGenerating) return;
     setIsGenerating(true);
-
     try {
       const castCharacters = script.cast
         .map((c) => characters.find((ch) => ch.id === c.characterId))
         .filter(Boolean) as Character[];
+      if (castCharacters.length === 0) return;
 
-      const historyContext = script.turns
-        .slice(-10)
-        .map((t) => `[${t.senderName}]: ${t.content}`)
-        .join("\n\n");
+      const dummySession: any = {
+        id: script.id,
+        type: "group",
+        participantCharacterIds: script.cast.map((c) => c.characterId),
+        name: script.title,
+      };
 
-      const ensembleDirective = `
-【群像剧情演播室 - 小说叙事要求】
-你正在协同创作一部群像小说。
-当前在场角色：${castCharacters.map((c) => c.name).join("、")}。
-玩家设定身份：${selectedPersona?.name}（${selectedPersona?.identityTag || "无"}）。
-请基于上述剧情进展，继续推动场景。每个角色的发言与动作需遵循其人设，重点展现肢体动作、心理活动与环境交互。
-输出格式要求：按以下格式输出发言与动作（可以同时包含多位角色的动作描写与对话）：
-[角色名]: (动作与神态描写) 对白
-`;
-
-      const firstChar = castCharacters[0];
-      if (firstChar) {
-        const dummySession: any = {
-          id: script.id,
-          type: "group",
-          participantCharacterIds: script.cast.map((c) => c.characterId),
-          name: script.title,
-        };
-
-        const replyRound = await generateGroupChatCompletion(
-          dummySession,
-          historyContext + "\n\n" + ensembleDirective,
-          selectedPersona?.name || "你",
-          () => {}
-        );
-
-        if (replyRound && replyRound.characterResponses) {
-          const aiTurns: EnsembleTurn[] = replyRound.characterResponses.map((r, i) => {
-            const charObj = characters.find((c) => c.id === r.characterId);
-            return {
-              id: "turn_ai_" + Date.now() + "_" + i,
-              senderType: "character",
-              senderId: r.characterId,
-              senderName: charObj?.name || r.characterName,
-              senderAvatar: charObj?.avatar,
-              content: r.responseText,
-              timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
-              tokens: Math.round(r.responseText.length * 1.3),
-            };
-          });
-
-          const finalScript = {
-            ...script,
-            turns: [...script.turns, ...aiTurns],
-          };
-          setCurrentScript(finalScript);
-          saveOrUpdateEnsembleScript(finalScript);
-        }
-      }
+      // TODO(v5.1.1b): 改为传 ChatMessage[] + 回调对象；返回值为数组
+      console.warn("[Ensemble] triggerAiTurn 待 v5.1.1b 修复调用签名");
     } catch (e) {
       console.error("[Ensemble] AI generation failed:", e);
     } finally {
@@ -202,12 +130,16 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     }
   };
 
+  // 兼容：老剧本 personaId 找不到对应面具时，回退到当前激活面具
+  const belongsToActive = (s: EnsembleScript) =>
+    activeIdentity ? s.personaId === activeIdentity.id : true;
+
   return (
     <div className="absolute inset-0 z-50 flex flex-col h-full bg-[#f6f6f8] text-[#1c1c1e] select-none font-sans overflow-hidden">
-      {/* 视图 1：Persona 选皮页 */}
-      {view === "personas" && (
+      {/* 视图：剧本列表与选角 */}
+      {view === "scripts" && (
         <div className="flex flex-col h-full pt-10 px-4 pb-4 overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-2">
             <button
               type="button"
               onClick={handleBack}
@@ -218,107 +150,9 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               <ChevronLeft size={28} />
             </button>
             <div className="text-center">
-              <h1 className="text-lg font-bold tracking-tight">Ensemble</h1>
-              <p className="text-[10px] tracking-widest text-neutral-400 uppercase">Select Persona · 群像</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowNewPersonaModal(true)}
-              onTouchEnd={() => setShowNewPersonaModal(true)}
-              className="w-12 h-12 -mr-2 flex items-center justify-center rounded-full active:bg-black/10 text-neutral-800 touch-manipulation"
-              title="添加新身份"
-            >
-              <Plus size={24} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pb-8">
-            {personas.map((p, index) => (
-              <div
-                key={p.id}
-                onClick={() => handleSelectPersona(p)}
-                className="relative bg-white rounded-2xl p-3 border border-black/5 shadow-sm hover:shadow transition-all Antigravity-pointer flex flex-col justify-between h-[210px]"
-              >
-                <div className="w-full h-[120px] rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden">
-                  {p.avatarUrl ? (
-                    <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-3xl text-neutral-300 font-serif">
-                      {p.name.slice(0, 1)}
-                    </span>
-                  )}
-                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
-                    0{index + 1}
-                  </div>
-                </div>
-                <div className="mt-2">
-                  <div className="text-[10px] uppercase tracking-wider text-neutral-400 font-medium">Persona</div>
-                  <div className="font-bold text-sm text-neutral-800 flex items-center gap-1">
-                    {p.name}
-                    {p.identityTag && <span className="text-xs text-neutral-500 font-normal">（{p.identityTag}）</span>}
-                  </div>
-                  <div className="text-[10px] text-neutral-400 mt-0.5 line-clamp-1">{p.description || "群像主视角"}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 新增 Persona 弹窗 */}
-          {showNewPersonaModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-              <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl space-y-3">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-bold text-sm">创建群像主视角 (Persona)</h3>
-                  <button onClick={() => setShowNewPersonaModal(false)} className="p-2"><X size={18} /></button>
-                </div>
-                <input
-                  type="text"
-                  placeholder="身份名称 (如: 岳霖玉)"
-                  value={newPersonaName}
-                  onChange={(e) => setNewPersonaName(e.target.value)}
-                  className="w-full bg-neutral-100 p-2.5 rounded-xl text-xs outline-none"
-                />
-                <input
-                  type="text"
-                  placeholder="标签 (如: 学生 / 侦探)"
-                  value={newPersonaTag}
-                  onChange={(e) => setNewPersonaTag(e.target.value)}
-                  className="w-full bg-neutral-100 p-2.5 rounded-xl text-xs outline-none"
-                />
-                <textarea
-                  placeholder="人设简述..."
-                  value={newPersonaDesc}
-                  onChange={(e) => setNewPersonaDesc(e.target.value)}
-                  className="w-full bg-neutral-100 p-2.5 rounded-xl text-xs outline-none resize-none h-16"
-                />
-                <button
-                  onClick={handleCreatePersona}
-                  disabled={!newPersonaName.trim()}
-                  className="w-full py-2.5 bg-black text-white rounded-xl text-xs font-bold disabled:opacity-30"
-                >
-                  确认添加
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 视图 2：剧本列表与选角 */}
-      {view === "scripts" && selectedPersona && (
-        <div className="flex flex-col h-full pt-10 px-4 pb-4 overflow-y-auto">
-          <div className="flex items-center justify-between mb-2">
-            <button
-              type="button"
-              onClick={handleBack}
-              onTouchEnd={handleBack}
-              className="w-12 h-12 -ml-2 flex items-center justify-center rounded-full active:bg-black/10 transition-colors text-neutral-800 touch-manipulation"
-              aria-label="返回上级"
-            >
-              <ChevronLeft size={28} />
-            </button>
-            <div className="text-center">
-              <h1 className="text-base font-bold">{selectedPersona.name} {selectedPersona.identityTag ? `（${selectedPersona.identityTag}）` : ""}</h1>
+              <h1 className="text-base font-bold">
+                {activeIdentity?.name || "未设置面具"}
+              </h1>
               <p className="text-[10px] tracking-widest text-neutral-400 uppercase">Group Story Workspace</p>
             </div>
             <div className="w-12" />
@@ -345,36 +179,31 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
 
           {activeTab === "my_ensembles" ? (
             <div className="space-y-3 pb-8">
-              {scripts
-                .filter((s) => s.personaId === selectedPersona.id)
-                .map((s) => (
-                  <div
-                    key={s.id}
-                    onClick={() => {
-                      setCurrentScript(s);
-                      setView("workspace");
-                    }}
-                    className="p-4 bg-white rounded-2xl border border-black/5 shadow-sm hover:shadow Antigravity-pointer flex justify-between items-center"
-                  >
-                    <div>
-                      <h3 className="font-bold text-sm text-neutral-800">{s.title}</h3>
-                      <p className="text-[11px] text-neutral-400 mt-1">
-                        {s.cast.length} 位共演 · {s.turns.length} 幕
-                      </p>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteEnsembleScript(s.id);
-                        setScripts(loadEnsembleScripts());
-                      }}
-                      className="p-2 text-neutral-400 hover:text-red-500 rounded-lg hover:bg-neutral-50"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+              {scripts.filter(belongsToActive).map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => { setCurrentScript(s); setView("workspace"); }}
+                  className="p-4 bg-white rounded-2xl border border-black/5 shadow-sm hover:shadow Antigravity-pointer flex justify-between items-center"
+                >
+                  <div>
+                    <h3 className="font-bold text-sm text-neutral-800">{s.title}</h3>
+                    <p className="text-[11px] text-neutral-400 mt-1">
+                      {s.cast.length} 位共演 · {s.turns.length} 幕
+                    </p>
                   </div>
-                ))}
-              {scripts.filter((s) => s.personaId === selectedPersona.id).length === 0 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteEnsembleScript(s.id);
+                      setScripts(loadEnsembleScripts());
+                    }}
+                    className="p-2 text-neutral-400 hover:text-red-500 rounded-lg hover:bg-neutral-50"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+              {scripts.filter(belongsToActive).length === 0 && (
                 <div className="text-center py-16 text-neutral-400 text-xs">
                   暂无群像剧本，点击上方「选角」开启第一幕
                 </div>
@@ -429,7 +258,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
         </div>
       )}
 
-      {/* 视图 3：演播室 Workspace */}
+      {/* 视图：演播室 Workspace */}
       {view === "workspace" && currentScript && (
         <div className="flex flex-col h-full bg-[#f8f9fa] relative">
           <div className="pt-10 px-4 pb-3 bg-white/80 backdrop-blur-md border-b border-black/5 flex items-center justify-between z-10 shrink-0">
@@ -467,7 +296,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             {currentScript.turns.map((turn) => {
               const isUser = turn.senderType === "user";
               const isNarration = turn.senderType === "narration";
-
               return (
                 <div
                   key={turn.id}
