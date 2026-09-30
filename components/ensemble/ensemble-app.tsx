@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, MoreHorizontal, Play, Zap, FileText, Link as LinkIcon, Send, Trash2, Edit3, X } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, Play, Send, Trash2, Edit3, X } from "lucide-react";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 import type { ChatMessage } from "@/lib/chat-storage";
@@ -44,9 +44,12 @@ function parseTriColor(raw: string): TextSeg[] {
 function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
   const segs = parseTriColor(raw);
   return (
-    <span className="whitespace-pre-wrap leading-relaxed">
+    <div className="space-y-2 text-[15px] leading-relaxed">
       {segs.map((s, i) => {
-        if (s.type === "plain") return <span key={i}>{s.text}</span>;
+        if (s.type === "plain") {
+          // 处理空行与换行
+          return <span key={i} className="whitespace-pre-wrap">{s.text}</span>;
+        }
         const color =
           s.type === "dial" ? GS_COLORS.dial :
           s.type === "act"  ? GS_COLORS.act  :
@@ -55,9 +58,13 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
           s.type === "dial" ? `"${s.text}"` :
           s.type === "act"  ? `（${s.text}）` :
                               `【${s.text}】`;
-        return <span key={i} style={{ color }}>{wrap}</span>;
+        return (
+          <span key={i} style={{ color }} className="inline whitespace-pre-wrap">
+            {wrap}
+          </span>
+        );
       })}
-    </span>
+    </div>
   );
 }
 import type { ChatCompletionCallbacks } from "@/lib/chat-engine";
@@ -495,15 +502,6 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
                   title="继续推进"
                 >
                   <Play size={16} />
-                </button>
-                <button className="p-1.5 hover:bg-black/[0.04] rounded-lg" title="剧情拐点">
-                  <Zap size={16} />
-                </button>
-                <button className="p-1.5 hover:bg-black/[0.04] rounded-lg" title="剧本便签">
-                  <FileText size={16} />
-                </button>
-                <button className="p-1.5 hover:bg-black/[0.04] rounded-lg" title="关联网络">
-                  <LinkIcon size={16} />
                 </button>
               </div>
               <div className="text-[10px] font-mono bg-black/[0.04] px-2 py-0.5 rounded-full">
