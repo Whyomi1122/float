@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, MoreHorizontal, Play, Zap, FileText, Link as LinkIcon, Send, Trash2, Edit3, X } from "lucide-react";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
+import type { ChatMessage } from "@/lib/chat-storage";
+import type { ChatCompletionCallbacks } from "@/lib/chat-engine";
 import {
   loadEnsembleScripts,
   saveOrUpdateEnsembleScript,
@@ -108,21 +110,83 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
   const triggerAiTurn = async (script: EnsembleScript) => {
     if (isGenerating) return;
     setIsGenerating(true);
+
     try {
       const castCharacters = script.cast
         .map((c) => characters.find((ch) => ch.id === c.characterId))
         .filter(Boolean) as Character[];
       if (castCharacters.length === 0) return;
 
+      // 1) 把剧本历史转成引擎要的 ChatMessage[]
+      const historyMessages: ChatMessage[] = script.turns.map((t, idx) => ({
+        id: t.id,
+        sessionId: script.id,
+        role: t.senderType === "user" || t.senderType === "narration" ? "user" : "assistant",
+        content: t.content,
+        status: "sent",
+        createdAt: new Date(t.timestamp).toISOString?.() || new Date().toISOString(),
+        order: idx,
+        // 群聊要用这两个字段标注“谁说的”，引擎靠它加 [名字]: 前缀
+        senderName: t.senderName,
+        senderCharacterId: t.senderId,
+      }));
+
+      // 2) session 字段名必须与 group-chat-engine 的读取一致
       const dummySession: any = {
         id: script.id,
-        type: "group",
-        participantCharacterIds: script.cast.map((c) => c.characterId),
-        name: script.title,
+        participantIds: script.cast.map((c) => c.characterId),  // 引擎读这个
+        groupName: script.title,                                 // 引擎读这个
+        isSpectator: false,
       };
 
-      // TODO(v5.1.1b): 改为传 ChatMessage[] + 回调对象；返回值为数组
-      console.warn("[Ensemble] triggerAiTurn 待 v5.1.1b 修复调用签名");
+      // 3) 已落的 AI 气泡先收集起来，最后一次性写入剧本
+      const aiTurns: EnsembleTurn[] = [];
+
+      // 4) 正确调用：第2参 ChatMessage[]，第3参回调对象
+      const results = await generateGroupChatCompletion(
+        dummySession,
+        historyMessages,
+        {
+          onStreamDelta: () => { /* 如需实时预览可在此更新 UI */ },
+          onTextPart: (text, info) => {
+            const charObj = characters.find((c) => c.id === info?.characterId);
+            aiTurns.push({
+              id: "turn_ai_" + Date.now() + "_" + aiTurns.length,
+              senderType: "character",
+              senderId: info?.characterId,
+              senderName: info?.characterName || charObj?.name || "角色",
+              senderAvatar: charObj?.avatar,
+              content: text,
+              timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
+              tokens: Math.round(text.length * 1.3),
+            });
+          },
+        },
+      );
+
+      // 5) 兜底：若引擎没触发 onTextPart（非流式路径），用返回值构造
+      if (aiTurns.length === 0 && Array.isArray(results)) {
+        results.forEach((r, i) => {
+          const charObj = characters.find((c) => c.id === r.characterId);
+          aiTurns.push({
+            id: "turn_ai_" + Date.now() + "_" + i,
+            senderType: "character",
+            senderId: r.characterId,
+            senderName: charObj?.name || r.characterName,
+            senderAvatar: charObj?.avatar,
+            content: r.responseText,
+            timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
+            tokens: Math.round(r.responseText.length * 1.3),
+          });
+        });
+      }
+
+      if (aiTurns.length > 0) {
+        const finalScript = { ...script, turns: [...script.turns, ...aiTurns] };
+        setCurrentScript(finalScript);
+        saveOrUpdateEnsembleScript(finalScript);
+        setScripts(loadEnsembleScripts());
+      }
     } catch (e) {
       console.error("[Ensemble] AI generation failed:", e);
     } finally {
