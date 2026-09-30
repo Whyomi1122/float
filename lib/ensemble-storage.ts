@@ -1,9 +1,10 @@
 // lib/ensemble-storage.ts
 // 群像模式（Ensemble）数据存储层
 //
-// v5.1：群像主视角不再自建 persona，直接复用设置里的“用户面具”(UserIdentity)。
-// 因此本文件删除 EnsemblePersona / loadEnsemblePersonas / saveEnsemblePersonas /
-// getDefaultPersona，personaId 字段语义 = UserIdentity.id。
+// v5.1：群像主视角不再自建 persona，直接复用设置里的「用户面具」(UserIdentity)。
+// 本文件删除 EnsemblePersona / saveEnsemblePersonas / getDefaultPersona；
+// loadEnsemblePersonas 保留函数名，改为读设置里的面具列表。
+// EnsembleScript.personaId 语义 = UserIdentity.id。
 
 import { kvGet, kvSet } from "./kv-db";
 import { loadUserIdentities } from "./settings-storage";
@@ -29,7 +30,7 @@ export type EnsembleTurn = {
 export type EnsembleScript = {
   id: string;
   title: string;
-  /** = UserIdentity.id（设置里的用户面具 id），不再是群像自建 persona */
+  /** = UserIdentity.id（设置里的用户面具 id） */
   personaId: string;
   cast: EnsembleCastMember[];
   turns: EnsembleTurn[];
@@ -40,10 +41,7 @@ export type EnsembleScript = {
 
 const STORAGE_KEY_SCRIPTS = "float_ensemble_scripts_v1";
 
-/**
- * 群像主视角 = 设置里的用户面具列表。
- * 不再有群像私有的 persona 存储；面具的增删改全部在设置里完成。
- */
+/** 群像主视角 = 设置里的用户面具列表（不再有群像私有 persona 存储） */
 export function loadEnsemblePersonas(): UserIdentity[] {
   return loadUserIdentities();
 }
