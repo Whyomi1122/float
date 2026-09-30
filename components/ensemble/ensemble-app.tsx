@@ -3,12 +3,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
-  MoreHorizontal,
   Plus,
   Play,
   Send,
   Trash2,
-  Edit2,
   Users,
   Compass,
   X,
@@ -22,9 +20,7 @@ import {
   deleteEnsembleScript,
   appendEnsembleTurn,
   deleteEnsembleTurn,
-  updateEnsembleTurn,
 } from "@/lib/ensemble-storage";
-import { ensembleGenerateNextTurn } from "@/lib/ensemble-engine";
 
 // 三色视觉定义（GS典雅群像规范）
 export const GS_COLORS = {
@@ -190,43 +186,74 @@ export function EnsembleApp({
     if (isGenerating || script.cast.length === 0) return;
     setIsGenerating(true);
     try {
-      const historyMessages: ChatMessage[] = [];
-
-      // 注入全局旁白与场景设定
-      if (script.background && script.background.trim()) {
-        historyMessages.push({
-          id: "turn_bg_" + script.id,
-          sessionId: script.id,
-          role: "system",
-          content: `【剧本全局旁白与场景设定】\n${script.background.trim()}`,
-          status: "sent",
-          createdAt: new Date(0).toISOString(),
-          order: -1,
-        });
+      // 决定谁来发言（循环或者随机选择其他角色）
+      const lastTurn = script.turns[script.turns.length - 1];
+      let nextActor = script.cast[0];
+      if (lastTurn) {
+        const otherActors = script.cast.filter((c) => c.id !== lastTurn.senderId);
+        if (otherActors.length > 0) {
+          nextActor = otherActors[Math.floor(Math.random() * otherActors.length)];
+        }
       }
 
-      script.turns.forEach((t, idx) => {
-        const parsed = new Date(t.timestamp);
-        historyMessages.push({
-          id: t.id,
-          sessionId: script.id,
+      // 构建系统提示词
+      const castDesc = script.cast
+        .map((c) => `- ${c.name}: ${c.persona || "暂无特别设定"}`)
+        .join("\n");
+
+      const systemPrompt = `你正在参与一场名为《${script.title}》的群像互动剧本。
+当前参演角色阵容：
+${castDesc}
+
+【剧本全局旁白与背景设定】
+${script.background || "故事自然演进中"}
+
+你现在必须【完全代入并扮演角色：${nextActor.name}】。
+扮演要求：
+1. 严格以《${nextActor.name}》的视角、语气和性格回复。
+2. 格式规范（三色排版）：
+   - 动作描写用圆括号：（动作或环境细节）
+   - 对白台词用双引号：“台词内容”
+   - 心理活动用方括号：【内心独白】
+3. 紧扣上一幕的情节，自然推动戏剧冲突与角色互动。不要输出其他角色的台词。`;
+
+      const messagesPayload = [
+        { role: "system", content: systemPrompt },
+        ...script.turns.slice(-10).map((t) => ({
           role: t.senderType === "user" ? "user" : "assistant",
-          content: t.content,
-          status: "sent",
-          createdAt: isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(),
-          order: idx,
-          senderName: t.senderName,
-          senderCharacterId: t.senderId,
-        });
+          content: `[${t.senderName}]: ${t.content}`,
+        })),
+      ];
+
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesPayload,
+          stream: false,
+        }),
       });
 
-      const nextTurn = await ensembleGenerateNextTurn({
-        scriptId: script.id,
-        cast: script.cast,
-        history: historyMessages,
-        background: script.background,
-        userRole: currentUser?.name ? { name: currentUser.name, persona: "剧本中的观察者与互动者" } : undefined,
-      });
+      let replyContent = "";
+      if (res.ok) {
+        const data = await res.json();
+        replyContent = data.content || data.reply || data.choices?.[0]?.message?.content || "";
+      } else {
+        replyContent = `（${nextActor.name} 陷入了短暂的沉思，目光望向窗外）\n“我们接下来该怎么做？”`;
+      }
+
+      // 剔除可能存在的角色前缀
+      replyContent = replyContent.replace(new RegExp(`^\\[?${nextActor.name}\\]?[:：]?\\s*`), "").trim();
+
+      const nextTurn: EnsembleTurn = {
+        id: "turn_" + Date.now(),
+        senderId: nextActor.id,
+        senderName: nextActor.name,
+        senderType: "character",
+        content: replyContent,
+        timestamp: new Date().toISOString(),
+        tokens: Math.ceil(replyContent.length * 1.3),
+      };
 
       const updated = appendEnsembleTurn(script.id, nextTurn);
       if (updated) {
@@ -337,7 +364,7 @@ export function EnsembleApp({
                     setCurrentScript(s);
                     setView("detail");
                   }}
-                  className="bg-white/80 backdrop-blur-sm border border-black/[0.04] rounded-2xl p-4 shadow-sm active:scale-[0.99] transition cursor-pointer flex flex-col gap-2.5"
+                  className="bg-white/80 backdrop-blur-sm border border-black/[0.04] rounded-2xl p-4 shadow-sm active:scale-[0.99] transition Antigravity-pointer flex flex-col gap-2.5"
                 >
                   <div className="flex items-center justify-between">
                     <div className="font-semibold text-sm text-[#1a1a1a] line-clamp-1">
@@ -446,7 +473,7 @@ export function EnsembleApp({
                             : [...prev, c.id]
                         );
                       }}
-                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition cursor-pointer ${
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition Antigravity-pointer ${
                         isSelected
                           ? "border-[#1a1a1a] bg-black/[0.04]"
                           : "border-black/5 bg-black/[0.01]"
