@@ -117,29 +117,31 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
         .filter(Boolean) as Character[];
       if (castCharacters.length === 0) return;
 
-      // 1) 把剧本历史转成引擎要的 ChatMessage[]
-      const historyMessages: ChatMessage[] = script.turns.map((t, idx) => ({
-        id: t.id,
-        sessionId: script.id,
-        role: t.senderType === "user" || t.senderType === "narration" ? "user" : "assistant",
-        content: t.content,
-        status: "sent",
-        createdAt: new Date(t.timestamp).toISOString?.() || new Date().toISOString(),
-        order: idx,
-        // 群聊要用这两个字段标注“谁说的”，引擎靠它加 [名字]: 前缀
-        senderName: t.senderName,
-        senderCharacterId: t.senderId,
-      }));
+      // 1) 剧本历史 → 引擎要的 ChatMessage[]
+      const historyMessages: ChatMessage[] = script.turns.map((t, idx) => {
+        const parsed = new Date(t.timestamp);
+        return {
+          id: t.id,
+          sessionId: script.id,
+          role: (t.senderType === "user" || t.senderType === "narration") ? "user" : "assistant",
+          content: t.content,
+          status: "sent",
+          createdAt: isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(),
+          order: idx,
+          senderName: t.senderName,
+          senderCharacterId: t.senderId,
+        };
+      });
 
-      // 2) session 字段名必须与 group-chat-engine 的读取一致
+      // 2) session 字段名必须匹配 group-chat-engine 的读取
       const dummySession: any = {
         id: script.id,
-        participantIds: script.cast.map((c) => c.characterId),  // 引擎读这个
-        groupName: script.title,                                 // 引擎读这个
+        participantIds: script.cast.map((c) => c.characterId),  // 引擎读 participantIds
+        groupName: script.title,                                 // 引擎读 groupName
         isSpectator: false,
       };
 
-      // 3) 已落的 AI 气泡先收集起来，最后一次性写入剧本
+      // 3) 收集本轮 AI 气泡
       const aiTurns: EnsembleTurn[] = [];
 
       // 4) 正确调用：第2参 ChatMessage[]，第3参回调对象
@@ -147,7 +149,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
         dummySession,
         historyMessages,
         {
-          onStreamDelta: () => { /* 如需实时预览可在此更新 UI */ },
+          onStreamDelta: () => { /* 预留：可在此实时预览 */ },
           onTextPart: (text, info) => {
             const charObj = characters.find((c) => c.id === info?.characterId);
             aiTurns.push({
@@ -157,14 +159,14 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               senderName: info?.characterName || charObj?.name || "角色",
               senderAvatar: charObj?.avatar,
               content: text,
-              timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
+              timestamp: new Date().toISOString(),
               tokens: Math.round(text.length * 1.3),
             });
           },
         },
       );
 
-      // 5) 兜底：若引擎没触发 onTextPart（非流式路径），用返回值构造
+      // 5) 兜底：引擎若没触发 onTextPart，用返回值构造
       if (aiTurns.length === 0 && Array.isArray(results)) {
         results.forEach((r, i) => {
           const charObj = characters.find((c) => c.id === r.characterId);
@@ -175,7 +177,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
             senderName: charObj?.name || r.characterName,
             senderAvatar: charObj?.avatar,
             content: r.responseText,
-            timestamp: new Date().toLocaleString("zh-CN", { hour12: false }),
+            timestamp: new Date().toISOString(),
             tokens: Math.round(r.responseText.length * 1.3),
           });
         });
@@ -193,7 +195,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
       setIsGenerating(false);
     }
   };
-
+    
   // 兼容：老剧本 personaId 找不到对应面具时，回退到当前激活面具
   const belongsToActive = (s: EnsembleScript) =>
     activeIdentity ? s.personaId === activeIdentity.id : true;
