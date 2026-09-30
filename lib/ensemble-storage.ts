@@ -1,16 +1,13 @@
 // lib/ensemble-storage.ts
 // 群像模式（Ensemble）数据存储层
+//
+// v5.1：群像主视角不再自建 persona，直接复用设置里的“用户面具”(UserIdentity)。
+// 因此本文件删除 EnsemblePersona / loadEnsemblePersonas / saveEnsemblePersonas /
+// getDefaultPersona，personaId 字段语义 = UserIdentity.id。
 
 import { kvGet, kvSet } from "./kv-db";
-import { resolveUserIdentity } from "./settings-storage";
-
-export type EnsemblePersona = {
-  id: string;
-  name: string;
-  identityTag?: string; // 例如: 学生 / 双重人格 / 侦探
-  avatarUrl?: string;
-  description?: string;
-};
+import { loadUserIdentities } from "./settings-storage";
+import type { UserIdentity } from "@/components/settings/user-identity";
 
 export type EnsembleCastMember = {
   characterId: string;
@@ -32,6 +29,7 @@ export type EnsembleTurn = {
 export type EnsembleScript = {
   id: string;
   title: string;
+  /** = UserIdentity.id（设置里的用户面具 id），不再是群像自建 persona */
   personaId: string;
   cast: EnsembleCastMember[];
   turns: EnsembleTurn[];
@@ -41,33 +39,13 @@ export type EnsembleScript = {
 };
 
 const STORAGE_KEY_SCRIPTS = "float_ensemble_scripts_v1";
-const STORAGE_KEY_PERSONAS = "float_ensemble_personas_v1";
 
-// 动态获取当前用户在小手机里的真实身份
-function getDefaultPersona(): EnsemblePersona[] {
-  const user = resolveUserIdentity();
-  const userName = user?.name?.trim() || "观察者";
-  return [
-    {
-      id: "persona_default",
-      name: userName,
-      identityTag: "本体",
-      avatarUrl: user?.avatarUrl || "",
-      description: "当前默认身份",
-    },
-  ];
-}
-
-export function loadEnsemblePersonas(): EnsemblePersona[] {
-  try {
-    const data = kvGet<EnsemblePersona[]>(STORAGE_KEY_PERSONAS);
-    if (data && Array.isArray(data) && data.length > 0) return data;
-  } catch {}
-  return getDefaultPersona();
-}
-
-export function saveEnsemblePersonas(personas: EnsemblePersona[]): void {
-  kvSet(STORAGE_KEY_PERSONAS, personas);
+/**
+ * 群像主视角 = 设置里的用户面具列表。
+ * 不再有群像私有的 persona 存储；面具的增删改全部在设置里完成。
+ */
+export function loadEnsemblePersonas(): UserIdentity[] {
+  return loadUserIdentities();
 }
 
 export function loadEnsembleScripts(): EnsembleScript[] {
