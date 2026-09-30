@@ -69,7 +69,7 @@ import {
   type EnsembleTurn,
 } from "@/lib/ensemble-storage";
 import { resolveUserIdentity, loadUserIdentities } from "@/lib/settings-storage";
-import type { UserIdentity } from "@/components/settings/user-identity";
+import { resolveUserIdentity, loadUserIdentities, loadPresets } from "@/lib/settings-storage";
 import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 
 type EnsembleAppProps = {
@@ -193,6 +193,12 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
         isSpectator: false,
       };
 
+      // 1. 获取群像专用预设
+      const allPresets = loadPresets();
+      const ensemblePreset =
+        allPresets.find((p) => p.id === "ensemble_group_v1") ||
+        allPresets.find((p) => p.name?.includes("群像") || (Array.isArray(p.tags) && p.tags.includes("ensemble")));
+
       const aiTurns: EnsembleTurn[] = [];
       const results = await generateGroupChatCompletion(
         dummySession,
@@ -210,9 +216,18 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
               content: text,
               timestamp: new Date().toISOString(),
               tokens: Math.round(text.length * 1.3),
-            });s
+            });
           },
         },
+        {
+          appTags: ["ensemble"],
+          disableTools: true,
+          promptProfile: ensemblePreset
+            ? {
+                presetId: ensemblePreset.id,
+              }
+            : undefined,
+        }
       );
 
       if (aiTurns.length === 0 && Array.isArray(results)) {
@@ -242,7 +257,7 @@ export function EnsembleApp({ onClose }: EnsembleAppProps) {
     } finally {
       setIsGenerating(false);
     }
-  };    
+  };
   // 兼容：老剧本 personaId 找不到对应面具时，回退到当前激活面具
   const belongsToActive = (s: EnsembleScript) =>
     activeIdentity ? s.personaId === activeIdentity.id : true;
