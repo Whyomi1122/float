@@ -1,18 +1,27 @@
 // lib/ensemble-storage.ts
 // 群像模式（Ensemble）数据存储层
 //
-// v5.1：群像主视角不再自建 persona，直接复用设置里的「用户面具」(UserIdentity)。
-// 本文件删除 EnsemblePersona / saveEnsemblePersonas / getDefaultPersona；
-// loadEnsemblePersonas 保留函数名，改为读设置里的面具列表。
-// EnsembleScript.personaId 语义 = UserIdentity.id。
+// 约定：所有持久化都走 kv-db 的字符串 KV（kvGet 返回 string|null，kvSet 只接 string），
+// 因此对象一律 JSON.stringify / JSON.parse，并对解析失败做兜底。
 
 import { kvGet, kvSet } from "./kv-db";
-import { loadUserIdentities } from "./settings-storage";
-import type { UserIdentity } from "@/components/settings/user-identity";
+import { resolveUserIdentity } from "./settings-storage";
 
+export type EnsemblePersona = {
+  id: string;
+  name: string;
+  identityTag?: string; // 例如: 学生 / 双重人格 / 侦探
+  avatarUrl?: string;
+  description?: string;
+};
+
+/** 剧本里的一个参演角色（快照：存下来即与角色本体解耦） */
 export type EnsembleCastMember = {
-  characterId: string;
-  roleNote?: string;
+  id: string;
+  name: string;
+  /** 与 Character.avatar 对齐（可能为 null） */
+  avatar?: string | null;
+  persona?: string;
 };
 
 export type EnsembleTurn = {
@@ -30,8 +39,9 @@ export type EnsembleTurn = {
 export type EnsembleScript = {
   id: string;
   title: string;
-  /** = UserIdentity.id（设置里的用户面具 id） */
-  personaId: string;
+  /** 剧本全局旁白与背景设定（旁白弹窗保存到这里，注入 AI 提示词） */
+  background?: string;
+  personaId?: string;
   cast: EnsembleCastMember[];
   turns: EnsembleTurn[];
   createdAt: string;
@@ -40,31 +50,74 @@ export type EnsembleScript = {
 };
 
 const STORAGE_KEY_SCRIPTS = "float_ensemble_scripts_v1";
+const STORAGE_KEY_PERSONAS = "float_ensemble_personas_v1";
 
-/** 群像主视角 = 设置里的用户面具列表（不再有群像私有 persona 存储） */
-export function loadEnsemblePersonas(): UserIdentity[] {
-  return loadUserIdentities();
+// ── 底层 JSON 读写（统一处理 kv 的 string 契约 + 异常兜底） ──
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = kvGet(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
 }
 
-export function loadEnsembleScripts(): EnsembleScript[] {
+function writeJson(key: string, value: unknown): void {
   try {
-    const data = kvGet<EnsembleScript[]>(STORAGE_KEY_SCRIPTS);
-    if (data && Array.isArray(data)) return data;
-  } catch {}
-  return [];
+    kvSet(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn("[ensemble-storage] write failed:", key, e);
+  }
+}
+
+// 动态获取当前用户在小手机里的真实身份
+function getDefaultPersona(): EnsemblePersona[] {
+  const user = resolveUserIdentity();
+  const userName = user?.name?.trim() || "观察者";
+  return [
+    {
+      id: "persona_default",
+      name: userName,
+      identityTag: "本体",
+      avatarUrl: user?.avatarUrl || "",
+      description: "当前默认身份",
+    },
+  ];
+}
+
+// ── Personas ──
+
+export function loadEnsemblePersonas(): EnsemblePersona[] {
+  const data = readJson<EnsemblePersona[] | null>(STORAGE_KEY_PERSONAS, null);
+  if (Array.isArray(data) && data.length > 0) return data;
+  return getDefaultPersona();
+}
+
+export function saveEnsemblePersonas(personas: EnsemblePersona[]): void {
+  writeJson(STORAGE_KEY_PERSONAS, personas);
+}
+
+// ── Scripts ──
+
+export function loadEnsembleScripts(): EnsembleScript[] {
+  const data = readJson<EnsembleScript[] | null>(STORAGE_KEY_SCRIPTS, null);
+  return Array.isArray(data) ? data : [];
 }
 
 export function saveEnsembleScripts(scripts: EnsembleScript[]): void {
-  kvSet(STORAGE_KEY_SCRIPTS, scripts);
+  writeJson(STORAGE_KEY_SCRIPTS, scripts);
 }
 
 export function saveOrUpdateEnsembleScript(script: EnsembleScript): void {
   const scripts = loadEnsembleScripts();
+  const next = { ...script, updatedAt: new Date().toISOString() };
   const idx = scripts.findIndex((s) => s.id === script.id);
   if (idx >= 0) {
-    scripts[idx] = { ...script, updatedAt: new Date().toISOString() };
+    scripts[idx] = next;
   } else {
-    scripts.unshift({ ...script, updatedAt: new Date().toISOString() });
+    scripts.unshift(next);
   }
   saveEnsembleScripts(scripts);
 }
@@ -72,4 +125,40 @@ export function saveOrUpdateEnsembleScript(script: EnsembleScript): void {
 export function deleteEnsembleScript(id: string): void {
   const scripts = loadEnsembleScripts().filter((s) => s.id !== id);
   saveEnsembleScripts(scripts);
+}
+
+/** 追加一幕，返回更新后的剧本（找不到则返回 null） */
+export function appendEnsembleTurn(
+  scriptId: string,
+  turn: EnsembleTurn
+): EnsembleScript | null {
+  const scripts = loadEnsembleScripts();
+  const idx = scripts.findIndex((s) => s.id === scriptId);
+  if (idx < 0) return null;
+  const updated: EnsembleScript = {
+    ...scripts[idx],
+    turns: [...scripts[idx].turns, turn],
+    updatedAt: new Date().toISOString(),
+  };
+  scripts[idx] = updated;
+  saveEnsembleScripts(scripts);
+  return updated;
+}
+
+/** 删除指定一幕，返回更新后的剧本（找不到则返回 null） */
+export function deleteEnsembleTurn(
+  scriptId: string,
+  turnId: string
+): EnsembleScript | null {
+  const scripts = loadEnsembleScripts();
+  const idx = scripts.findIndex((s) => s.id === scriptId);
+  if (idx < 0) return null;
+  const updated: EnsembleScript = {
+    ...scripts[idx],
+    turns: scripts[idx].turns.filter((t) => t.id !== turnId),
+    updatedAt: new Date().toISOString(),
+  };
+  scripts[idx] = updated;
+  saveEnsembleScripts(scripts);
+  return updated;
 }

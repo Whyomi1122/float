@@ -71,6 +71,7 @@ const MDI_PATHS: Record<IconId, string> = {
   vnchapters: mdiBookmark,
   moments: mdiCamera,
   group_chat: mdiAccountGroup,
+  ensemble: mdiAccountGroup,
   theme: mdiPalette,
   resources: mdiDatabase,
   resource_hub: mdiStorefrontOutline,

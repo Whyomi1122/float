@@ -4056,7 +4056,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
     }
 
     if (activeApp === "ensemble") {
-      return <EnsembleApp onClose={() => setActiveApp(null)} />;
+      return <EnsembleApp characters={loadCharacters()} onClose={() => setActiveApp(null)} />;
     }
     
     if (activeApp === "xiaohongshu") {
