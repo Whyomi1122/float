@@ -124,7 +124,7 @@ export function parseTriColor(raw: string): TriColorSegment[] {
 function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
   const segs = parseTriColor(raw);
   return (
-    <div className="text-[14.5px] leading-[1.85] tracking-wide text-[#2c2c2c] space-y-2.5">
+    <div className="text-[14.5px] leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-3">
       {segs.map((s, i) => {
         if (s.type === "plain") {
           const text = s.text.trim();
@@ -142,7 +142,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
             <div
               key={i}
               style={{ color: GS_COLORS.act }}
-              className="whitespace-pre-wrap text-[13.5px]"
+              className="whitespace-pre-wrap text-[13.5px] leading-[1.85]"
             >
               {s.text}
             </div>
@@ -155,7 +155,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
             <div
               key={i}
               style={{ color: GS_COLORS.inn }}
-              className="whitespace-pre-wrap text-[13.5px]"
+              className="whitespace-pre-wrap text-[13.5px] leading-[1.85]"
             >
               {s.text}
             </div>
@@ -167,7 +167,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
           <div
             key={i}
             style={{ color: GS_COLORS.dial }}
-            className="whitespace-pre-wrap font-medium"
+            className="whitespace-pre-wrap font-medium leading-[1.85] -mt-0.5"
           >
             {s.text}
           </div>
@@ -186,12 +186,12 @@ function NarrationCard({
   timestamp?: string;
 }) {
   return (
-    <div className="flex gap-3">
-      <div className="w-9 h-9 rounded-[10px] bg-[#111111] shrink-0 grid place-items-center">
+    <div className="flex gap-3.5 bg-white rounded-[20px] px-5 py-4 border border-black/[0.04] shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
+      <div className="w-9 h-9 rounded-[11px] bg-[#111111] shrink-0 grid place-items-center">
         <span className="text-white text-[13px] font-bold leading-none">P</span>
       </div>
       <div className="flex-1 min-w-0 pt-0.5">
-        <div className="text-[9.5px] tracking-[0.18em] font-semibold text-black/35 mb-1.5">
+        <div className="text-[9.5px] tracking-[0.2em] font-semibold text-black/35 mb-2">
           NARRATION
         </div>
         <TriColorText raw={text} />
@@ -200,6 +200,58 @@ function NarrationCard({
             {timestamp.slice(0, 10)}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// 通用确认弹窗：用于删除剧本 / 删除幕等不可逆操作
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = "删除",
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="absolute inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-center justify-center p-6"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl w-full max-w-[300px] p-5 shadow-xl border border-black/5 flex flex-col gap-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="space-y-1.5">
+          <div className="font-semibold text-sm text-[#1a1a1a]">{title}</div>
+          <div className="text-xs text-black/50 leading-relaxed">{message}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-2 rounded-xl text-xs font-medium bg-black/[0.05] hover:bg-black/[0.08] text-black/60 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 py-2 rounded-xl text-xs font-medium bg-red-500 hover:bg-red-600 text-white transition-colors"
+          >
+            {confirmLabel}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -403,6 +455,14 @@ export function EnsembleApp({
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
   const [editingTurnDraft, setEditingTurnDraft] = useState("");
 
+  /** 统一删除确认弹窗：解决原「一点就删、无法挽回」的危险操作 */
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── 面具（用户身份）状态 ──────────────────────────────
@@ -559,13 +619,37 @@ export function EnsembleApp({
 ${castDesc}${userDesc}
 ${narrationBlock}
 你现在必须【完全代入并扮演角色：${nextActor.name}】。
-扮演要求：
-1. 严格以《${nextActor.name}》的视角、语气和性格回复。
-2. 格式规范（三色排版）：
-   - 动作描写用圆括号：（动作或环境细节）
-   - 对白台词用双引号：“台词内容”
-   - 心理活动用方括号：【内心独白】
-3. 紧扣上一幕的情节，自然推动戏剧冲突与角色互动。不要输出其他角色的台词。`;
+
+═══════════ 输出格式铁律（违反即失败）═══════════
+这是硬性约束，优先级高于一切写作习惯，必须逐条执行：
+
+1. 只输出你扮演的「${nextActor.name}」一个人的内容。
+   严禁替其他角色写台词、写动作、写心理。
+   严禁使用「${nextActor.name}：」「${nextActor.name}说」这类前缀。
+   严禁输出任何章节标题、Markdown 标题、序号或舞台说明。
+
+2. 正文只用下面三种标记包裹，除此之外不得出现任何其他符号（不要书名号《》、不要波浪号、不要星号 *、不要井号 #、不要破折号堆叠）：
+   （动作或环境细节）   —— 全角圆括号
+   "台词内容"           —— 全角双引号
+   【内心独白】          —— 全角方括号
+
+3. 三色语义严格对应，不得串用：
+   圆括号（）= 动作、神态、环境变化 —— 唯一允许描写外部动作的地方
+   双引号"" = 说出口的对白台词 —— 唯一允许出现说话内容的地方
+   方括号【】= 心理活动、未说出口的念头
+
+4. 台词必须放在双引号里，不得裸写；心理活动必须放进方括号，不得混在动作里。
+
+5. 篇幅 150～400 字。宁短勿长，写不完就留到下一轮，不要匆忙收尾。
+   结尾必须留一个「未完成动作」或「未说完的话」，把戏剧张力交给下一位角色。
+
+6. 禁止总结、禁止旁白点评、禁止跳出角色。你就是 ${nextActor.name}，不是作者。
+═══════════════════════════════════════
+
+写作要求：
+1. 严格贴合《${nextActor.name}》的视角、语气、身份和性格，说话方式要有辨识度。
+2. 紧扣上一幕的情节推进，自然地产生新的张力、冲突或情感转折，不要复述已知信息。
+3. 允许与上一个说话的角色产生直接交流（回应 TA 的话、打断、反问），但不要替 TA 发言。`;
 
       // 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成
       const contextTurns = opts?.rerollTurnId
@@ -812,7 +896,7 @@ ${narrationBlock}
   // ══════════════════════════════════════════════════════
   if (view === "scripts") {
     return (
-      <div className="flex flex-col h-full bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
+      <div className="relative flex flex-col h-full bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
         <EnsembleHeader
           title="群像剧"
           subtitle={activePersona ? `面具 · ${activePersona.name}` : undefined}
@@ -879,8 +963,15 @@ ${narrationBlock}
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        deleteEnsembleScript(s.id);
-                        setScripts(loadEnsembleScripts());
+                        setConfirmState({
+                          title: "删除这个剧本？",
+                          message: `《${s.title}》及其 ${s.turns.length} 幕剧情将被永久删除，无法恢复。`,
+                          onConfirm: () => {
+                            deleteEnsembleScript(s.id);
+                            setScripts(loadEnsembleScripts());
+                            setConfirmState(null);
+                          },
+                        });
                       }}
                       className="p-1 rounded hover:text-red-500 text-black/25"
                     >
@@ -916,6 +1007,17 @@ ${narrationBlock}
             ))
           )}
         </div>
+
+        {/* 删除剧本确认弹窗 */}
+        {confirmState && (
+          <ConfirmDialog
+            title={confirmState.title}
+            message={confirmState.message}
+            confirmLabel={confirmState.confirmLabel}
+            onCancel={() => setConfirmState(null)}
+            onConfirm={confirmState.onConfirm}
+          />
+        )}
       </div>
     );
   }
@@ -1052,7 +1154,7 @@ ${narrationBlock}
                     setTitleDraft(currentScript.title);
                     setEditingTitle(true);
                   }}
-                  className="text-[15px] font-semibold tracking-tight truncate max-w-full"
+                  className="text-[15px] font-semibold tracking-tight truncate max-w-full hover:opacity-70 transition-opacity"
                   title="点击修改剧本名"
                 >
                   {currentScript.title}
@@ -1067,7 +1169,7 @@ ${narrationBlock}
 
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0"
+            className="flex-1 overflow-y-auto px-4 py-5 space-y-[18px] min-h-0"
           >
             {apiError && (
               <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 leading-relaxed">
@@ -1106,11 +1208,18 @@ ${narrationBlock}
                         setEditingTurnId(turn.id);
                       }}
                       onDelete={() => {
-                        const updated = deleteEnsembleTurn(currentScript.id, turn.id);
-                        if (updated) {
-                          setCurrentScript(updated);
-                          setScripts(loadEnsembleScripts());
-                        }
+                        setConfirmState({
+                          title: "删除这一幕？",
+                          message: `${turn.senderName} 的这一幕将被永久删除，无法恢复。`,
+                          onConfirm: () => {
+                            const updated = deleteEnsembleTurn(currentScript.id, turn.id);
+                            if (updated) {
+                              setCurrentScript(updated);
+                              setScripts(loadEnsembleScripts());
+                            }
+                            setConfirmState(null);
+                          },
+                        });
                       }}
                     />
                   </div>
@@ -1120,11 +1229,11 @@ ${narrationBlock}
               return (
                 <div
                   key={turn.id}
-                  className="group bg-white rounded-2xl p-4 shadow-sm border border-black/[0.03] space-y-3"
+                  className="group bg-white rounded-[20px] p-5 border border-black/[0.04] space-y-3.5 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-[10px] bg-black/10 overflow-hidden flex items-center justify-center text-xs font-semibold">
+                      <div className="w-8 h-8 rounded-[10px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
                         {castChar?.avatar ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -1183,7 +1292,7 @@ ${narrationBlock}
                     <TriColorText raw={turn.content} prefix={isUser ? "u" : undefined} />
                   )}
 
-                  <div className="flex items-center justify-between pt-2 border-t border-black/[0.03] text-[10px] text-black/35 font-mono">
+                  <div className="flex items-center justify-between pt-2.5 border-t border-black/[0.045] text-[10px] text-black/35 font-mono tracking-tight">
                     <div className="flex items-center gap-3 min-w-0">
                       <span>DATE {turn.timestamp.slice(0, 10)}</span>
                       {(turn.model || lastModel) && (
@@ -1207,11 +1316,18 @@ ${narrationBlock}
                         setEditingTurnId(turn.id);
                       }}
                       onDelete={() => {
-                        const updated = deleteEnsembleTurn(currentScript.id, turn.id);
-                        if (updated) {
-                          setCurrentScript(updated);
-                          setScripts(loadEnsembleScripts());
-                        }
+                        setConfirmState({
+                          title: "删除这一幕？",
+                          message: `${turn.senderName} 的这一幕将被永久删除，无法恢复。`,
+                          onConfirm: () => {
+                            const updated = deleteEnsembleTurn(currentScript.id, turn.id);
+                            if (updated) {
+                              setCurrentScript(updated);
+                              setScripts(loadEnsembleScripts());
+                            }
+                            setConfirmState(null);
+                          },
+                        });
                       }}
                     />
                   </div>
@@ -1239,10 +1355,10 @@ ${narrationBlock}
                   setNarrationSettingText(currentScript.background || "");
                   setShowNarrationModal(true);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold tracking-wide transition-colors shrink-0 ${
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold tracking-wide transition-colors shrink-0 border ${
                   currentScript.narrationEnabled && currentScript.background?.trim()
-                    ? "bg-amber-50 text-amber-700 border border-amber-200"
-                    : "bg-black/[0.04] hover:bg-black/[0.07] text-black/40"
+                    ? "bg-[#1a1a1a] text-white border-[#1a1a1a]"
+                    : "bg-black/[0.04] hover:bg-black/[0.07] text-black/40 border-transparent"
                 }`}
                 title="设置旁白与背景设定"
               >
@@ -1315,14 +1431,14 @@ ${narrationBlock}
                   }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
                     currentScript.narrationEnabled
-                      ? "bg-amber-50 border-amber-200 text-amber-800"
-                      : "bg-black/[0.03] border-black/5 text-black/45"
+                      ? "bg-black/[0.05] border-black/10 text-[#1a1a1a]"
+                      : "bg-black/[0.02] border-black/5 text-black/45"
                   }`}
                 >
                   <span>启用旁白</span>
                   <span
                     className={`w-9 h-5 rounded-full relative transition-colors ${
-                      currentScript.narrationEnabled ? "bg-amber-500" : "bg-black/20"
+                      currentScript.narrationEnabled ? "bg-[#1a1a1a]" : "bg-black/20"
                     }`}
                   >
                     <span
@@ -1379,6 +1495,17 @@ ${narrationBlock}
                 </div>
               </div>
             </div>
+          )}
+
+          {/* 统一删除确认弹窗 */}
+          {confirmState && (
+            <ConfirmDialog
+              title={confirmState.title}
+              message={confirmState.message}
+              confirmLabel={confirmState.confirmLabel}
+              onCancel={() => setConfirmState(null)}
+              onConfirm={confirmState.onConfirm}
+            />
           )}
         </>
       )}
