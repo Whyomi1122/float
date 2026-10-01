@@ -55,6 +55,25 @@ export type EnsembleScript = {
   createdAt: string;
   updatedAt: string;
   maxTokensPerTurn?: number;
+  /**
+   * 卡片配色（三色体系的自定义覆盖）。
+   * 只覆盖颜色，不改结构；缺省则用 GS_COLORS 默认值。
+   */
+  palette?: {
+    dial?: string;
+    act?: string;
+    inn?: string;
+  };
+  /**
+   * 自定义 CSS：用户手写的样式，注入到剧本剧场根容器。
+   * ⚠️ 仅在客户端渲染时注入，不做任何服务端求值。
+   */
+  customCss?: string;
+  /**
+   * 模型切换：当前剧本指定的 API 配置 id。
+   * 缺省则走 resolveEnsembleApiConfig 的级联兜底。
+   */
+  apiConfigIdOverride?: string;
 };
 
 const STORAGE_KEY_SCRIPTS = "float_ensemble_scripts_v1";

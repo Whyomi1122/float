@@ -13,6 +13,7 @@ import {
   Check,
   RefreshCw,
   Pencil,
+  Layers,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -24,6 +25,10 @@ import {
 } from "@/lib/settings-storage";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
+import {
+  EnsembleToolsSheet,
+  type EnsembleToolId,
+} from "@/components/ensemble/ensemble-tools-sheet";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import {
   EnsembleScript,
@@ -47,12 +52,20 @@ const ENSEMBLE_APP_ID = "ensemble";
 
 /**
  * 解析群像模式要用的 API 配置。
- * 级联：全局默认 → 角色默认 → 群像 app 覆盖 → 角色在群像上的覆盖。
+ * 级联优先级：剧本级覆盖 → 全局默认 → 角色默认 → 群像 app 覆盖 → 角色在群像上的覆盖。
  * 兜底：若级联结果为空（例如用户清空了全局默认），退到第一条 API 配置。
  */
-export function resolveEnsembleApiConfig(characterId?: string): ApiConfig | null {
+export function resolveEnsembleApiConfig(
+  characterId?: string,
+  scriptOverrideId?: string
+): ApiConfig | null {
   const configs = loadApiConfigs();
   if (configs.length === 0) return null;
+  // 剧本级覆盖优先级最高：用户在「功能 → 模型切换」里显式指定的那条
+  if (scriptOverrideId) {
+    const overridden = configs.find((c) => c.id === scriptOverrideId);
+    if (overridden) return overridden;
+  }
   try {
     const bindings = loadBindingConfig();
     const slot = resolveBinding(bindings, characterId, ENSEMBLE_APP_ID);
@@ -73,12 +86,27 @@ export function ensembleModelLabel(characterId?: string): string {
   return cfg.defaultModel || cfg.name || cfg.provider || "未知模型";
 }
 
-// 三色视觉定义（对齐目标截图：正文深黑 / 辅助炭灰，不出现彩色高亮）
+// 三色视觉定义（对齐目标截图：不出现彩色高亮）
+// 灰阶梯度承担层级：对白最深 → 动作深灰 → 心理浅灰，三层都适合长文阅读。
 export const GS_COLORS = {
-  dial: "#111111", // 对白：高质感深黑
-  act: "#6e6e73",  // 动作与环境描写：克制中灰
-  inn: "#8a8a8e",  // 心理与神态：中灰（原琥珀金已按目标截图收敛）
+  dial: "#111111", // 对白：深黑（最实，视觉重心）
+  act: "#5f5f66",  // 动作与环境描写：深灰
+  inn: "#8e8e93",  // 心理与神态：浅灰（最轻，退到背景层）
 };
+
+/** 把剧本级配色覆盖合并进默认三色（空值回落到默认） */
+export function resolvePalette(override?: {
+  dial?: string;
+  act?: string;
+  inn?: string;
+}): typeof GS_COLORS {
+  if (!override) return GS_COLORS;
+  return {
+    dial: override.dial?.trim() || GS_COLORS.dial,
+    act: override.act?.trim() || GS_COLORS.act,
+    inn: override.inn?.trim() || GS_COLORS.inn,
+  };
+}
 
 interface TriColorSegment {
   type: "act" | "dial" | "inn" | "plain";
@@ -121,8 +149,17 @@ export function parseTriColor(raw: string): TriColorSegment[] {
 // - 动作与环境：中灰小字
 // - 心理与神态：中灰（同动作系），去方括号
 // 全篇不出现左侧竖线、彩色边框、琥珀金高亮。
-function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
+function TriColorText({
+  raw,
+  prefix,
+  palette,
+}: {
+  raw: string;
+  prefix?: "u";
+  palette?: typeof GS_COLORS;
+}) {
   const segs = parseTriColor(raw);
+  const pal = palette ?? GS_COLORS;
   return (
     <div className="text-[14.5px] leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-3">
       {segs.map((s, i) => {
@@ -141,7 +178,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
           return (
             <div
               key={i}
-              style={{ color: GS_COLORS.act }}
+              style={{ color: pal.act }}
               className="whitespace-pre-wrap text-[13.5px] leading-[1.85]"
             >
               {s.text}
@@ -154,7 +191,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
           return (
             <div
               key={i}
-              style={{ color: GS_COLORS.inn }}
+              style={{ color: pal.inn }}
               className="whitespace-pre-wrap text-[13.5px] leading-[1.85]"
             >
               {s.text}
@@ -166,7 +203,7 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
         return (
           <div
             key={i}
-            style={{ color: GS_COLORS.dial }}
+            style={{ color: pal.dial }}
             className="whitespace-pre-wrap font-medium leading-[1.85] -mt-0.5"
           >
             {s.text}
@@ -200,6 +237,48 @@ function NarrationCard({
             {timestamp.slice(0, 10)}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// 通用底部子弹窗：与「功能」面板同一套视觉（浅灰底、圆角、居中标题）
+function MiniSheet({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="absolute inset-0 z-[55] flex flex-col justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative bg-[#f2f2f4] rounded-t-[26px] px-4 pt-6 pb-5 max-h-[88%] overflow-y-auto"
+      >
+        <div className="px-1.5 mb-4">
+          <div className="text-[20px] font-bold tracking-tight text-[#111111] leading-none">
+            {title}
+          </div>
+          {subtitle && (
+            <div className="text-[10px] tracking-[0.2em] font-medium text-black/30 mt-2">
+              {subtitle}
+            </div>
+          )}
+        </div>
+        <div className="space-y-2.5">{children}</div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full mt-3 py-3.5 rounded-[16px] bg-white/70 text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+        >
+          取消
+        </button>
       </div>
     </div>
   );
@@ -435,6 +514,23 @@ export function EnsembleApp({
   const [isGenerating, setIsGenerating] = useState(false);
   const [showNarrationModal, setShowNarrationModal] = useState(false);
   const [narrationSettingText, setNarrationSettingText] = useState("");
+
+  // ── 「功能」面板（+ 号）及其子弹窗 ──
+  const [showToolsSheet, setShowToolsSheet] = useState(false);
+  const [showPaletteSheet, setShowPaletteSheet] = useState(false);
+  const [showCssSheet, setShowCssSheet] = useState(false);
+  const [showModelSheet, setShowModelSheet] = useState(false);
+  const [cssDraft, setCssDraft] = useState("");
+  /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
+  const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
+  /** 轻提示：用于「功能尚未接入」等一次性反馈；非空时 1.8s 后自动消失 */
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 1800);
+    return () => clearTimeout(timer);
+  }, [toast]);
   /** 当前解析到的模型名（来自全局设置的 API 配置），用于 MODEL 行 */
   const [lastModel, setLastModel] = useState<string>("");
   /** 最近一次 API 错误，展示在剧情区顶部 */
@@ -665,7 +761,10 @@ ${narrationBlock}
       ];
 
       // ── 走绑定桥：从「设置 → API 配置」取真实配置 ──
-      const apiConfig = resolveEnsembleApiConfig(nextActor.id);
+      const apiConfig = resolveEnsembleApiConfig(
+        nextActor.id,
+        script.apiConfigIdOverride
+      );
       if (!apiConfig) {
         if (!opts?.rerollTurnId) {
           setApiError("尚未配置 API，请到「设置 → API 配置」添加一个可用模型");
@@ -1126,8 +1225,18 @@ ${narrationBlock}
   // ══════════════════════════════════════════════════════
   // 视图 4：剧本剧场（对话）
   // ══════════════════════════════════════════════════════
+  // 三色配色：剧本级覆盖优先，空值回落到 GS_COLORS 灰阶梯度
+  const palette = resolvePalette(currentScript?.palette);
+
   return (
-    <div className="flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
+    <div className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
+      {/* 剧本级自定义 CSS：仅作用于本 App 的 .ensemble-scope 命名空间 */}
+      {currentScript?.customCss?.trim() ? (
+        <style
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: currentScript.customCss }}
+        />
+      ) : null}
       {!currentScript ? (
         /* 兜底：剧本意外丢失时也不能变成"回不去的白屏" */
         <EnsembleHeader title="群像剧" onBack={(e?: any) => handleBack(e)} />
@@ -1289,7 +1398,11 @@ ${narrationBlock}
                       </div>
                     </div>
                   ) : (
-                    <TriColorText raw={turn.content} prefix={isUser ? "u" : undefined} />
+                    <TriColorText
+                      raw={turn.content}
+                      prefix={isUser ? "u" : undefined}
+                      palette={palette}
+                    />
                   )}
 
                   <div className="flex items-center justify-between pt-2.5 border-t border-black/[0.045] text-[10px] text-black/35 font-mono tracking-tight">
@@ -1349,20 +1462,15 @@ ${narrationBlock}
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
           >
             <div className="flex items-center gap-2">
+              {/* 唯一的入口：+ 号 → 底部「功能」面板（旁白/配色/CSS/模型都收进去） */}
               <button
                 type="button"
-                onClick={() => {
-                  setNarrationSettingText(currentScript.background || "");
-                  setShowNarrationModal(true);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold tracking-wide transition-colors shrink-0 border ${
-                  currentScript.narrationEnabled && currentScript.background?.trim()
-                    ? "bg-[#1a1a1a] text-white border-[#1a1a1a]"
-                    : "bg-black/[0.04] hover:bg-black/[0.07] text-black/40 border-transparent"
-                }`}
-                title="设置旁白与背景设定"
+                onClick={() => setShowToolsSheet(true)}
+                className="w-8 h-8 grid place-items-center rounded-full bg-black/[0.05] hover:bg-black/[0.09] text-black/55 shrink-0 active:scale-90 transition"
+                title="功能"
+                aria-label="功能"
               >
-                旁白
+                <Plus size={17} strokeWidth={2} />
               </button>
               <input
                 type="text"
@@ -1494,6 +1602,246 @@ ${narrationBlock}
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ═══════════ 功能面板（+ 号） ═══════════ */}
+          <EnsembleToolsSheet
+            open={showToolsSheet}
+            onClose={() => setShowToolsSheet(false)}
+            activeIds={
+              [
+                currentScript.narrationEnabled && currentScript.background?.trim()
+                  ? "narration"
+                  : null,
+                currentScript.palette ? "palette" : null,
+                currentScript.customCss?.trim() ? "customCss" : null,
+                currentScript.apiConfigIdOverride ? "model" : null,
+              ].filter(Boolean) as EnsembleToolId[]
+            }
+            onPick={(id) => {
+              setShowToolsSheet(false);
+              if (id === "narration") {
+                setNarrationSettingText(currentScript.background || "");
+                setShowNarrationModal(true);
+              } else if (id === "palette") {
+                setShowPaletteSheet(true);
+              } else if (id === "customCss") {
+                setCssDraft(currentScript.customCss || "");
+                setShowCssSheet(true);
+              } else if (id === "model") {
+                setApiConfigList(loadApiConfigs());
+                setShowModelSheet(true);
+              }
+            }}
+          />
+
+          {/* ═══════════ 子弹窗 1：卡片配色（灰阶梯度 + 可自定义） ═══════════ */}
+          {showPaletteSheet && (
+            <MiniSheet
+              title="卡片配色"
+              subtitle="RECEIPT COLOR"
+              onClose={() => setShowPaletteSheet(false)}
+            >
+              <div className="bg-white rounded-[16px] p-4 space-y-3.5">
+                {(
+                  [
+                    { key: "dial", label: "对白", hint: "说出口的台词" },
+                    { key: "act", label: "动作", hint: "动作、神态与环境" },
+                    { key: "inn", label: "心理", hint: "内心的独白" },
+                  ] as const
+                ).map((row) => {
+                  const current = resolvePalette(currentScript.palette)[row.key];
+                  return (
+                    <div key={row.key} className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-semibold text-[#111111]">
+                          {row.label}
+                        </div>
+                        <div className="text-[10px] text-black/35 mt-0.5">{row.hint}</div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className="text-[11px] font-mono text-black/40"
+                          style={{ color: current }}
+                        >
+                          {current}
+                        </span>
+                        <input
+                          type="color"
+                          value={current}
+                          onChange={(e) => {
+                            const next = {
+                              ...resolvePalette(currentScript.palette),
+                              [row.key]: e.target.value,
+                            };
+                            const updated = { ...currentScript, palette: next };
+                            setCurrentScript(updated);
+                            saveOrUpdateEnsembleScript(updated);
+                            setScripts(loadEnsembleScripts());
+                          }}
+                          className="w-9 h-9 rounded-[10px] border border-black/10 bg-white cursor-pointer p-0.5"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = { ...currentScript, palette: undefined };
+                  setCurrentScript(updated);
+                  saveOrUpdateEnsembleScript(updated);
+                  setScripts(loadEnsembleScripts());
+                  setToast("已恢复默认灰阶配色");
+                }}
+                className="w-full py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+              >
+                恢复默认
+              </button>
+            </MiniSheet>
+          )}
+
+          {/* ═══════════ 子弹窗 2：自定义 CSS ═══════════ */}
+          {showCssSheet && (
+            <MiniSheet
+              title="自定义 CSS"
+              subtitle="CUSTOM STYLE"
+              onClose={() => setShowCssSheet(false)}
+            >
+              <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
+                <div className="text-[10.5px] leading-relaxed text-black/45">
+                  只作用于本 App 的画面。用 <span className="font-mono">.ensemble-scope</span>{" "}
+                  作为前缀即可命中（例如{" "}
+                  <span className="font-mono">.ensemble-scope .rounded-2xl {"{...}"}</span>）。
+                </div>
+                <textarea
+                  value={cssDraft}
+                  onChange={(e) => setCssDraft(e.target.value)}
+                  rows={9}
+                  spellCheck={false}
+                  placeholder={".ensemble-scope {\n  /* 例：整体圆角与留白 */\n}"}
+                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[11px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
+                />
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = { ...currentScript, customCss: "" };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    setCssDraft("");
+                    setToast("已清空自定义 CSS");
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                >
+                  清空
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = { ...currentScript, customCss: cssDraft };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    setShowCssSheet(false);
+                    setToast("自定义 CSS 已生效");
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                >
+                  应用
+                </button>
+              </div>
+            </MiniSheet>
+          )}
+
+          {/* ═══════════ 子弹窗 3：模型切换（本剧本独立 API） ═══════════ */}
+          {showModelSheet && (
+            <MiniSheet
+              title="模型切换"
+              subtitle="API · SESSION"
+              onClose={() => setShowModelSheet(false)}
+            >
+              {apiConfigList.length === 0 ? (
+                <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
+                  尚未配置 API，请到「设置 → API 配置」添加
+                </div>
+              ) : (
+                apiConfigList.map((cfg) => {
+                  const selected = currentScript.apiConfigIdOverride === cfg.id;
+                  return (
+                    <button
+                      key={cfg.id}
+                      type="button"
+                      onClick={() => {
+                        const nextOverride = selected ? undefined : cfg.id;
+                        const updated = {
+                          ...currentScript,
+                          apiConfigIdOverride: nextOverride,
+                        };
+                        setCurrentScript(updated);
+                        saveOrUpdateEnsembleScript(updated);
+                        setScripts(loadEnsembleScripts());
+                        setLastModel(
+                          ensembleModelLabel(currentScript.cast[0]?.id)
+                        );
+                        setShowModelSheet(false);
+                      }}
+                      className="w-full flex items-center gap-3.5 px-3.5 py-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
+                    >
+                      <span
+                        className={`w-11 h-11 rounded-[13px] shrink-0 grid place-items-center ${
+                          selected ? "bg-[#111111]" : "bg-black/[0.08]"
+                        }`}
+                      >
+                        <Layers
+                          size={19}
+                          strokeWidth={1.9}
+                          className={selected ? "text-white" : "text-black/45"}
+                        />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[15px] font-semibold tracking-tight text-[#111111] truncate">
+                          {cfg.name || "未命名配置"}
+                        </span>
+                        <span className="block text-[9.5px] tracking-[0.16em] font-medium text-black/30 mt-1 truncate">
+                          {cfg.defaultModel || cfg.provider || "UNKNOWN"}
+                        </span>
+                      </span>
+                      {selected && <Check size={18} className="text-[#111111] shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+
+              {currentScript.apiConfigIdOverride && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = { ...currentScript, apiConfigIdOverride: undefined };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
+                    setToast("已恢复跟随全局默认");
+                  }}
+                  className="w-full py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                >
+                  跟随全局默认
+                </button>
+              )}
+            </MiniSheet>
+          )}
+
+          {/* ═══════════ 轻提示 ═══════════ */}
+          {toast && (
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-24 z-[70] px-4 py-2 rounded-full bg-[#111111] text-white text-[12px] font-medium shadow-lg pointer-events-none">
+              {toast}
             </div>
           )}
 
