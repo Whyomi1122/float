@@ -13,7 +13,15 @@ import {
   Check,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
-import { resolveUserIdentity, loadUserIdentities } from "@/lib/settings-storage";
+import {
+  resolveUserIdentity,
+  loadUserIdentities,
+  loadBindingConfig,
+  resolveBinding,
+  loadApiConfigs,
+} from "@/lib/settings-storage";
+import type { ApiConfig } from "@/lib/settings-types";
+import { simpleLLMCall } from "@/lib/api-helpers";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import {
   EnsembleScript,
@@ -24,6 +32,43 @@ import {
   appendEnsembleTurn,
   deleteEnsembleTurn,
 } from "@/lib/ensemble-storage";
+
+// ══════════════════════════════════════════════════════════
+// API 绑定桥（Ensemble ↔ 全局设置里的 API 配置）
+// 走项目标准链路：loadBindingConfig → resolveBinding → loadApiConfigs
+// appId 使用 "ensemble"（已注册进 ContentAppId），可在
+// 「设置 → 绑定」里为群像单独指定 API，未指定则继承全局默认。
+// ══════════════════════════════════════════════════════════
+
+const ENSEMBLE_APP_ID = "ensemble";
+
+/**
+ * 解析群像模式要用的 API 配置。
+ * 级联：全局默认 → 角色默认 → 群像 app 覆盖 → 角色在群像上的覆盖。
+ * 兜底：若级联结果为空（例如用户清空了全局默认），退到第一条 API 配置。
+ */
+export function resolveEnsembleApiConfig(characterId?: string): ApiConfig | null {
+  const configs = loadApiConfigs();
+  if (configs.length === 0) return null;
+  try {
+    const bindings = loadBindingConfig();
+    const slot = resolveBinding(bindings, characterId, ENSEMBLE_APP_ID);
+    if (slot.apiConfigId) {
+      const found = configs.find((c) => c.id === slot.apiConfigId);
+      if (found) return found;
+    }
+  } catch (e) {
+    console.warn("[ensemble] resolveEnsembleApiConfig failed:", e);
+  }
+  return configs[0];
+}
+
+/** 供 UI 显示用的模型名（真实取自全局设置里选中的那条 API 配置） */
+export function ensembleModelLabel(characterId?: string): string {
+  const cfg = resolveEnsembleApiConfig(characterId);
+  if (!cfg) return "未配置 API";
+  return cfg.defaultModel || cfg.name || cfg.provider || "未知模型";
+}
 
 // 三色视觉定义（GS典雅群像规范）
 export const GS_COLORS = {
@@ -200,6 +245,10 @@ export function EnsembleApp({
   const [isGenerating, setIsGenerating] = useState(false);
   const [showNarrationModal, setShowNarrationModal] = useState(false);
   const [narrationSettingText, setNarrationSettingText] = useState("");
+  /** 当前解析到的模型名（来自全局设置的 API 配置），用于 MODEL 行 */
+  const [lastModel, setLastModel] = useState<string>("");
+  /** 最近一次 API 错误，展示在剧情区顶部 */
+  const [apiError, setApiError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── 面具（用户身份）状态 ──────────────────────────────
@@ -231,6 +280,8 @@ export function EnsembleApp({
   useEffect(() => {
     if (currentScript) {
       setNarrationSettingText(currentScript.background || "");
+      // 载入剧本时先解析一次模型名，保证 MODEL 行即使未生成也有值
+      setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
     }
   }, [currentScript?.id]);
 
@@ -301,6 +352,7 @@ export function EnsembleApp({
   const triggerAiTurn = async (script: EnsembleScript) => {
     if (isGenerating || script.cast.length === 0) return;
     setIsGenerating(true);
+    setApiError(null);
     try {
       const lastTurn = script.turns[script.turns.length - 1];
       let nextActor = script.cast[0];
@@ -345,20 +397,25 @@ ${script.background || "故事自然演进中"}
         })),
       ];
 
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: messagesPayload,
-          stream: false,
-        }),
+      // ── 走绑定桥：从「设置 → API 配置」取真实配置，替换原来的 /api/chat 野路子 ──
+      const apiConfig = resolveEnsembleApiConfig(nextActor.id);
+      if (!apiConfig) {
+        setApiError("尚未配置 API，请到「设置 → API 配置」添加一个可用模型");
+        return;
+      }
+      setApiError(null);
+      setLastModel(apiConfig.defaultModel || apiConfig.name || "未知模型");
+
+      const result = await simpleLLMCall(apiConfig, messagesPayload, {
+        temperature: 0.85,
+        max_tokens: script.maxTokensPerTurn ?? 8192,
+        label: `群像·${nextActor.name}`,
       });
 
-      let replyContent = "";
-      if (res.ok) {
-        const data = await res.json();
-        replyContent = data.content || data.reply || data.choices?.[0]?.message?.content || "";
-      } else {
+      let replyContent = (result.content || "").trim();
+      if (!replyContent) {
+        const reason = result.error || "模型返回空内容";
+        setApiError(reason);
         replyContent = `（${nextActor.name} 陷入了短暂的沉思，目光望向窗外）\n“我们接下来该怎么做？”`;
       }
 
@@ -372,6 +429,7 @@ ${script.background || "故事自然演进中"}
         content: replyContent,
         timestamp: new Date().toISOString(),
         tokens: Math.ceil(replyContent.length * 1.3),
+        model: apiConfig.defaultModel || apiConfig.name || undefined,
       };
 
       const updated = appendEnsembleTurn(script.id, nextTurn);
@@ -777,6 +835,12 @@ ${script.background || "故事自然演进中"}
             ref={scrollRef}
             className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0"
           >
+            {apiError && (
+              <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 leading-relaxed">
+                API 调用失败：{apiError}
+              </div>
+            )}
+
             {currentScript.turns.length === 0 && !isGenerating && (
               <div className="flex flex-col items-center justify-center h-56 text-center text-black/35 space-y-2">
                 <Play size={28} className="stroke-[1.5]" />
@@ -829,6 +893,11 @@ ${script.background || "故事自然演进中"}
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.03] text-[10px] text-black/35 font-mono">
                     <div className="flex items-center gap-3">
                       <span>DATE {turn.timestamp.slice(0, 10)}</span>
+                      {(turn.model || lastModel) && (
+                        <span className="truncate max-w-[140px]" title={turn.model || lastModel}>
+                          MODEL {turn.model || lastModel}
+                        </span>
+                      )}
                       {turn.tokens !== undefined && <span>TOKENS {turn.tokens}</span>}
                     </div>
                     <button

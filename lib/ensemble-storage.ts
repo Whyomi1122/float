@@ -33,6 +33,8 @@ export type EnsembleTurn = {
   content: string;
   timestamp: string;
   tokens?: number;
+  /** 生成这一幕所用的模型名（取自全局 API 配置），用于元信息 MODEL 行 */
+  model?: string;
   rawText?: string;
 };
 
