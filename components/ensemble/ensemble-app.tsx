@@ -1,16 +1,18 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
+  ChevronRight,
   Plus,
-  Play,
   Send,
   Trash2,
   Users,
   Compass,
   X,
   Check,
+  RefreshCw,
+  Pencil,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -31,6 +33,7 @@ import {
   deleteEnsembleScript,
   appendEnsembleTurn,
   deleteEnsembleTurn,
+  updateEnsembleTurn,
 } from "@/lib/ensemble-storage";
 
 // ══════════════════════════════════════════════════════════
@@ -70,11 +73,11 @@ export function ensembleModelLabel(characterId?: string): string {
   return cfg.defaultModel || cfg.name || cfg.provider || "未知模型";
 }
 
-// 三色视觉定义（GS典雅群像规范）
+// 三色视觉定义（对齐目标截图：正文深黑 / 辅助炭灰，不出现彩色高亮）
 export const GS_COLORS = {
-  dial: "#1a1a1a", // 对话：高质感深黑粗体
-  act: "#6e6e73",  // 动作与描写：典雅克制灰
-  inn: "#a16207",  // 心理与神态：暗金琥珀
+  dial: "#111111", // 对白：高质感深黑
+  act: "#6e6e73",  // 动作与环境描写：克制中灰
+  inn: "#8a8a8e",  // 心理与神态：中灰（原琥珀金已按目标截图收敛）
 };
 
 interface TriColorSegment {
@@ -113,48 +116,60 @@ export function parseTriColor(raw: string): TriColorSegment[] {
   return segments;
 }
 
-// 三色文本分段排版组件
+// 三色文本分段排版组件（对齐目标截图）
+// - 对白：深黑，居中/常规排版，去引号
+// - 动作与环境：中灰小字
+// - 心理与神态：中灰（同动作系），去方括号
+// 全篇不出现左侧竖线、彩色边框、琥珀金高亮。
 function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
   const segs = parseTriColor(raw);
   return (
-    <div className="text-[14.5px] leading-[1.8] tracking-wide text-[#2c2c2c] space-y-3">
+    <div className="text-[14.5px] leading-[1.85] tracking-wide text-[#2c2c2c] space-y-2.5">
       {segs.map((s, i) => {
         if (s.type === "plain") {
           const text = s.text.trim();
           if (!text) return null;
           return (
-            <div key={i} className="whitespace-pre-wrap">
+            <div key={i} className="whitespace-pre-wrap text-[#2c2c2c]">
               {text}
             </div>
           );
         }
-        const color =
-          s.type === "dial"
-            ? GS_COLORS.dial
-            : s.type === "act"
-            ? GS_COLORS.act
-            : GS_COLORS.inn;
 
-        const wrap =
-          s.type === "dial"
-            ? `"${s.text}"`
-            : s.type === "act"
-            ? `（${s.text}）`
-            : `【${s.text}】`;
+        if (s.type === "act") {
+          // 动作与环境描写：中灰，稍小字号，斜体感由灰度承担
+          return (
+            <div
+              key={i}
+              style={{ color: GS_COLORS.act }}
+              className="whitespace-pre-wrap text-[13.5px]"
+            >
+              {s.text}
+            </div>
+          );
+        }
 
+        if (s.type === "inn") {
+          // 心理与神态：中灰（与动作同系，不做彩色区分）
+          return (
+            <div
+              key={i}
+              style={{ color: GS_COLORS.inn }}
+              className="whitespace-pre-wrap text-[13.5px]"
+            >
+              {s.text}
+            </div>
+          );
+        }
+
+        // 对白：深黑，核心内容，去引号直接呈现
         return (
           <div
             key={i}
-            style={{ color }}
-            className={`whitespace-pre-wrap ${
-              s.type === "act"
-                ? "opacity-75"
-                : s.type === "dial"
-                ? "font-medium"
-                : "opacity-90"
-            }`}
+            style={{ color: GS_COLORS.dial }}
+            className="whitespace-pre-wrap font-medium"
           >
-            {wrap}
+            {s.text}
           </div>
         );
       })}
@@ -162,9 +177,134 @@ function TriColorText({ raw, prefix }: { raw: string; prefix?: "u" }) {
   );
 }
 
+// 旁白卡：复刻目标截图的「黑底 P 图标 + NARRATION 标签」样式
+function NarrationCard({
+  text,
+  timestamp,
+}: {
+  text: string;
+  timestamp?: string;
+}) {
+  return (
+    <div className="flex gap-3">
+      <div className="w-9 h-9 rounded-[10px] bg-[#111111] shrink-0 grid place-items-center">
+        <span className="text-white text-[13px] font-bold leading-none">P</span>
+      </div>
+      <div className="flex-1 min-w-0 pt-0.5">
+        <div className="text-[9.5px] tracking-[0.18em] font-semibold text-black/35 mb-1.5">
+          NARRATION
+        </div>
+        <TriColorText raw={text} />
+        {timestamp ? (
+          <div className="mt-2 text-[10px] text-black/30 font-mono">
+            {timestamp.slice(0, 10)}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /**
- * 统一顶栏：不使用 Tailwind h-14，而是复刻项目 .page-shell > .page-header 的
- * 定位契约，保证在任何宿主容器下点击都能命中（避免被 .phone-status-bar 覆盖）。
+ * 消息操作条：‹ 1/1 › 多 roll 翻页 + 重 roll + 编辑 + 删除
+ * inline=true 时用于卡片底部元信息行右侧（紧凑、低对比）；
+ * inline=false 时用于旁白卡（悬浮在右上角）。
+ */
+function TurnActionBar({
+  turn,
+  versions,
+  index,
+  isRerolling,
+  canReroll,
+  inline = false,
+  onReroll,
+  onSwitch,
+  onEdit,
+  onDelete,
+}: {
+  turn: EnsembleTurn;
+  versions?: string[];
+  index: number;
+  isRerolling: boolean;
+  canReroll: boolean;
+  inline?: boolean;
+  onReroll: () => void;
+  onSwitch: (dir: -1 | 1) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const total = versions?.length ?? 1;
+  const atFirst = index <= 0;
+  const atLast = index >= total - 1;
+
+  return (
+    <div
+      className={`flex items-center gap-1 shrink-0 ${
+        inline
+          ? "text-black/30"
+          : "absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity text-black/35 bg-white/70 backdrop-blur rounded-lg"
+      }`}
+    >
+      {total > 1 && (
+        <>
+          <button
+            type="button"
+            disabled={atFirst}
+            onClick={() => onSwitch(-1)}
+            className="p-1 disabled:opacity-25 hover:text-black/70"
+            title="上一版"
+          >
+            <ChevronLeft size={13} />
+          </button>
+          <span className="text-[10px] font-mono tabular-nums">
+            {index + 1}/{total}
+          </span>
+          <button
+            type="button"
+            disabled={atLast}
+            onClick={() => onSwitch(1)}
+            className="p-1 disabled:opacity-25 hover:text-black/70"
+            title="下一版"
+          >
+            <ChevronRight size={13} />
+          </button>
+          <span className="w-px h-3 bg-black/10 mx-0.5" />
+        </>
+      )}
+
+      {canReroll && (
+        <button
+          type="button"
+          disabled={isRerolling}
+          onClick={onReroll}
+          className="p-1 hover:text-black/70 disabled:opacity-40"
+          title="重新生成本幕"
+        >
+          <RefreshCw size={12} className={isRerolling ? "animate-spin" : ""} />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onEdit}
+        className="p-1 hover:text-black/70"
+        title="编辑本幕"
+      >
+        <Pencil size={12} />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="p-1 hover:text-red-500"
+        title="删除本幕"
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * 统一顶栏：不使用 Tailwind h-14，而是复刻项目 .page-shell > .page-header 的 * 定位契约，保证在任何宿主容器下点击都能命中（避免被 .phone-status-bar 覆盖）。
  * 左侧返回键必须始终可点。
  */
 function EnsembleHeader({
@@ -237,10 +377,8 @@ export function EnsembleApp({
   const [scripts, setScripts] = useState<EnsembleScript[]>([]);
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
   const [view, setView] = useState<EnsembleView>("personas");
-  const [activeTab, setActiveTab] = useState<"my_ensembles" | "discover">("my_ensembles");
   const [selectedCastIds, setSelectedCastIds] = useState<string[]>([]);
   const [titleInput, setTitleInput] = useState("");
-  const [bgInput, setBgInput] = useState("");
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showNarrationModal, setShowNarrationModal] = useState(false);
@@ -249,6 +387,22 @@ export function EnsembleApp({
   const [lastModel, setLastModel] = useState<string>("");
   /** 最近一次 API 错误，展示在剧情区顶部 */
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // ── 剧本名编辑 ──
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+
+  // ── 消息操作条：多 roll 翻页 ──
+  /** turnId → 该幕的多个候选版本（index 0 为原始生成） */
+  const [rollsMap, setRollsMap] = useState<Record<string, string[]>>({});
+  /** turnId → 当前显示的版本下标 */
+  const [rollIndexMap, setRollIndexMap] = useState<Record<string, number>>({});
+  /** 正在重 roll 的幕 id */
+  const [rerollingTurnId, setRerollingTurnId] = useState<string | null>(null);
+  /** 正在编辑的幕 id 与草稿 */
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
+  const [editingTurnDraft, setEditingTurnDraft] = useState("");
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── 面具（用户身份）状态 ──────────────────────────────
@@ -326,9 +480,8 @@ export function EnsembleApp({
     const newScript: EnsembleScript = {
       id: "ens_" + Date.now(),
       title: titleInput.trim(),
-      background: bgInput.trim(),
-      // 剧本绑定当前激活面具
       personaId: activePersona?.id,
+      narrationEnabled: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       cast: chosenChars.map((c) => ({
@@ -343,20 +496,42 @@ export function EnsembleApp({
     setScripts(loadEnsembleScripts());
     setCurrentScript(newScript);
     setTitleInput("");
-    setBgInput("");
     setSelectedCastIds([]);
     setView("workspace");
   };
 
-  // 触发 AI 生成下一个轮次
-  const triggerAiTurn = async (script: EnsembleScript) => {
-    if (isGenerating || script.cast.length === 0) return;
+  /** 重命名当前剧本（顶栏标题点击进入编辑） */
+  const commitTitleRename = () => {
+    if (!currentScript) return;
+    const next = titleDraft.trim();
+    setEditingTitle(false);
+    if (!next || next === currentScript.title) return;
+    const updated = { ...currentScript, title: next };
+    setCurrentScript(updated);
+    saveOrUpdateEnsembleScript(updated);
+    setScripts(loadEnsembleScripts());
+  };
+
+  /**
+   * 触发 AI 生成下一个轮次。
+   * @param script     目标剧本
+   * @param opts.forceActorId  指定扮演的角色（重 roll 用；缺省则随机挑一个非上轮角色）
+   * @param opts.rerollTurnId  重 roll 的目标幕；给出时只返回内容，不落库
+   */
+  const triggerAiTurn = async (
+    script: EnsembleScript,
+    opts?: { forceActorId?: string; rerollTurnId?: string }
+  ): Promise<string | null> => {
+    if (isGenerating || script.cast.length === 0) return null;
     setIsGenerating(true);
-    setApiError(null);
+    if (!opts?.rerollTurnId) setApiError(null);
     try {
       const lastTurn = script.turns[script.turns.length - 1];
       let nextActor = script.cast[0];
-      if (lastTurn) {
+      if (opts?.forceActorId) {
+        nextActor =
+          script.cast.find((c) => c.id === opts.forceActorId) ?? script.cast[0];
+      } else if (lastTurn) {
         const otherActors = script.cast.filter((c) => c.id !== lastTurn.senderId);
         if (otherActors.length > 0) {
           nextActor = otherActors[Math.floor(Math.random() * otherActors.length)];
@@ -373,13 +548,16 @@ export function EnsembleApp({
           }`
         : "";
 
+      // 旁白与背景设定：仅在 narrationEnabled 为真时注入提示词
+      const narrationBlock =
+        script.narrationEnabled && script.background?.trim()
+          ? `\n【剧本全局旁白与背景设定】\n${script.background.trim()}\n`
+          : "";
+
       const systemPrompt = `你正在参与一场名为《${script.title}》的群像互动剧本。
 当前参演角色阵容：
 ${castDesc}${userDesc}
-
-【剧本全局旁白与背景设定】
-${script.background || "故事自然演进中"}
-
+${narrationBlock}
 你现在必须【完全代入并扮演角色：${nextActor.name}】。
 扮演要求：
 1. 严格以《${nextActor.name}》的视角、语气和性格回复。
@@ -389,22 +567,31 @@ ${script.background || "故事自然演进中"}
    - 心理活动用方括号：【内心独白】
 3. 紧扣上一幕的情节，自然推动戏剧冲突与角色互动。不要输出其他角色的台词。`;
 
+      // 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成
+      const contextTurns = opts?.rerollTurnId
+        ? script.turns.filter((t) => t.id !== opts.rerollTurnId)
+        : script.turns;
+
       const messagesPayload = [
         { role: "system", content: systemPrompt },
-        ...script.turns.slice(-10).map((t) => ({
+        ...contextTurns.slice(-10).map((t) => ({
           role: t.senderType === "user" ? "user" : "assistant",
           content: `[${t.senderName}]: ${t.content}`,
         })),
       ];
 
-      // ── 走绑定桥：从「设置 → API 配置」取真实配置，替换原来的 /api/chat 野路子 ──
+      // ── 走绑定桥：从「设置 → API 配置」取真实配置 ──
       const apiConfig = resolveEnsembleApiConfig(nextActor.id);
       if (!apiConfig) {
-        setApiError("尚未配置 API，请到「设置 → API 配置」添加一个可用模型");
-        return;
+        if (!opts?.rerollTurnId) {
+          setApiError("尚未配置 API，请到「设置 → API 配置」添加一个可用模型");
+        }
+        return null;
       }
       setApiError(null);
-      setLastModel(apiConfig.defaultModel || apiConfig.name || "未知模型");
+      if (!opts?.rerollTurnId) {
+        setLastModel(apiConfig.defaultModel || apiConfig.name || "未知模型");
+      }
 
       const result = await simpleLLMCall(apiConfig, messagesPayload, {
         temperature: 0.85,
@@ -414,12 +601,18 @@ ${script.background || "故事自然演进中"}
 
       let replyContent = (result.content || "").trim();
       if (!replyContent) {
-        const reason = result.error || "模型返回空内容";
-        setApiError(reason);
-        replyContent = `（${nextActor.name} 陷入了短暂的沉思，目光望向窗外）\n“我们接下来该怎么做？”`;
+        if (!opts?.rerollTurnId) {
+          setApiError(result.error || "模型返回空内容");
+        }
+        return null;
       }
 
       replyContent = replyContent.replace(new RegExp(`^\\[?${nextActor.name}\\]?[:：]?\\s*`), "").trim();
+
+      // 重 roll 模式：只把新内容交回调用方，由调用方决定怎么更新 rollsMap
+      if (opts?.rerollTurnId) {
+        return replyContent;
+      }
 
       const nextTurn: EnsembleTurn = {
         id: "turn_" + Date.now(),
@@ -437,24 +630,90 @@ ${script.background || "故事自然演进中"}
         setCurrentScript(updated);
         setScripts(loadEnsembleScripts());
       }
+      return replyContent;
     } catch (e) {
       console.error("AI turn generation failed:", e);
+      return null;
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // 发送用户自身对话轮次
-  const handleSendTurn = async (isNarration: boolean = false) => {
+  /** 重 roll 某一幕：为该角色再生成一版，追加进 rollsMap 并切到新版本 */
+  const handleRerollTurn = async (turn: EnsembleTurn) => {
+    if (!currentScript || !turn.senderId || rerollingTurnId) return;
+    setRerollingTurnId(turn.id);
+    const generated = await triggerAiTurn(currentScript, {
+      forceActorId: turn.senderId,
+      rerollTurnId: turn.id,
+    });
+    setRerollingTurnId(null);
+    if (!generated) return;
+
+    setRollsMap((prev) => {
+      const existing = prev[turn.id] ?? [turn.content];
+      const next = [...existing, generated];
+      setRollIndexMap((ri) => ({ ...ri, [turn.id]: next.length - 1 }));
+      return { ...prev, [turn.id]: next };
+    });
+
+    // 立刻把当前展示版本落库，保证退出重进不丢
+    const updated = updateEnsembleTurn(currentScript.id, turn.id, {
+      content: generated,
+      tokens: Math.ceil(generated.length * 1.3),
+    });
+    if (updated) {
+      setCurrentScript(updated);
+      setScripts(loadEnsembleScripts());
+    }
+  };
+
+  /** 切换某一幕显示的 roll 版本 */
+  const switchRoll = (turnId: string, dir: -1 | 1) => {
+    if (!currentScript) return;
+    const versions = rollsMap[turnId];
+    if (!versions || versions.length <= 1) return;
+    const cur = rollIndexMap[turnId] ?? 0;
+    const next = Math.min(Math.max(cur + dir, 0), versions.length - 1);
+    if (next === cur) return;
+    setRollIndexMap((prev) => ({ ...prev, [turnId]: next }));
+    const updated = updateEnsembleTurn(currentScript.id, turnId, {
+      content: versions[next],
+      tokens: Math.ceil(versions[next].length * 1.3),
+    });
+    if (updated) {
+      setCurrentScript(updated);
+      setScripts(loadEnsembleScripts());
+    }
+  };
+
+  /** 提交某一幕的编辑 */
+  const commitTurnEdit = (turnId: string) => {
+    if (!currentScript) return;
+    const text = editingTurnDraft.trim();
+    setEditingTurnId(null);
+    if (!text) return;
+    const updated = updateEnsembleTurn(currentScript.id, turnId, {
+      content: text,
+      tokens: Math.ceil(text.length * 1.3),
+    });
+    if (updated) {
+      setCurrentScript(updated);
+      setScripts(loadEnsembleScripts());
+    }
+  };
+
+  // 剧幕落库的辅助：写入我的台词（旁白/角色台词统一入口）
+  const handleSendTurn = async () => {
     if (!inputText.trim() || !currentScript) return;
     const text = inputText.trim();
     setInputText("");
 
     const newTurn: EnsembleTurn = {
       id: "turn_" + Date.now(),
-      senderId: isNarration ? "narration" : activePersona?.id || currentUser?.name || "user",
-      senderName: isNarration ? "旁白" : activePersona?.name || currentUser?.name || "你",
-      senderType: isNarration ? "narration" : "user",
+      senderId: activePersona?.id || currentUser?.name || "user",
+      senderName: activePersona?.name || currentUser?.name || "你",
+      senderType: "user",
       content: text,
       timestamp: new Date().toISOString(),
       tokens: Math.ceil(text.length * 1.3),
@@ -464,7 +723,6 @@ ${script.background || "故事自然演进中"}
     if (updated) {
       setCurrentScript(updated);
       setScripts(loadEnsembleScripts());
-      await triggerAiTurn(updated);
     }
   };
 
@@ -577,41 +835,9 @@ ${script.background || "故事自然演进中"}
           }
         />
 
-        {/* 标签切换 */}
-        <div className="flex items-center px-4 pt-3 pb-2 border-b border-black/[0.04] bg-white/40 gap-4 shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTab("my_ensembles")}
-            className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all ${
-              activeTab === "my_ensembles"
-                ? "border-[#1a1a1a] text-[#1a1a1a]"
-                : "border-transparent text-black/40 hover:text-black/60"
-            }`}
-          >
-            <Users size={14} />
-            我的剧本
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("discover")}
-            className={`flex items-center gap-1.5 pb-2 text-xs font-semibold tracking-wide border-b-2 transition-all ${
-              activeTab === "discover"
-                ? "border-[#1a1a1a] text-[#1a1a1a]"
-                : "border-transparent text-black/40 hover:text-black/60"
-            }`}
-          >
-            <Compass size={14} />
-            探索群像
-          </button>
-        </div>
-
+        {/* 剧本列表（探索群像 tab 已隐藏，代码保留待后续开放） */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {activeTab === "discover" ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center text-black/40 space-y-3">
-              <Compass size={36} className="stroke-[1.5]" />
-              <div className="text-sm">探索广场即将开放</div>
-            </div>
-          ) : visibleScripts.length === 0 ? (
+          {visibleScripts.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-center text-black/40 space-y-3">
               <Users size={36} className="stroke-[1.5]" />
               <div className="text-sm">暂无群像剧</div>
@@ -662,11 +888,6 @@ ${script.background || "故事自然演进中"}
                     </button>
                   </div>
                 </div>
-                {s.background && (
-                  <div className="text-xs text-black/50 line-clamp-2 leading-relaxed">
-                    {s.background}
-                  </div>
-                )}
                 <div className="flex items-center justify-between pt-1 border-t border-black/[0.02]">
                   <div className="flex -space-x-1.5 overflow-hidden">
                     {s.cast.map((c) => (
@@ -735,19 +956,6 @@ ${script.background || "故事自然演进中"}
               onChange={(e) => setTitleInput(e.target.value)}
               placeholder="例如：首尔夜色下的群像"
               className="w-full bg-black/[0.03] border border-black/5 rounded-xl px-3 py-2.5 text-xs text-[#1a1a1a] outline-none focus:border-black/20"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-black/60 block mb-1.5">
-              故事背景设定（可选）
-            </label>
-            <textarea
-              value={bgInput}
-              onChange={(e) => setBgInput(e.target.value)}
-              placeholder="简要描述发生的时间、地点、核心冲突..."
-              rows={3}
-              className="w-full bg-black/[0.03] border border-black/5 rounded-xl px-3 py-2.5 text-xs text-[#1a1a1a] outline-none focus:border-black/20 resize-none"
             />
           </div>
 
@@ -824,7 +1032,33 @@ ${script.background || "故事自然演进中"}
       ) : (
         <>
           <EnsembleHeader
-            title={currentScript.title}
+            title={
+              editingTitle ? (
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={commitTitleRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitTitleRename();
+                    if (e.key === "Escape") setEditingTitle(false);
+                  }}
+                  className="text-[15px] font-semibold tracking-tight text-center bg-black/[0.05] rounded-lg px-2 py-0.5 outline-none w-full"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTitleDraft(currentScript.title);
+                    setEditingTitle(true);
+                  }}
+                  className="text-[15px] font-semibold tracking-tight truncate max-w-full"
+                  title="点击修改剧本名"
+                >
+                  {currentScript.title}
+                </button>
+              )
+            }
             subtitle={`${currentScript.cast.length} CAST${
               activePersona ? ` · ${activePersona.name}` : ""
             }`}
@@ -843,23 +1077,54 @@ ${script.background || "故事自然演进中"}
 
             {currentScript.turns.length === 0 && !isGenerating && (
               <div className="flex flex-col items-center justify-center h-56 text-center text-black/35 space-y-2">
-                <Play size={28} className="stroke-[1.5]" />
+                <Users size={28} className="stroke-[1.5]" />
                 <div className="text-xs">剧本已就绪，开始第一幕吧</div>
               </div>
             )}
 
             {currentScript.turns.map((turn) => {
               const isUser = turn.senderType === "user";
+              const isNarrationTurn = turn.senderType === "narration";
+              const isNarrator = isNarrationTurn || turn.senderId === "narration";
               const castChar = currentScript.cast.find((c) => c.id === turn.senderId);
+
+              // ── 旁白卡：黑底 P 图标 + NARRATION 标签 ──
+              if (isNarrator) {
+                return (
+                  <div key={turn.id} className="group relative">
+                    <NarrationCard text={turn.content} timestamp={turn.timestamp} />
+                    <TurnActionBar
+                      turn={turn}
+                      versions={rollsMap[turn.id]}
+                      index={rollIndexMap[turn.id] ?? 0}
+                      isRerolling={rerollingTurnId === turn.id}
+                      canReroll={!isNarrator}
+                      onReroll={() => handleRerollTurn(turn)}
+                      onSwitch={(d) => switchRoll(turn.id, d)}
+                      onEdit={() => {
+                        setEditingTurnDraft(turn.content);
+                        setEditingTurnId(turn.id);
+                      }}
+                      onDelete={() => {
+                        const updated = deleteEnsembleTurn(currentScript.id, turn.id);
+                        if (updated) {
+                          setCurrentScript(updated);
+                          setScripts(loadEnsembleScripts());
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              }
 
               return (
                 <div
                   key={turn.id}
-                  className="bg-white rounded-2xl p-4 shadow-sm border border-black/[0.03] space-y-3"
+                  className="group bg-white rounded-2xl p-4 shadow-sm border border-black/[0.03] space-y-3"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-black/10 overflow-hidden flex items-center justify-center text-xs font-semibold">
+                      <div className="w-8 h-8 rounded-[10px] bg-black/10 overflow-hidden flex items-center justify-center text-xs font-semibold">
                         {castChar?.avatar ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -888,32 +1153,67 @@ ${script.background || "故事自然演进中"}
                     </div>
                   </div>
 
-                  <TriColorText raw={turn.content} prefix={isUser ? "u" : undefined} />
+                  {editingTurnId === turn.id ? (
+                    <div className="space-y-2">
+                      <textarea
+                        autoFocus
+                        value={editingTurnDraft}
+                        onChange={(e) => setEditingTurnDraft(e.target.value)}
+                        rows={4}
+                        className="w-full bg-black/[0.03] border border-black/10 rounded-xl p-2.5 text-[13.5px] leading-[1.85] outline-none focus:border-black/25 resize-none"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingTurnId(null)}
+                          className="px-3 py-1 text-[11px] text-black/50 hover:bg-black/5 rounded-lg"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => commitTurnEdit(turn.id)}
+                          className="px-3 py-1 text-[11px] bg-[#1a1a1a] text-white rounded-lg"
+                        >
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <TriColorText raw={turn.content} prefix={isUser ? "u" : undefined} />
+                  )}
 
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.03] text-[10px] text-black/35 font-mono">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <span>DATE {turn.timestamp.slice(0, 10)}</span>
                       {(turn.model || lastModel) && (
-                        <span className="truncate max-w-[140px]" title={turn.model || lastModel}>
+                        <span className="truncate max-w-[110px]" title={turn.model || lastModel}>
                           MODEL {turn.model || lastModel}
                         </span>
                       )}
                       {turn.tokens !== undefined && <span>TOKENS {turn.tokens}</span>}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
+                    <TurnActionBar
+                      turn={turn}
+                      versions={rollsMap[turn.id]}
+                      index={rollIndexMap[turn.id] ?? 0}
+                      isRerolling={rerollingTurnId === turn.id}
+                      canReroll={!!turn.senderId && !isUser}
+                      inline
+                      onReroll={() => handleRerollTurn(turn)}
+                      onSwitch={(d) => switchRoll(turn.id, d)}
+                      onEdit={() => {
+                        setEditingTurnDraft(turn.content);
+                        setEditingTurnId(turn.id);
+                      }}
+                      onDelete={() => {
                         const updated = deleteEnsembleTurn(currentScript.id, turn.id);
                         if (updated) {
                           setCurrentScript(updated);
                           setScripts(loadEnsembleScripts());
                         }
                       }}
-                      className="p-1 hover:text-red-500 opacity-60"
-                      title="删除本幕"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    />
                   </div>
                 </div>
               );
@@ -932,21 +1232,6 @@ ${script.background || "故事自然演进中"}
             className="bg-white/80 backdrop-blur-xl border-t border-black/[0.04] px-3 py-2 shrink-0"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
           >
-            <div className="flex items-center justify-between px-1 mb-2 text-black/45">
-              <button
-                type="button"
-                onClick={() => triggerAiTurn(currentScript)}
-                disabled={isGenerating}
-                className="p-1.5 hover:bg-black/[0.04] rounded-lg disabled:opacity-40"
-                title="继续推进"
-              >
-                <Play size={16} />
-              </button>
-              <div className="text-[10px] font-mono bg-black/[0.04] px-2 py-0.5 rounded-full">
-                {currentScript.turns.length} 幕
-              </div>
-            </div>
-
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -955,9 +1240,9 @@ ${script.background || "故事自然演进中"}
                   setShowNarrationModal(true);
                 }}
                 className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold tracking-wide transition-colors shrink-0 ${
-                  currentScript.background?.trim()
-                    ? "bg-amber-100 text-amber-800 border border-amber-300"
-                    : "bg-black/[0.04] hover:bg-black/[0.07] text-black/50"
+                  currentScript.narrationEnabled && currentScript.background?.trim()
+                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                    : "bg-black/[0.04] hover:bg-black/[0.07] text-black/40"
                 }`}
                 title="设置旁白与背景设定"
               >
@@ -970,20 +1255,34 @@ ${script.background || "故事自然演进中"}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    handleSendTurn(false);
+                    handleSendTurn();
                   }
                 }}
                 placeholder={activePersona ? `以「${activePersona.name}」发言...` : "Write your line..."}
                 className="flex-1 min-w-0 bg-black/[0.03] border-none outline-none rounded-xl px-3 py-2 text-xs text-[#1a1a1a] placeholder:text-black/25"
               />
-              <button
-                type="button"
-                disabled={!inputText.trim() || isGenerating}
-                onClick={() => handleSendTurn(false)}
-                className="p-2 bg-[#1a1a1a] text-white rounded-xl disabled:opacity-40 transition-opacity shrink-0"
-              >
-                <Send size={15} />
-              </button>
+              {/* 两段式发送键：
+                  有输入 → 发送我的台词；无输入 → 让 AI 演下一轮 */}
+              {inputText.trim() ? (
+                <button
+                  type="button"
+                  onClick={() => handleSendTurn()}
+                  className="p-2 bg-[#1a1a1a] text-white rounded-xl transition-opacity shrink-0 active:scale-95"
+                  title="发送我的台词"
+                >
+                  <Send size={15} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={() => triggerAiTurn(currentScript)}
+                  className="px-3 h-8 bg-[#1a1a1a] text-white rounded-xl text-[11px] font-semibold disabled:opacity-40 transition-opacity shrink-0 active:scale-95"
+                  title="让 AI 演下一轮"
+                >
+                  {isGenerating ? "演绎中" : "下一轮"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1003,6 +1302,36 @@ ${script.background || "故事自然演进中"}
                     <X size={16} />
                   </button>
                 </div>
+
+                {/* 是否启用旁白：关闭时这段设定不会注入 AI 提示词 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !(currentScript.narrationEnabled);
+                    const updated = { ...currentScript, narrationEnabled: next };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+                    currentScript.narrationEnabled
+                      ? "bg-amber-50 border-amber-200 text-amber-800"
+                      : "bg-black/[0.03] border-black/5 text-black/45"
+                  }`}
+                >
+                  <span>启用旁白</span>
+                  <span
+                    className={`w-9 h-5 rounded-full relative transition-colors ${
+                      currentScript.narrationEnabled ? "bg-amber-500" : "bg-black/20"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                        currentScript.narrationEnabled ? "left-[18px]" : "left-0.5"
+                      }`}
+                    />
+                  </span>
+                </button>
 
                 <div className="text-xs text-black/50">
                   设定当前剧本的宏观环境、旁白氛围或隐藏剧情要求，AI 会严格遵从。

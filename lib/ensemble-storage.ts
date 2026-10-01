@@ -41,8 +41,14 @@ export type EnsembleTurn = {
 export type EnsembleScript = {
   id: string;
   title: string;
-  /** 剧本全局旁白与背景设定（旁白弹窗保存到这里，注入 AI 提示词） */
+  /**
+   * 剧本全局旁白与背景设定（旁白弹窗保存到这里）。
+   * ⚠️ 注意：这是「导演设定」，只注入 AI 提示词，绝不作为一幕显示在剧情区。
+   * 与「旁白幕（narration turn）」是两套东西，切勿混用。
+   */
   background?: string;
+  /** 是否启用旁白（关闭时 background 不注入提示词，按钮置灰） */
+  narrationEnabled?: boolean;
   personaId?: string;
   cast: EnsembleCastMember[];
   turns: EnsembleTurn[];
@@ -158,6 +164,27 @@ export function deleteEnsembleTurn(
   const updated: EnsembleScript = {
     ...scripts[idx],
     turns: scripts[idx].turns.filter((t) => t.id !== turnId),
+    updatedAt: new Date().toISOString(),
+  };
+  scripts[idx] = updated;
+  saveEnsembleScripts(scripts);
+  return updated;
+}
+
+/** 替换指定一幕（用于重 roll / 编辑），返回更新后的剧本 */
+export function updateEnsembleTurn(
+  scriptId: string,
+  turnId: string,
+  patch: Partial<EnsembleTurn>
+): EnsembleScript | null {
+  const scripts = loadEnsembleScripts();
+  const idx = scripts.findIndex((s) => s.id === scriptId);
+  if (idx < 0) return null;
+  const updated: EnsembleScript = {
+    ...scripts[idx],
+    turns: scripts[idx].turns.map((t) =>
+      t.id === turnId ? { ...t, ...patch } : t
+    ),
     updatedAt: new Date().toISOString(),
   };
   scripts[idx] = updated;
