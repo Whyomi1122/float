@@ -25,6 +25,7 @@ import {
 } from "@/lib/settings-storage";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
+import { fetchModelNames } from "@/lib/model-list";
 import {
   EnsembleToolsSheet,
   type EnsembleToolId,
@@ -54,29 +55,40 @@ const ENSEMBLE_APP_ID = "ensemble";
  * 解析群像模式要用的 API 配置。
  * 级联优先级：剧本级覆盖 → 全局默认 → 角色默认 → 群像 app 覆盖 → 角色在群像上的覆盖。
  * 兜底：若级联结果为空（例如用户清空了全局默认），退到第一条 API 配置。
+ *
+ * modelOverride：剧本级模型覆盖。命中时把 defaultModel 换成它，
+ * 但**不改动全局设置里的那条 API 配置**（返回的是浅拷贝）。
  */
 export function resolveEnsembleApiConfig(
   characterId?: string,
-  scriptOverrideId?: string
+  scriptOverrideId?: string,
+  modelOverride?: string
 ): ApiConfig | null {
   const configs = loadApiConfigs();
   if (configs.length === 0) return null;
+
+  /** 把剧本级模型覆盖叠加上去（只改返回值，不写回存储） */
+  const withModel = (cfg: ApiConfig): ApiConfig =>
+    modelOverride?.trim()
+      ? { ...cfg, defaultModel: modelOverride.trim() }
+      : cfg;
+
   // 剧本级覆盖优先级最高：用户在「功能 → 模型切换」里显式指定的那条
   if (scriptOverrideId) {
     const overridden = configs.find((c) => c.id === scriptOverrideId);
-    if (overridden) return overridden;
+    if (overridden) return withModel(overridden);
   }
   try {
     const bindings = loadBindingConfig();
     const slot = resolveBinding(bindings, characterId, ENSEMBLE_APP_ID);
     if (slot.apiConfigId) {
       const found = configs.find((c) => c.id === slot.apiConfigId);
-      if (found) return found;
+      if (found) return withModel(found);
     }
   } catch (e) {
     console.warn("[ensemble] resolveEnsembleApiConfig failed:", e);
   }
-  return configs[0];
+  return withModel(configs[0]);
 }
 
 /** 供 UI 显示用的模型名（真实取自全局设置里选中的那条 API 配置） */
@@ -243,15 +255,20 @@ function NarrationCard({
 }
 
 // 通用底部子弹窗：与「功能」面板同一套视觉（浅灰底、圆角、居中标题）
+// onBack：关闭后要回到哪一层（需求 1.5——子弹窗返回「功能」面板，而不是直接回剧情界面）
 function MiniSheet({
   title,
   subtitle,
   onClose,
+  onBack,
+  backLabel = "返回",
   children,
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
+  onBack?: () => void;
+  backLabel?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -261,24 +278,65 @@ function MiniSheet({
         onClick={(e) => e.stopPropagation()}
         className="relative bg-[#f2f2f4] rounded-t-[26px] px-4 pt-6 pb-5 max-h-[88%] overflow-y-auto"
       >
-        <div className="px-1.5 mb-4">
-          <div className="text-[20px] font-bold tracking-tight text-[#111111] leading-none">
-            {title}
-          </div>
-          {subtitle && (
-            <div className="text-[10px] tracking-[0.2em] font-medium text-black/30 mt-2">
-              {subtitle}
+        <div className="px-1.5 mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div
+              className="font-bold tracking-tight text-[#111111] leading-none"
+              style={{ fontSize: "calc(20px * var(--app-text-scale, 1))" }}
+            >
+              {title}
             </div>
+            {subtitle && (
+              <div
+                className="tracking-[0.2em] font-medium text-black/30 mt-2"
+                style={{ fontSize: "calc(10px * var(--app-text-scale, 1))" }}
+              >
+                {subtitle}
+              </div>
+            )}
+          </div>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="shrink-0 px-2.5 py-1.5 rounded-full bg-white text-black/45 active:scale-95 transition-transform"
+              style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
+              title="返回功能列表"
+            >
+              ← {backLabel}
+            </button>
           )}
         </div>
         <div className="space-y-2.5">{children}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full mt-3 py-3.5 rounded-[16px] bg-white/70 text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
-        >
-          取消
-        </button>
+        {onBack ? (
+          <div className="flex items-center gap-2.5 mt-3">
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex-1 py-3.5 rounded-[16px] bg-[#111111] font-semibold text-white active:scale-[0.985] transition-transform"
+              style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
+            >
+              返回功能
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3.5 rounded-[16px] bg-white/70 font-medium text-black/55 active:scale-[0.985] transition-transform"
+              style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
+            >
+              关闭
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full mt-3 py-3.5 rounded-[16px] bg-white/70 font-medium text-black/55 active:scale-[0.985] transition-transform"
+            style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
+          >
+            取消
+          </button>
+        )}
       </div>
     </div>
   );
@@ -526,6 +584,16 @@ export function EnsembleApp({
   /** 轻提示：用于「功能尚未接入」等一次性反馈；非空时 1.8s 后自动消失 */
   const [toast, setToast] = useState<string | null>(null);
 
+  // ── 模型切换（两级：先选 API，再选该 API 下的具体模型） ──
+  /** 展开模型二级列表的 API 配置 id（null=停在 API 列表） */
+  const [modelPickerApiId, setModelPickerApiId] = useState<string | null>(null);
+  /** 该 API 下的模型名列表 */
+  const [modelNameList, setModelNameList] = useState<string[]>([]);
+  /** 是否正在拉取模型列表 */
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  /** 拉取模型列表的错误 */
+  const [modelListError, setModelListError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 1800);
@@ -763,7 +831,8 @@ ${narrationBlock}
       // ── 走绑定桥：从「设置 → API 配置」取真实配置 ──
       const apiConfig = resolveEnsembleApiConfig(
         nextActor.id,
-        script.apiConfigIdOverride
+        script.apiConfigIdOverride,
+        script.modelOverride
       );
       if (!apiConfig) {
         if (!opts?.rerollTurnId) {
@@ -868,6 +937,140 @@ ${narrationBlock}
       setCurrentScript(updated);
       setScripts(loadEnsembleScripts());
     }
+  };
+
+  /**
+   * 删除某一幕。
+   *
+   * 语义（按需求 1.1）：**一次只删掉当前显示的那一版 roll**。
+   * - 该幕还有其它版本 → 只从 rollsMap 移除当前版本，并自动切到相邻版本，幕本身保留；
+   * - 只剩最后这一版 → 才真正把整幕从剧本里删掉。
+   */
+  const removeOneRoll = (turnId: string) => {
+    if (!currentScript) return;
+    const versions = rollsMap[turnId];
+    const cur = rollIndexMap[turnId] ?? 0;
+
+    // 还有多版本：只砍这一版
+    if (versions && versions.length > 1) {
+      const nextVersions = versions.filter((_, i) => i !== cur);
+      const nextIndex = Math.min(cur, nextVersions.length - 1);
+      setRollsMap((prev) => ({ ...prev, [turnId]: nextVersions }));
+      setRollIndexMap((prev) => ({ ...prev, [turnId]: nextIndex }));
+
+      const updated = updateEnsembleTurn(currentScript.id, turnId, {
+        content: nextVersions[nextIndex],
+        tokens: Math.ceil(nextVersions[nextIndex].length * 1.3),
+      });
+      if (updated) {
+        setCurrentScript(updated);
+        setScripts(loadEnsembleScripts());
+      }
+      setToast(
+        `已删除 1/1 版，剩余 ${nextVersions.length} 版（${nextIndex + 1}/${
+          nextVersions.length
+        }）`
+      );
+      return;
+    }
+
+    // 最后一版：真正删幕，并清理 roll 记录
+    const updated = deleteEnsembleTurn(currentScript.id, turnId);
+    if (updated) {
+      setCurrentScript(updated);
+      setScripts(loadEnsembleScripts());
+    }
+    setRollsMap((prev) => {
+      const next = { ...prev };
+      delete next[turnId];
+      return next;
+    });
+    setRollIndexMap((prev) => {
+      const next = { ...prev };
+      delete next[turnId];
+      return next;
+    });
+  };
+
+  /** 组装某一幕的删除确认（文案随剩余版本数变化，避免误删整幕） */  const requestDeleteTurn = (turn: EnsembleTurn) => {
+    const total = rollsMap[turn.id]?.length ?? 1;
+    const cur = (rollIndexMap[turn.id] ?? 0) + 1;
+    setConfirmState({
+      title: total > 1 ? `删除第 ${cur} 版？` : "删除这一幕？",
+      message:
+        total > 1
+          ? `这一幕共有 ${total} 个版本，只会删掉你正在看的第 ${cur} 版，其余版本保留，自动切到相邻版本。`
+          : `${turn.senderName} 的这一幕将被永久删除，无法恢复。`,
+      confirmLabel: total > 1 ? "删除这一版" : "删除",
+      onConfirm: () => {
+        removeOneRoll(turn.id);
+        setConfirmState(null);
+      },
+    });
+  };
+
+  /** 子弹窗「返回」：先关掉所有子弹窗，再重新打开「功能」面板（需求 1.5） */
+  const backToTools = () => {
+    setShowPaletteSheet(false);
+    setShowCssSheet(false);
+    setShowModelSheet(false);
+    setModelPickerApiId(null);
+    setModelListError(null);
+    setShowToolsSheet(true);
+  };
+
+  /** 打开「模型切换」：默认停在 API 一级列表，重置上次的二级态 */
+  const openModelSheet = () => {
+    setApiConfigList(loadApiConfigs());
+    setModelPickerApiId(null);
+    setModelNameList([]);
+    setModelListError(null);
+    setShowModelSheet(true);
+  };
+
+  /**
+   * 进入某个 API 的二级列表（该 API 下的全部模型，需求 1.6）。
+   * 优先用配置里已存的可用模型；没有（或为空）时才实时拉取。
+   */
+  const openModelPickerForApi = async (cfg: ApiConfig) => {
+    setModelPickerApiId(cfg.id);
+    setModelListError(null);
+
+    const saved = (cfg as ApiConfig & { availableModels?: string[] })
+      .availableModels;
+    if (Array.isArray(saved) && saved.length > 0) {
+      setModelNameList(saved);
+      return;
+    }
+
+    setModelNameList([]);
+    setIsLoadingModels(true);
+    try {
+      const names = await fetchModelNames(cfg);
+      setModelNameList(names);
+      if (names.length === 0) setModelListError("该接口未返回任何模型");
+    } catch (err) {
+      setModelListError(err instanceof Error ? err.message : "拉取模型列表失败");
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  /** 选中某 API 下的具体模型 → 写进剧本级覆盖（apiConfigIdOverride + modelOverride） */
+  const pickModelForApi = (apiId: string, modelName: string) => {
+    if (!currentScript) return;
+    const updated = {
+      ...currentScript,
+      apiConfigIdOverride: apiId,
+      modelOverride: modelName,
+    };
+    setCurrentScript(updated);
+    saveOrUpdateEnsembleScript(updated);
+    setScripts(loadEnsembleScripts());
+    setLastModel(modelName);
+    setShowModelSheet(false);
+    setModelPickerApiId(null);
+    setToast(`已切换为 ${modelName}`);
   };
 
   /** 提交某一幕的编辑 */
@@ -1316,20 +1519,7 @@ ${narrationBlock}
                         setEditingTurnDraft(turn.content);
                         setEditingTurnId(turn.id);
                       }}
-                      onDelete={() => {
-                        setConfirmState({
-                          title: "删除这一幕？",
-                          message: `${turn.senderName} 的这一幕将被永久删除，无法恢复。`,
-                          onConfirm: () => {
-                            const updated = deleteEnsembleTurn(currentScript.id, turn.id);
-                            if (updated) {
-                              setCurrentScript(updated);
-                              setScripts(loadEnsembleScripts());
-                            }
-                            setConfirmState(null);
-                          },
-                        });
-                      }}
+                      onDelete={() => requestDeleteTurn(turn)}
                     />
                   </div>
                 );
@@ -1405,44 +1595,39 @@ ${narrationBlock}
                     />
                   )}
 
-                  <div className="flex items-center justify-between pt-2.5 border-t border-black/[0.045] text-[10px] text-black/35 font-mono tracking-tight">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span>DATE {turn.timestamp.slice(0, 10)}</span>
+                  {/* 元信息 + 操作：全部改为竖排列表，避免重 roll 后横排被挤压看不清 */}
+                  <div className="pt-2.5 border-t border-black/[0.045] space-y-1.5">
+                    <div className="flex flex-col gap-1 text-[10px] text-black/35 font-mono tracking-tight leading-relaxed">
+                      <span className="block">DATE {turn.timestamp.slice(0, 10)}</span>
                       {(turn.model || lastModel) && (
-                        <span className="truncate max-w-[110px]" title={turn.model || lastModel}>
+                        <span
+                          className="block break-all"
+                          title={turn.model || lastModel}
+                        >
                           MODEL {turn.model || lastModel}
                         </span>
                       )}
-                      {turn.tokens !== undefined && <span>TOKENS {turn.tokens}</span>}
+                      {turn.tokens !== undefined && (
+                        <span className="block">TOKENS {turn.tokens}</span>
+                      )}
                     </div>
-                    <TurnActionBar
-                      turn={turn}
-                      versions={rollsMap[turn.id]}
-                      index={rollIndexMap[turn.id] ?? 0}
-                      isRerolling={rerollingTurnId === turn.id}
-                      canReroll={!!turn.senderId && !isUser}
-                      inline
-                      onReroll={() => handleRerollTurn(turn)}
-                      onSwitch={(d) => switchRoll(turn.id, d)}
-                      onEdit={() => {
-                        setEditingTurnDraft(turn.content);
-                        setEditingTurnId(turn.id);
-                      }}
-                      onDelete={() => {
-                        setConfirmState({
-                          title: "删除这一幕？",
-                          message: `${turn.senderName} 的这一幕将被永久删除，无法恢复。`,
-                          onConfirm: () => {
-                            const updated = deleteEnsembleTurn(currentScript.id, turn.id);
-                            if (updated) {
-                              setCurrentScript(updated);
-                              setScripts(loadEnsembleScripts());
-                            }
-                            setConfirmState(null);
-                          },
-                        });
-                      }}
-                    />
+                    <div className="flex justify-end pt-0.5">
+                      <TurnActionBar
+                        turn={turn}
+                        versions={rollsMap[turn.id]}
+                        index={rollIndexMap[turn.id] ?? 0}
+                        isRerolling={rerollingTurnId === turn.id}
+                        canReroll={!!turn.senderId && !isUser}
+                        inline
+                        onReroll={() => handleRerollTurn(turn)}
+                        onSwitch={(d) => switchRoll(turn.id, d)}
+                        onEdit={() => {
+                          setEditingTurnDraft(turn.content);
+                          setEditingTurnId(turn.id);
+                        }}
+                        onDelete={() => requestDeleteTurn(turn)}
+                      />
+                    </div>
                   </div>
                 </div>
               );
@@ -1630,8 +1815,7 @@ ${narrationBlock}
                 setCssDraft(currentScript.customCss || "");
                 setShowCssSheet(true);
               } else if (id === "model") {
-                setApiConfigList(loadApiConfigs());
-                setShowModelSheet(true);
+                openModelSheet();
               }
             }}
           />
@@ -1642,6 +1826,7 @@ ${narrationBlock}
               title="卡片配色"
               subtitle="RECEIPT COLOR"
               onClose={() => setShowPaletteSheet(false)}
+              onBack={backToTools}
             >
               <div className="bg-white rounded-[16px] p-4 space-y-3.5">
                 {(
@@ -1710,6 +1895,7 @@ ${narrationBlock}
               title="自定义 CSS"
               subtitle="CUSTOM STYLE"
               onClose={() => setShowCssSheet(false)}
+              onBack={backToTools}
             >
               <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
                 <div className="text-[10.5px] leading-relaxed text-black/45">
@@ -1760,83 +1946,156 @@ ${narrationBlock}
             </MiniSheet>
           )}
 
-          {/* ═══════════ 子弹窗 3：模型切换（本剧本独立 API） ═══════════ */}
-          {showModelSheet && (
-            <MiniSheet
-              title="模型切换"
-              subtitle="API · SESSION"
-              onClose={() => setShowModelSheet(false)}
-            >
-              {apiConfigList.length === 0 ? (
-                <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
-                  尚未配置 API，请到「设置 → API 配置」添加
-                </div>
-              ) : (
-                apiConfigList.map((cfg) => {
-                  const selected = currentScript.apiConfigIdOverride === cfg.id;
-                  return (
-                    <button
-                      key={cfg.id}
-                      type="button"
-                      onClick={() => {
-                        const nextOverride = selected ? undefined : cfg.id;
-                        const updated = {
-                          ...currentScript,
-                          apiConfigIdOverride: nextOverride,
-                        };
-                        setCurrentScript(updated);
-                        saveOrUpdateEnsembleScript(updated);
-                        setScripts(loadEnsembleScripts());
-                        setLastModel(
-                          ensembleModelLabel(currentScript.cast[0]?.id)
-                        );
-                        setShowModelSheet(false);
-                      }}
-                      className="w-full flex items-center gap-3.5 px-3.5 py-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
-                    >
-                      <span
-                        className={`w-11 h-11 rounded-[13px] shrink-0 grid place-items-center ${
-                          selected ? "bg-[#111111]" : "bg-black/[0.08]"
-                        }`}
-                      >
-                        <Layers
-                          size={19}
-                          strokeWidth={1.9}
-                          className={selected ? "text-white" : "text-black/45"}
-                        />
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-[15px] font-semibold tracking-tight text-[#111111] truncate">
-                          {cfg.name || "未命名配置"}
-                        </span>
-                        <span className="block text-[9.5px] tracking-[0.16em] font-medium text-black/30 mt-1 truncate">
-                          {cfg.defaultModel || cfg.provider || "UNKNOWN"}
-                        </span>
-                      </span>
-                      {selected && <Check size={18} className="text-[#111111] shrink-0" />}
-                    </button>
-                  );
-                })
-              )}
+          {/* ═══════════ 子弹窗 3：模型切换（两级：API → 该 API 下的具体模型） ═══════════ */}
+          {showModelSheet && (() => {
+            const activeApi = modelPickerApiId
+              ? apiConfigList.find((c) => c.id === modelPickerApiId)
+              : undefined;
 
-              {currentScript.apiConfigIdOverride && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const updated = { ...currentScript, apiConfigIdOverride: undefined };
-                    setCurrentScript(updated);
-                    saveOrUpdateEnsembleScript(updated);
-                    setScripts(loadEnsembleScripts());
-                    setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
-                    setToast("已恢复跟随全局默认");
-                  }}
-                  className="w-full py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+            // ── 二级：某个 API 下的全部模型 ──
+            if (activeApi) {
+              return (
+                <MiniSheet
+                  title={activeApi.name || "未命名配置"}
+                  subtitle="MODELS · SESSION"
+                  onClose={() => setShowModelSheet(false)}
+                  onBack={() => setModelPickerApiId(null)}
+                  backLabel="换 API"
                 >
-                  跟随全局默认
-                </button>
-              )}
-            </MiniSheet>
-          )}
+                  {isLoadingModels && (
+                    <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
+                      正在拉取该接口的模型列表…
+                    </div>
+                  )}
+
+                  {!isLoadingModels && modelListError && (
+                    <div className="bg-white rounded-[16px] p-5 space-y-3">
+                      <div className="text-[12px] text-[#b42318] leading-relaxed">
+                        {modelListError}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openModelPickerForApi(activeApi)}
+                        className="w-full py-3 rounded-[14px] bg-black/[0.05] text-[13px] font-medium text-black/60 active:scale-[0.985] transition-transform"
+                      >
+                        重试
+                      </button>
+                    </div>
+                  )}
+
+                  {!isLoadingModels && !modelListError && modelNameList.length === 0 && (
+                    <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
+                      该接口未返回模型
+                    </div>
+                  )}
+
+                  {!isLoadingModels &&
+                    !modelListError &&
+                    modelNameList.map((name) => {
+                      const selected =
+                        currentScript.apiConfigIdOverride === activeApi.id &&
+                        currentScript.modelOverride === name;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => pickModelForApi(activeApi.id, name)}
+                          className="w-full flex items-center gap-3 px-3.5 py-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
+                        >
+                          <span className="flex-1 min-w-0 block text-[14px] font-medium text-[#111111] break-all leading-snug">
+                            {name}
+                          </span>
+                          {selected && (
+                            <Check size={18} className="text-[#111111] shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                </MiniSheet>
+              );
+            }
+
+            // ── 一级：可选 API 列表 ──
+            return (
+              <MiniSheet
+                title="模型切换"
+                subtitle="API · SESSION"
+                onClose={() => setShowModelSheet(false)}
+                onBack={backToTools}
+              >
+                <div className="px-1 pb-1 text-[11px] leading-relaxed text-black/35">
+                  先选一条 API，再选该 API 下的具体模型。只对本剧本生效，不改动全局设置。
+                </div>
+
+                {apiConfigList.length === 0 ? (
+                  <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
+                    尚未配置 API，请到「设置 → API 配置」添加
+                  </div>
+                ) : (
+                  apiConfigList.map((cfg) => {
+                    const apiSelected = currentScript.apiConfigIdOverride === cfg.id;
+                    return (
+                      <button
+                        key={cfg.id}
+                        type="button"
+                        onClick={() => openModelPickerForApi(cfg)}
+                        className="w-full flex items-center gap-3.5 px-3.5 py-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
+                      >
+                        <span
+                          className={`w-11 h-11 rounded-[13px] shrink-0 grid place-items-center ${
+                            apiSelected ? "bg-[#111111]" : "bg-black/[0.08]"
+                          }`}
+                        >
+                          <Layers
+                            size={19}
+                            strokeWidth={1.9}
+                            className={apiSelected ? "text-white" : "text-black/45"}
+                          />
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[15px] font-semibold tracking-tight text-[#111111] truncate">
+                            {cfg.name || "未命名配置"}
+                          </span>
+                          <span className="block text-[9.5px] tracking-[0.16em] font-medium text-black/30 mt-1 truncate">
+                            {apiSelected && currentScript.modelOverride
+                              ? currentScript.modelOverride
+                              : cfg.defaultModel || cfg.provider || "UNKNOWN"}
+                          </span>
+                        </span>
+                        <ChevronRight
+                          size={17}
+                          strokeWidth={2}
+                          className="text-black/25 shrink-0"
+                        />
+                      </button>
+                    );
+                  })
+                )}
+
+                {(currentScript.apiConfigIdOverride ||
+                  currentScript.modelOverride) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = {
+                        ...currentScript,
+                        apiConfigIdOverride: undefined,
+                        modelOverride: undefined,
+                      };
+                      setCurrentScript(updated);
+                      saveOrUpdateEnsembleScript(updated);
+                      setScripts(loadEnsembleScripts());
+                      setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
+                      setToast("已恢复跟随全局默认");
+                    }}
+                    className="w-full py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  >
+                    跟随全局默认
+                  </button>
+                )}
+              </MiniSheet>
+            );
+          })()}
 
           {/* ═══════════ 轻提示 ═══════════ */}
           {toast && (

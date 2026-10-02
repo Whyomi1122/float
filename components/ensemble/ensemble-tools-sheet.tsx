@@ -19,7 +19,16 @@ import {
 // 群像「功能」面板（TOOLS）
 // 视觉对齐目标截图：浅灰底 → 大标题「功能」+ TOOLS 小字 →
 // 白底圆角卡列表（深黑方角图标 + 中文主标题 + 英文副标题 + ›）→ 底部取消条。
+//
+// 字号策略（需求 1.4）：全部走 fs() → calc(Npx * var(--app-text-scale, 1))，
+// 与「设置 → 主题 → 文字缩放」绑定；变量缺失时按 1 倍（即基准值）渲染。
+// 主标题基准 15px，默认观感不过大也不过小。
 // ══════════════════════════════════════════════════════════
+
+/** 把像素基准值转成跟随全局文字缩放的 font-size */
+function fs(px: number): string {
+  return `calc(${px}px * var(--app-text-scale, 1))`;
+}
 
 export type EnsembleToolId =
   | "narration"
@@ -88,16 +97,18 @@ function ToolRow({
 
       <span className="flex-1 min-w-0">
         <span
-          className={`block text-[15px] font-semibold tracking-tight leading-tight ${
+          className={`block font-semibold tracking-tight leading-tight ${
             enabled ? "text-[#111111]" : "text-black/30"
           }`}
+          style={{ fontSize: fs(15) }}
         >
           {label}
         </span>
         <span
-          className={`block text-[9.5px] tracking-[0.16em] font-medium mt-1 ${
+          className={`block tracking-[0.16em] font-medium mt-1 ${
             enabled ? "text-black/30" : "text-black/15"
           }`}
+          style={{ fontSize: fs(9.5) }}
         >
           {labelEn}
         </span>
@@ -147,10 +158,16 @@ export function EnsembleToolsSheet({
       >
         {/* 标题区 */}
         <div className="px-1.5 mb-5">
-          <div className="text-[26px] font-bold tracking-tight text-[#111111] leading-none">
+          <div
+            className="font-bold tracking-tight text-[#111111] leading-none"
+            style={{ fontSize: fs(26) }}
+          >
             功能
           </div>
-          <div className="text-[10px] tracking-[0.28em] font-medium text-black/30 mt-2">
+          <div
+            className="tracking-[0.28em] font-medium text-black/30 mt-2"
+            style={{ fontSize: fs(10) }}
+          >
             TOOLS
           </div>
         </div>
@@ -170,7 +187,8 @@ export function EnsembleToolsSheet({
         <button
           type="button"
           onClick={onClose}
-          className="w-full mt-3 py-3.5 rounded-[16px] bg-white/70 text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+          className="w-full mt-3 py-3.5 rounded-[16px] bg-white/70 font-medium text-black/55 active:scale-[0.985] transition-transform"
+          style={{ fontSize: fs(14) }}
         >
           取消
         </button>

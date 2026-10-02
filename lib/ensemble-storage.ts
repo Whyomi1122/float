@@ -74,6 +74,60 @@ export type EnsembleScript = {
    * 缺省则走 resolveEnsembleApiConfig 的级联兜底。
    */
   apiConfigIdOverride?: string;
+  /**
+   * 模型切换：当前剧本在该 API 下指定的具体模型名。
+   * 与 apiConfigIdOverride 配合：先定 API，再定模型。
+   * ⚠️ 只覆盖本剧本，不回写全局设置的 defaultModel。
+   */
+  modelOverride?: string;
+  /**
+   * 时间感知：让 AI 知道「现在是几点」。
+   * realtime=true 时注入真实系统时间；否则用 anchor 指定的虚拟时间锚点。
+   */
+  timeAwareness?: {
+    enabled: boolean;
+    /** true=跟随真实时间；false=使用下方虚拟锚点 */
+    realtime: boolean;
+    /** 虚拟时间锚点（ISO 字符串，realtime=false 时生效） */
+    anchor?: string;
+    /** 虚拟锚点的自然语言描述，例如「深冬的凌晨三点」 */
+    anchorLabel?: string;
+  };
+  /**
+   * 世界书：本剧本启用的全局世界书 id 列表。
+   * ⚠️ 只存 id 引用，内容实时从「设置 → 世界书」读取，避免快照过期。
+   */
+  worldBookIds?: string[];
+  /**
+   * 杀青归档：已归档的剧情档案（增量式，可撤销）。
+   * 每次归档压入一条，条目自带已覆盖到哪一幕的锚点。
+   */
+  archives?: EnsembleArchiveEntry[];
+  /**
+   * 状态面板：字段定义 + 模板（对齐图 3 的「字段时间 / 模板」两段式）。
+   * 未启用时 AI 不生成状态数据。
+   */
+  statusPanel?: {
+    enabled: boolean;
+    fields: { key: string; desc: string; max?: number }[];
+    template: string;
+    /** 模板引擎：HTML/CSS/JS 全放开时为 "html" */
+    engine: "html" | "text";
+  };
+};
+
+/** 一次「杀青」归档的记录（支持撤销到上一版） */
+export type EnsembleArchiveEntry = {
+  id: string;
+  createdAt: string;
+  /** 归档覆盖到的最后一幕 id（用于增量：下次只归档这之后的新剧情） */
+  lastTurnId?: string;
+  /** 归档时已处理的幕数快照 */
+  turnCount: number;
+  /** 剧情档案正文（可编辑） */
+  content: string;
+  /** 生成这份档案用的模型名，便于「换个模型重来」 */
+  model?: string;
 };
 
 const STORAGE_KEY_SCRIPTS = "float_ensemble_scripts_v1";
@@ -204,6 +258,91 @@ export function updateEnsembleTurn(
     turns: scripts[idx].turns.map((t) =>
       t.id === turnId ? { ...t, ...patch } : t
     ),
+    updatedAt: new Date().toISOString(),
+  };
+  scripts[idx] = updated;
+  saveEnsembleScripts(scripts);
+  return updated;
+}
+
+/**
+ * 只把某一幕的展示内容换掉（重 roll 翻页 / 删掉一版后切到相邻版用）。
+ * ⚠️ 与 updateEnsembleTurn 的区别：这里**不走 Partial 语义**，只动 content/tokens，
+ * 其余字段（model、timestamp 等）一律保留，避免翻页时把模型名改花。
+ */
+export function setTurnDisplayContent(
+  scriptId: string,
+  turnId: string,
+  content: string
+): EnsembleScript | null {
+  const scripts = loadEnsembleScripts();
+  const idx = scripts.findIndex((s) => s.id === scriptId);
+  if (idx < 0) return null;
+  const updated: EnsembleScript = {
+    ...scripts[idx],
+    turns: scripts[idx].turns.map((t) =>
+      t.id === turnId
+        ? { ...t, content, tokens: Math.ceil(content.length * 1.3) }
+        : t
+    ),
+    updatedAt: new Date().toISOString(),
+  };
+  scripts[idx] = updated;
+  saveEnsembleScripts(scripts);
+  return updated;
+}
+
+// ── 杀青归档（增量、可撤销） ──────────────────────────────
+
+/** 追加一次归档记录，返回更新后的剧本 */
+export function appendEnsembleArchive(
+  scriptId: string,
+  entry: EnsembleArchiveEntry
+): EnsembleScript | null {
+  const scripts = loadEnsembleScripts();
+  const idx = scripts.findIndex((s) => s.id === scriptId);
+  if (idx < 0) return null;
+  const updated: EnsembleScript = {
+    ...scripts[idx],
+    archives: [...(scripts[idx].archives ?? []), entry],
+    updatedAt: new Date().toISOString(),
+  };
+  scripts[idx] = updated;
+  saveEnsembleScripts(scripts);
+  return updated;
+}
+
+/** 覆盖某一版归档正文（剧情档案可编辑） */
+export function setArchiveContent(
+  scriptId: string,
+  archiveId: string,
+  content: string
+): EnsembleScript | null {
+  const scripts = loadEnsembleScripts();
+  const idx = scripts.findIndex((s) => s.id === scriptId);
+  if (idx < 0) return null;
+  const updated: EnsembleScript = {
+    ...scripts[idx],
+    archives: (scripts[idx].archives ?? []).map((a) =>
+      a.id === archiveId ? { ...a, content } : a
+    ),
+    updatedAt: new Date().toISOString(),
+  };
+  scripts[idx] = updated;
+  saveEnsembleScripts(scripts);
+  return updated;
+}
+
+/** 撤销上一次杀青（弹出最后一条归档，回到「未杀青」状态） */
+export function undoLastEnsembleArchive(scriptId: string): EnsembleScript | null {
+  const scripts = loadEnsembleScripts();
+  const idx = scripts.findIndex((s) => s.id === scriptId);
+  if (idx < 0) return null;
+  const list = scripts[idx].archives ?? [];
+  if (list.length === 0) return scripts[idx];
+  const updated: EnsembleScript = {
+    ...scripts[idx],
+    archives: list.slice(0, -1),
     updatedAt: new Date().toISOString(),
   };
   scripts[idx] = updated;
