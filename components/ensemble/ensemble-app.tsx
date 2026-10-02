@@ -34,6 +34,7 @@ import type { UserIdentity } from "@/components/settings/user-identity";
 import {
   EnsembleScript,
   EnsembleTurn,
+  EnsembleCastMember,
   loadEnsembleScripts,
   saveOrUpdateEnsembleScript,
   deleteEnsembleScript,
@@ -48,6 +49,13 @@ import {
 // appId 使用 "ensemble"（已注册进 ContentAppId），可在
 // 「设置 → 绑定」里为群像单独指定 API，未指定则继承全局默认。
 // ══════════════════════════════════════════════════════════
+
+// 文字缩放：群像此前用的是硬编码 text-[Npx]，不读全局 --app-text-scale，
+// 于是「设置 → 主题 → 文字缩放」在群像里完全不生效（用户实机验证过）。
+// 现在统一走 ts()，与《功能》面板的 fs() 是同一套约定。
+function ts(px: number): string {
+  return `calc(${px}px * var(--app-text-scale, 1))`;
+}
 
 const ENSEMBLE_APP_ID = "ensemble";
 
@@ -173,7 +181,10 @@ function TriColorText({
   const segs = parseTriColor(raw);
   const pal = palette ?? GS_COLORS;
   return (
-    <div className="text-[14.5px] leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-3">
+    <div
+      className="leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-3"
+      style={{ fontSize: ts(14.5) }}
+    >
       {segs.map((s, i) => {
         if (s.type === "plain") {
           const text = s.text.trim();
@@ -190,8 +201,8 @@ function TriColorText({
           return (
             <div
               key={i}
-              style={{ color: pal.act }}
-              className="whitespace-pre-wrap text-[13.5px] leading-[1.85]"
+              style={{ color: pal.act, fontSize: ts(13.5) }}
+              className="whitespace-pre-wrap leading-[1.85]"
             >
               {s.text}
             </div>
@@ -203,8 +214,8 @@ function TriColorText({
           return (
             <div
               key={i}
-              style={{ color: pal.inn }}
-              className="whitespace-pre-wrap text-[13.5px] leading-[1.85]"
+              style={{ color: pal.inn, fontSize: ts(13.5) }}
+              className="whitespace-pre-wrap leading-[1.85]"
             >
               {s.text}
             </div>
@@ -215,7 +226,7 @@ function TriColorText({
         return (
           <div
             key={i}
-            style={{ color: pal.dial }}
+            style={{ color: pal.dial, fontSize: ts(14.5) }}
             className="whitespace-pre-wrap font-medium leading-[1.85] -mt-0.5"
           >
             {s.text}
@@ -224,6 +235,68 @@ function TriColorText({
       })}
     </div>
   );
+}
+
+// ──────────────────────────────────────────────────────────────
+// 把模型返回的「一条多角色剧本」切成每人一幕。
+//
+// 模型被要求用「角色名：」起头分隔。但真实输出经常带小动作：
+// 行首空格、被 ** 或 # 包住、用全角冒号、甚至把名字写在「（动作）」里。
+// 所以这里做三级判断：行首标记 → 逐行扫描 → 整段兜底。
+// 切不出来时宁可全部归给第一个角色，也不丢内容。
+// ──────────────────────────────────────────────────────────────
+function splitActorReply(
+  text: string,
+  actors: EnsembleCastMember[],
+  allCast: EnsembleCastMember[]
+): { sender: EnsembleCastMember; content: string }[] {
+  const findByName = (raw: string): EnsembleCastMember | undefined => {
+    const n = raw.trim().replace(/^[-*#>\s]+|[-*#\s:：]+$/g, "");
+    if (!n) return undefined;
+    return (
+      actors.find((a) => a.name === n) ||
+      actors.find((a) => n.startsWith(a.name) || a.name.startsWith(n)) ||
+      allCast.find((a) => a.name === n)
+    );
+  };
+
+  const lines = text.split(/\r?\n/);
+  const segments: { sender: EnsembleCastMember; lines: string[] }[] = [];
+  const preamble: string[] = [];
+
+  for (const line of lines) {
+    // 行首标记：可选的 * # > - 序号，然后是角色名 + 冒号
+    const m = line.match(
+      /^\s*(?:[*#>]{1,3}\s*)?(?:\d+[.、)]\s*)?\*{0,2}\s*([^\s:："“（(【\[]{1,12})\s*[:：]\s*(.*)$/
+    );
+    const hit = m ? findByName(m[1]) : undefined;
+    if (hit) {
+      segments.push({ sender: hit, lines: m![2] ? [m![2]] : [] });
+    } else if (segments.length > 0) {
+      segments[segments.length - 1].lines.push(line);
+    } else {
+      preamble.push(line);
+    }
+  }
+
+  const cleaned = segments
+    .map((s) => ({
+      sender: s.sender,
+      content: s.lines.join("\n").trim(),
+    }))
+    .filter((s) => s.content.length > 0);
+
+  // 模型没写角色名（整段一个角色）→ 全部归给第一个，前面那点铺垫也带上，不丢字
+  if (cleaned.length === 0) {
+    const body = [...preamble, ...lines].join("\n").trim();
+    return body && actors[0] ? [{ sender: actors[0], content: body }] : [];
+  }
+
+  // 开头的空镜头（比如环境描写）挂在第一个角色头上，避免正文出现断头
+  const pre = preamble.join("\n").trim();
+  if (pre) cleaned[0].content = `${pre}\n\n${cleaned[0].content}`;
+
+  return cleaned;
 }
 
 // 旁白卡：复刻目标截图的「黑底 P 图标 + NARRATION 标签」样式
@@ -578,6 +651,14 @@ export function EnsembleApp({
   const [showPaletteSheet, setShowPaletteSheet] = useState(false);
   const [showCssSheet, setShowCssSheet] = useState(false);
   const [showModelSheet, setShowModelSheet] = useState(false);
+  /** 剧本设置（输出长度）子弹窗 */
+  const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  /** 剧本设置里「每轮字数」的草稿值，点保存才落库（= 每个角色各自的字数） */
+  const [charsDraft, setCharsDraft] = useState(600);
+  /** 剧本设置里「每轮登场角色数」的草稿值（群像：一轮至少两个角色） */
+  const [actorsDraft, setActorsDraft] = useState(2);
+  /** 自定义 CSS 的实时预览开关（预览时把草稿即时注入，不落库） */
+  const [cssPreviewOn, setCssPreviewOn] = useState(true);
   const [cssDraft, setCssDraft] = useState("");
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
@@ -751,17 +832,27 @@ export function EnsembleApp({
     if (!opts?.rerollTurnId) setApiError(null);
     try {
       const lastTurn = script.turns[script.turns.length - 1];
-      let nextActor = script.cast[0];
-      if (opts?.forceActorId) {
-        nextActor =
-          script.cast.find((c) => c.id === opts.forceActorId) ?? script.cast[0];
-      } else if (lastTurn) {
-        const otherActors = script.cast.filter((c) => c.id !== lastTurn.senderId);
-        if (otherActors.length > 0) {
-          nextActor = otherActors[Math.floor(Math.random() * otherActors.length)];
-        }
-      }
+      // 只用于「取哪个 API 配置」的绑定锚点：整个剧本走同一套 API，
+      // 谁的 id 都行，优先用钦定角色（重 roll），否则用第一个角色。
+      const bindActorId = opts?.forceActorId || script.cast[0]?.id;
 
+      // ── 本轮演员表（群像核心）──
+      // 关键设计：**由模型按剧情需要决定谁出场、各写多长**，不是由 App 预先钦点。
+      // 早先两版都错了：
+      //   ① 一版固定「一次只出一个人」→ 群像名存实亡；
+      //   ② 一版固定「一轮排 N 个人、每人 X 字」→ 变成配额制，人手一个坑，
+      //      剧情被人数和字数绑架，短剧本还会把戏份从别的角色身上匀走。
+      // 正确的做法是像写小说：这一轮该谁上场、写多长，由故事本身决定。
+      // 所以这里只做「候选范围」的约束（谁在场上、谁禁止出现），
+      // 具体点名交给模型，见下方提示词的「选角」段落。
+      // forceActorId（重 roll 指定某角色）优先级最高：那就是钦定必须由 TA 开场。
+      const forced =
+        opts?.forceActorId
+          ? script.cast.find((c) => c.id === opts.forceActorId)
+          : undefined;
+
+      // 钦定角色（仅重 roll 需要）——整轮回复不再由 App 预设演员表。
+      const actorQueue: EnsembleCastMember[] = forced ? [forced] : [];
       const castDesc = script.cast
         .map((c) => `- ${c.name}: ${c.persona || "暂无特别设定"}`)
         .join("\n");
@@ -778,44 +869,82 @@ export function EnsembleApp({
           ? `\n【剧本全局旁白与背景设定】\n${script.background.trim()}\n`
           : "";
 
-      const systemPrompt = `你正在参与一场名为《${script.title}》的群像互动剧本。
-当前参演角色阵容：
+      // 每轮输出长度：剧本级可调（「功能 → 剧本设置」）。
+      // charsPerTurn 是给模型看的「整轮总字数目标」；maxTokensPerTurn 是硬护栏。
+      //
+      // ⚠️ token 护栏的三大坑（此前截断的根因全在这里）：
+      //   ① 护栏太紧：整轮目标 chars 直接 ×1.6 换算，没给「多个角色分段」
+      //      带来的重复格式开销留量；
+      //   ② 最致命的是【thinking 模型】：像 gemini-3.8-flash-high 这类带
+      //      思维链的模型，CoT 也计入 maxOutputTokens。护栏按正文换算时，
+      //      思考一长就把正文的预算吃光，模型只能草草收笔 ——
+      //      这正是截图里 TOKENS=236、以「——」收尾的成因。
+      //   ③ 所以这里给 3 倍余量：宁可护栏宽到用不完（模型自己会停），
+      //      也绝不让护栏比正文先到。
+      const charsPerTurn = Math.max(60, script.charsPerTurn ?? 800);
+      const totalChars = charsPerTurn;
+      const effectiveMaxTokens =
+        script.maxTokensPerTurn ?? Math.max(4096, Math.ceil(totalChars * 1.6 * 3));
+
+      // 上一轮的主说话人：默认只在「被别人搭话」时出现，避免同一人连着霸场。
+      const lastSpeakerNote = lastTurn
+        ? `\n【上一幕的说话人】${lastTurn.senderName}。除非剧情里有人明确对他开口、他必须回应，否则这一幕请让**别的角色**主导，不要又从头到尾都是他。`
+        : "";
+
+      const systemPrompt = `你是一位擅长群像叙事的小说作者，正在续写互动剧本《${script.title}》。
+
+═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
 ${narrationBlock}
-你现在必须【完全代入并扮演角色：${nextActor.name}】。
+═══════════ 三色排版规范（硬性，违反即视为错误）═══════════
+正文只能用下面三种标记，且语义严格对应、不得串用：
+   （动作或环境细节）  —— 全角圆括号：外部动作、神态、环境变化
+   "台词内容"          —— 全角双引号：说出口的话（台词**必须**用引号，严禁裸写）
+   【内心独白】         —— 全角方括号：心理活动、未说出口的念头
 
-═══════════ 输出格式铁律（违反即失败）═══════════
-这是硬性约束，优先级高于一切写作习惯，必须逐条执行：
+每个出场角色用一行「角色名：」起头，例如：
+   金成帝：
+   （他抬眼扫过来，语气压得很低）"别动。"
+   【这人又在硬撑。】
+   岳霖玉：
+   （指尖一颤，笔尖停在纸上）"我……我自己来。"
 
-1. 只输出你扮演的「${nextActor.name}」一个人的内容。
-   严禁替其他角色写台词、写动作、写心理。
-   严禁使用「${nextActor.name}：」「${nextActor.name}说」这类前缀。
-   严禁输出任何章节标题、Markdown 标题、序号或舞台说明。
+═══════════ 选角：这一幕谁上场，由你按剧情决定 ═══════════
+这是群像剧，核心是**多角色在同一幕里真实互动**，不是轮流独白。
 
-2. 正文只用下面三种标记包裹，除此之外不得出现任何其他符号（不要书名号《》、不要波浪号、不要星号 *、不要井号 #、不要破折号堆叠）：
-   （动作或环境细节）   —— 全角圆括号
-   "台词内容"           —— 全角双引号
-   【内心独白】          —— 全角方括号
+1. 你要自己判断：接着上一幕的情境，**这一幕该有哪几个角色在场**。
+   可以是一个人独自反应，也可以两三个人交锋 —— 由故事需要决定，不必每轮人数相同。
+2. 但只要这一幕出现了两个及以上角色，他们之间**必须有真实交流**：
+   后一个角色要承接、回应、打断或反驳前一个角色的言行，产生摩擦、试探、
+   沉默或转折。严禁各写各的、互不相干。
+3. 除确有必要，同一幕请优先让**不同角色**都有戏份，不要总是同一个人在说话。
+${lastSpeakerNote}
+4. 未在本幕出场的角色，一个字都不要替他们写（不要预告、不要提及他们的心理）。
 
-3. 三色语义严格对应，不得串用：
-   圆括号（）= 动作、神态、环境变化 —— 唯一允许描写外部动作的地方
-   双引号"" = 说出口的对白台词 —— 唯一允许出现说话内容的地方
-   方括号【】= 心理活动、未说出口的念头
+═══════════ 篇幅：由剧情决定，写透为止 ═══════════
+5. 这一幕整轮合计约 ${charsPerTurn} 字（这是**参考量级，不是硬指标**）。
+   重要的是**把这场戏写完整、写透**：
+   - 该展开的冲突、该给的反应、该有的转折，都要写到位，不要因为"怕超字数"提前收笔；
+   - 但也不要为了凑字数灌水、重复已知信息、或让角色说废话。
+6. 各角色篇幅**不必平均**：谁在这场戏里是重心，谁就多写；
+   只是被带到的角色，几句也可以。让节奏自然，不要人均配额。
 
-4. 台词必须放在双引号里，不得裸写；心理活动必须放进方括号，不得混在动作里。
+═══════════ 结尾（此前最容易出错的地方，务必遵守）══════════
+7. 你可以让剧情停在悬念上（"话没说完的事" 留给读者想象），
+   但**表达本身必须是完整闭合的**：
+   - 严禁把句子写到一半就断掉，严禁用「——」「……」「，」作为全篇的最后一个字符；
+   - 整段的最后一句必须是语法完整、语义闭合的句子，用句号(。)、问号(？)或叹号(！)收尾。
+   - ✅ 正确示范：他伸手去够那个信封，指尖停在半空，终究没有落下去。
+   - ❌ 错误示范：他伸手去够那个信封，正要——
+   （注意：写"动作进行中"没问题，但要把那个动作写成一句完整的话，而不是切在半途。）
 
-5. 篇幅 150～400 字。宁短勿长，写不完就留到下一轮，不要匆忙收尾。
-   结尾必须留一个「未完成动作」或「未说完的话」，把戏剧张力交给下一位角色。
+═══════════ 其它硬性要求 ═══════════
+8. 严禁输出章节标题、Markdown 标题（#）、序号列表、舞台说明、作者点评或总结。
+   严禁跳出角色当作者。严禁使用星号 *、书名号《》、波浪号、井号。
+9. 严格贴合每个角色的视角、语气、身份和性格，说话方式要有辨识度。
+10. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。`;
 
-6. 禁止总结、禁止旁白点评、禁止跳出角色。你就是 ${nextActor.name}，不是作者。
-═══════════════════════════════════════
-
-写作要求：
-1. 严格贴合《${nextActor.name}》的视角、语气、身份和性格，说话方式要有辨识度。
-2. 紧扣上一幕的情节推进，自然地产生新的张力、冲突或情感转折，不要复述已知信息。
-3. 允许与上一个说话的角色产生直接交流（回应 TA 的话、打断、反问），但不要替 TA 发言。`;
-
-      // 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成
+      // ── 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成 ──
       const contextTurns = opts?.rerollTurnId
         ? script.turns.filter((t) => t.id !== opts.rerollTurnId)
         : script.turns;
@@ -830,7 +959,7 @@ ${narrationBlock}
 
       // ── 走绑定桥：从「设置 → API 配置」取真实配置 ──
       const apiConfig = resolveEnsembleApiConfig(
-        nextActor.id,
+        bindActorId,
         script.apiConfigIdOverride,
         script.modelOverride
       );
@@ -846,9 +975,12 @@ ${narrationBlock}
       }
 
       const result = await simpleLLMCall(apiConfig, messagesPayload, {
-        temperature: 0.85,
-        max_tokens: script.maxTokensPerTurn ?? 8192,
-        label: `群像·${nextActor.name}`,
+        temperature: 0.9,
+        max_tokens: effectiveMaxTokens,
+        // 标签用途只是日志里认人，全员名单可能很长，截断到前 3 个即可。
+        label: `群像·${script.cast.slice(0, 3).map((c) => c.name).join("/")}${
+          script.cast.length > 3 ? "等" : ""
+        }`,
       });
 
       let replyContent = (result.content || "").trim();
@@ -859,29 +991,72 @@ ${narrationBlock}
         return null;
       }
 
-      replyContent = replyContent.replace(new RegExp(`^\\[?${nextActor.name}\\]?[:：]?\\s*`), "").trim();
+      // 有些模型会习惯性在整段最前面加一次「角色名：」，先削掉。
+      // 这里是整轮回复，开场未必是 cast[0]，所以按「任意已知角色名」去削。
+      const anyCastName = script.cast.map((c) => c.name).join("|");
+      if (anyCastName) {
+        replyContent = replyContent
+          .replace(new RegExp(`^\\[?(${anyCastName})\\]?[:：]\\s*`), "")
+          .trim();
+      }
 
-      // 重 roll 模式：只把新内容交回调用方，由调用方决定怎么更新 rollsMap
+      // 截断检测（此前的「东西给我，先——」断句）：
+      // ① finishReason=length → 请求侧 token 上限先到，内容被硬切；
+      // ② 正文以破折号/省略号/逗号收尾 → 模型自己写到一半停了。
+      // token 护栏已按整轮字数 ×3 放宽（含 thinking 余量），①基本不会再触发。
+      const brokenTail = /[—–\-]{1,2}\s*$|[.．…]{2,}\s*$|[，,]\s*$/.test(replyContent);
+      const hitTokenCap = result.wasTruncated === true;
+
+      if (!opts?.rerollTurnId && (hitTokenCap || brokenTail)) {
+        setApiError(
+          hitTokenCap
+            ? "这一轮被 token 上限截断了（模型没写完）。到「功能 → 剧本设置」把每轮字数调大一点再试。"
+            : "这一轮的结尾是断句（模型自己没写完整）。重 roll 一次一般就好。"
+        );
+      }
+
+      // 重 roll 模式：只把新内容交回调用方（原文保持整段，交给调用方按角色分割）
       if (opts?.rerollTurnId) {
         return replyContent;
       }
 
-      const nextTurn: EnsembleTurn = {
-        id: "turn_" + Date.now(),
-        senderId: nextActor.id,
-        senderName: nextActor.name,
+      // ── 把「一条多角色文本」切成多幕，每人一幕 ──
+      // 出场角色由模型决定，所以这里传全员，让 splitActorReply 按正文里
+      // 实际出现的「角色名：」去认领；认不出的一律兜底给最后一个已知角色。
+      const slices = splitActorReply(replyContent, script.cast, script.cast);
+      const baseTs = Date.now();
+      const baseIso = new Date().toISOString();
+      const nextTurns: EnsembleTurn[] = slices.map((sl, i) => ({
+        id: `turn_${baseTs}_${i}`,
+        senderId: sl.sender.id,
+        senderName: sl.sender.name,
         senderType: "character",
-        content: replyContent,
-        timestamp: new Date().toISOString(),
-        tokens: Math.ceil(replyContent.length * 1.3),
+        content: sl.content,
+        timestamp: baseIso,
+        tokens: Math.ceil(sl.content.length * 1.3),
         model: apiConfig.defaultModel || apiConfig.name || undefined,
-      };
+      }));
 
-      const updated = appendEnsembleTurn(script.id, nextTurn);
-      if (updated) {
-        setCurrentScript(updated);
-        setScripts(loadEnsembleScripts());
+      // 兜底：切分失败也要留下内容，绝不静默丢稿
+      if (nextTurns.length === 0) {
+        nextTurns.push({
+          id: `turn_${baseTs}`,
+          senderId: script.cast[0]?.id,
+          senderName: script.cast[0]?.name ?? "未知角色",
+          senderType: "character",
+          content: replyContent,
+          timestamp: baseIso,
+          tokens: Math.ceil(replyContent.length * 1.3),
+          model: apiConfig.defaultModel || apiConfig.name || undefined,
+        });
       }
+
+      let updated = script;
+      for (const t of nextTurns) {
+        updated = appendEnsembleTurn(updated.id, t) ?? updated;
+      }
+      setCurrentScript(updated);
+      setScripts(loadEnsembleScripts());
       return replyContent;
     } catch (e) {
       console.error("AI turn generation failed:", e);
@@ -1021,7 +1196,11 @@ ${narrationBlock}
 
   /** 打开「模型切换」：默认停在 API 一级列表，重置上次的二级态 */
   const openModelSheet = () => {
-    setApiConfigList(loadApiConfigs());
+    // 硅基流动只服务于「全局设置 → 记忆向量」等系统级工具，不作为群像的对话模型，
+    // 因此这里直接把它从一级 API 列表里滤掉（配置本身仍保留在全局设置中）。
+    setApiConfigList(
+      loadApiConfigs().filter((cfg) => cfg.provider !== "SiliconFlow")
+    );
     setModelPickerApiId(null);
     setModelNameList([]);
     setModelListError(null);
@@ -1433,6 +1612,42 @@ ${narrationBlock}
 
   return (
     <div className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
+      {/* ensemble-text-scale-bridge（说明见 scripts/ensure-ensemble-visual-provider.py） */}
+      <style
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{
+          __html: `
+.ensemble-scope{font-size:calc(14px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[8px\]{font-size:calc(8px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[9px\]{font-size:calc(9px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[9\.5px\]{font-size:calc(9.5px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[10px\]{font-size:calc(10px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[10\.5px\]{font-size:calc(10.5px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[11px\]{font-size:calc(11px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[11\.5px\]{font-size:calc(11.5px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[12px\]{font-size:calc(12px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[12\.5px\]{font-size:calc(12.5px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[13px\]{font-size:calc(13px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[13\.5px\]{font-size:calc(13.5px * calc(var(--app-text-scale,1)));}
+.ensemble-scope .text-\[14\.5px\]{font-size:calc(14.5px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[15px\]{font-size:calc(15px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[15\.5px\]{font-size:calc(15.5px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[16px\]{font-size:calc(16px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[17px\]{font-size:calc(17px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[18px\]{font-size:calc(18px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[19px\]{font-size:calc(19px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[20px\]{font-size:calc(20px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[22px\]{font-size:calc(22px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[24px\]{font-size:calc(24px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[26px\]{font-size:calc(26px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[28px\]{font-size:calc(28px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[30px\]{font-size:calc(30px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[34px\]{font-size:calc(34px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[40px\]{font-size:calc(40px * var(--app-text-scale,1));}
+          `,
+        }}
+      />
+
       {/* 剧本级自定义 CSS：仅作用于本 App 的 .ensemble-scope 命名空间 */}
       {currentScript?.customCss?.trim() ? (
         <style
@@ -1809,6 +2024,10 @@ ${narrationBlock}
               if (id === "narration") {
                 setNarrationSettingText(currentScript.background || "");
                 setShowNarrationModal(true);
+              } else if (id === "scriptSettings") {
+                setCharsDraft(currentScript.charsPerTurn ?? 600);
+                setActorsDraft(currentScript.actorsPerTurn ?? 2);
+                setShowSettingsSheet(true);
               } else if (id === "palette") {
                 setShowPaletteSheet(true);
               } else if (id === "customCss") {
@@ -1946,6 +2165,133 @@ ${narrationBlock}
             </MiniSheet>
           )}
 
+          {/* ═══════════ 子弹窗 2.5：剧本设置（每轮输出长度） ═══════════ */}
+          {showSettingsSheet && (() => {
+            // 与 triggerAiTurn 里的换算保持同一套公式，UI 上直接展示真实生效值，
+            // 避免"面板上写 600 字、实际被 900 token 掐断"这种不一致。
+            const effectiveTokens = Math.max(1024, Math.ceil(charsDraft * 1.6 * 1.4));
+            const estMinutes = Math.round((charsDraft / 400) * 10) / 10;
+            const presets: { label: string; value: number; hint: string }[] = [
+              { label: "短", value: 300, hint: "约 3 句话" },
+              { label: "中", value: 600, hint: "推荐" },
+              { label: "长", value: 1000, hint: "约 2 段" },
+              { label: "超长", value: 1600, hint: "慢" },
+            ];
+            return (
+              <MiniSheet
+                title="剧本设置"
+                subtitle="SCRIPT SETTINGS"
+                onClose={() => setShowSettingsSheet(false)}
+                onBack={backToTools}
+              >
+                <div className="bg-white rounded-[16px] p-4 space-y-4">
+                  <div className="flex items-baseline justify-between">
+                    <div>
+                      <div className="text-[13px] font-semibold text-[#111111]">
+                        每轮输出长度
+                      </div>
+                      <div className="text-[10px] text-black/35 mt-0.5">
+                        单个角色一次输出的目标字数
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[19px] font-bold text-[#111111] tabular-nums">
+                        {charsDraft}
+                      </span>
+                      <span className="text-[11px] text-black/40 ml-0.5">字</span>
+                    </div>
+                  </div>
+
+                  <input
+                    type="range"
+                    min={150}
+                    max={2000}
+                    step={50}
+                    value={charsDraft}
+                    onChange={(e) => setCharsDraft(Number(e.target.value))}
+                    className="w-full accent-[#111111]"
+                  />
+
+                  <div className="flex items-center justify-between text-[9.5px] text-black/30 font-mono">
+                    <span>150 短</span>
+                    <span>2000 长</span>
+                  </div>
+
+                  {/* 预设：短/中/长/超长 */}
+                  <div className="grid grid-cols-4 gap-2">
+                    {presets.map((p) => {
+                      const active = charsDraft === p.value;
+                      return (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => setCharsDraft(p.value)}
+                          className={`py-2.5 rounded-[12px] text-center transition-transform active:scale-95 ${
+                            active ? "bg-[#111111] text-white" : "bg-black/[0.05] text-black/60"
+                          }`}
+                        >
+                          <span className="block text-[12px] font-semibold">{p.label}</span>
+                          <span
+                            className={`block text-[9px] mt-0.5 ${
+                              active ? "text-white/55" : "text-black/35"
+                            }`}
+                          >
+                            {p.hint}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 生效值说明：让用户看得见 token 护栏，理解为什么会关联 */}
+                <div className="bg-white rounded-[16px] p-3.5">
+                  <div className="text-[10.5px] leading-relaxed text-black/45">
+                    保存后，模型请求的 token 上限会自动放宽到{" "}
+                    <span className="font-mono text-black/70">{effectiveTokens}</span>
+                    （1 字 ≈ 1.6 token，再留 40% 余量），
+                    确保「字数目标」先于「token 上限」到达，不会写出半截。
+                    {estMinutes >= 6 ? (
+                      <span className="block mt-1.5 text-black/35">
+                        注意：超长输出生成较慢，预计需 {estMinutes} 秒以上。
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setCharsDraft(600)}
+                    className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  >
+                    恢复默认
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = {
+                        ...currentScript,
+                        charsPerTurn: charsDraft,
+                        // 清掉手动 token 上限，交回给字数自动换算，
+                        // 避免旧的 8192 之类的值与新字数目标打架
+                        maxTokensPerTurn: undefined,
+                      };
+                      setCurrentScript(updated);
+                      saveOrUpdateEnsembleScript(updated);
+                      setScripts(loadEnsembleScripts());
+                      setShowSettingsSheet(false);
+                      setToast(`每轮输出已设为 ${charsDraft} 字`);
+                    }}
+                    className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  >
+                    保存
+                  </button>
+                </div>
+              </MiniSheet>
+            );
+          })()}
+
           {/* ═══════════ 子弹窗 3：模型切换（两级：API → 该 API 下的具体模型） ═══════════ */}
           {showModelSheet && (() => {
             const activeApi = modelPickerApiId
@@ -1991,26 +2337,32 @@ ${narrationBlock}
 
                   {!isLoadingModels &&
                     !modelListError &&
-                    modelNameList.map((name) => {
-                      const selected =
-                        currentScript.apiConfigIdOverride === activeApi.id &&
-                        currentScript.modelOverride === name;
-                      return (
-                        <button
-                          key={name}
-                          type="button"
-                          onClick={() => pickModelForApi(activeApi.id, name)}
-                          className="w-full flex items-center gap-3 px-3.5 py-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
-                        >
-                          <span className="flex-1 min-w-0 block text-[14px] font-medium text-[#111111] break-all leading-snug">
-                            {name}
-                          </span>
-                          {selected && (
-                            <Check size={18} className="text-[#111111] shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
+                    modelNameList.length > 0 && (
+                      // 固定 6 行高度（每行 h-[50px] + 行间距 gap-2），超出在内部滚动；
+                      // padding 给选中态/缩放留出余量，避免贴边裁切。
+                      <div className="max-h-[318px] overflow-y-auto overscroll-contain -mx-1 px-1 space-y-2">
+                        {modelNameList.map((name) => {
+                          const selected =
+                            currentScript.apiConfigIdOverride === activeApi.id &&
+                            currentScript.modelOverride === name;
+                          return (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => pickModelForApi(activeApi.id, name)}
+                              className="w-full h-[50px] flex items-center gap-3 px-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
+                            >
+                              <span className="flex-1 min-w-0 block text-[14px] font-medium text-[#111111] truncate leading-snug">
+                                {name}
+                              </span>
+                              {selected && (
+                                <Check size={18} className="text-[#111111] shrink-0" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                 </MiniSheet>
               );
             }

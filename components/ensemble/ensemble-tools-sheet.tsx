@@ -11,6 +11,7 @@ import {
   Layers,
   Music,
   MessageSquareText,
+  SlidersHorizontal,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -32,6 +33,7 @@ function fs(px: number): string {
 
 export type EnsembleToolId =
   | "narration"
+  | "scriptSettings"
   | "time"
   | "worldbook"
   | "wrapup"
@@ -57,6 +59,7 @@ export interface EnsembleToolItem {
 /** 面板条目定义。顺序与目标截图一致。 */
 export const ENSEMBLE_TOOLS: EnsembleToolItem[] = [
   { id: "narration", label: "旁白与设定", labelEn: "NARRATION", Icon: MessageSquareText, enabled: true },
+  { id: "scriptSettings", label: "剧本设置", labelEn: "SCRIPT SETTINGS", Icon: SlidersHorizontal, enabled: true },
   { id: "time", label: "时间感知", labelEn: "TIME AWARENESS", Icon: Clock, enabled: false },
   { id: "worldbook", label: "世界书", labelEn: "WORLD BOOK", Icon: BookOpen, enabled: false },
   { id: "wrapup", label: "杀青归档", labelEn: "WRAP UP", Icon: Archive, enabled: false },

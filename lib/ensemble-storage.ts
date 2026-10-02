@@ -54,6 +54,23 @@ export type EnsembleScript = {
   turns: EnsembleTurn[];
   createdAt: string;
   updatedAt: string;
+  /**
+   * 每轮输出长度（字数目标，给提示词用）。
+   * 「功能 → 剧本设置」可调；缺省 500 字。
+   * 实际请求的 token 上限由它换算（1 字 ≈ 1.6 token + 40% 余量），
+   * 因此调这个值会同步放宽 max_tokens，不会出现「护栏比目标先到」的截断。
+   */
+  charsPerTurn?: number;
+  /**
+   * 每次请求要几个角色依次登场（群像核心参数，缺省 2）。
+   * ⚠️ 这是「一轮里出现几个角色」而不是「一个角色写几个字」，
+   * 二者完全解耦：字数再少也不需要砍角色。
+   */
+  actorsPerTurn?: number;
+  /**
+   * 每轮输出长度的 token 硬上限（高级项）。
+   * 留空则由 charsPerTurn 自动换算；手动指定时会覆盖自动值。
+   */
   maxTokensPerTurn?: number;
   /**
    * 卡片配色（三色体系的自定义覆盖）。
