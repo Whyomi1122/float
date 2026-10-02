@@ -14,6 +14,8 @@ import {
   RefreshCw,
   Pencil,
   Layers,
+  Wrench,
+  Eye,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -382,24 +384,16 @@ function MiniSheet({
         </div>
         <div className="space-y-2.5">{children}</div>
         {onBack ? (
-          <div className="flex items-center gap-2.5 mt-3">
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex-1 py-3.5 rounded-[16px] bg-[#111111] font-semibold text-white active:scale-[0.985] transition-transform"
-              style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
-            >
-              返回功能
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-3.5 rounded-[16px] bg-white/70 font-medium text-black/55 active:scale-[0.985] transition-transform"
-              style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
-            >
-              关闭
-            </button>
-          </div>
+          // 二级面板：底部只保留「返回功能」，关闭交给点遮罩或顶部返回。
+          // 之前这里并排放了「返回功能」+「关闭」，与顶栏形成重复。
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-full mt-3 py-3.5 rounded-[16px] bg-[#111111] font-semibold text-white active:scale-[0.985] transition-transform"
+            style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
+          >
+            返回功能
+          </button>
         ) : (
           <button
             type="button"
@@ -668,6 +662,8 @@ export function EnsembleApp({
   // ── 模型切换（两级：先选 API，再选该 API 下的具体模型） ──
   /** 展开模型二级列表的 API 配置 id（null=停在 API 列表） */
   const [modelPickerApiId, setModelPickerApiId] = useState<string | null>(null);
+  /** 一级列表里「工具调用（硅基流动）」折叠组是否展开 */
+  const [showHiddenApis, setShowHiddenApis] = useState(false);
   /** 该 API 下的模型名列表 */
   const [modelNameList, setModelNameList] = useState<string[]>([]);
   /** 是否正在拉取模型列表 */
@@ -1188,6 +1184,8 @@ ${lastSpeakerNote}
   const backToTools = () => {
     setShowPaletteSheet(false);
     setShowCssSheet(false);
+    // 离开 CSS 面板时丢弃未应用的预览草稿（已保存的 customCss 不受影响）
+    setCssDraft(currentScript?.customCss || "");
     setShowModelSheet(false);
     setModelPickerApiId(null);
     setModelListError(null);
@@ -1196,14 +1194,12 @@ ${lastSpeakerNote}
 
   /** 打开「模型切换」：默认停在 API 一级列表，重置上次的二级态 */
   const openModelSheet = () => {
-    // 硅基流动只服务于「全局设置 → 记忆向量」等系统级工具，不作为群像的对话模型，
-    // 因此这里直接把它从一级 API 列表里滤掉（配置本身仍保留在全局设置中）。
-    setApiConfigList(
-      loadApiConfigs().filter((cfg) => cfg.provider !== "SiliconFlow")
-    );
+    // 这里不做过滤：硅基流动在渲染层被折叠成「工具调用」小按键，需要拿到完整列表。
+    setApiConfigList(loadApiConfigs());
     setModelPickerApiId(null);
     setModelNameList([]);
     setModelListError(null);
+    setShowHiddenApis(false);
     setShowModelSheet(true);
   };
 
@@ -1628,7 +1624,8 @@ ${lastSpeakerNote}
 .ensemble-scope .text-\[12px\]{font-size:calc(12px * var(--app-text-scale,1));}
 .ensemble-scope .text-\[12\.5px\]{font-size:calc(12.5px * var(--app-text-scale,1));}
 .ensemble-scope .text-\[13px\]{font-size:calc(13px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[13\.5px\]{font-size:calc(13.5px * calc(var(--app-text-scale,1)));}
+.ensemble-scope .text-\[13\.5px\]{font-size:calc(13.5px * var(--app-text-scale,1));}
+.ensemble-scope .text-\[14px\]{font-size:calc(14px * var(--app-text-scale,1));}
 .ensemble-scope .text-\[14\.5px\]{font-size:calc(14.5px * var(--app-text-scale,1));}
 .ensemble-scope .text-\[15px\]{font-size:calc(15px * var(--app-text-scale,1));}
 .ensemble-scope .text-\[15\.5px\]{font-size:calc(15.5px * var(--app-text-scale,1));}
@@ -1653,6 +1650,16 @@ ${lastSpeakerNote}
         <style
           // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{ __html: currentScript.customCss }}
+        />
+      ) : null}
+
+      {/* CSS 实时预览：编辑面板打开且开启预览时，把草稿即时注入（不改库）。
+          放在已保存样式之后，同优先级下后者覆盖前者，所见即所得。 */}
+      {showCssSheet && cssPreviewOn && cssDraft.trim() ? (
+        <style
+          data-ensemble-css-preview
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: cssDraft }}
         />
       ) : null}
       {!currentScript ? (
@@ -2032,6 +2039,7 @@ ${lastSpeakerNote}
                 setShowPaletteSheet(true);
               } else if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
+                setCssPreviewOn(true);
                 setShowCssSheet(true);
               } else if (id === "model") {
                 openModelSheet();
@@ -2113,14 +2121,32 @@ ${lastSpeakerNote}
             <MiniSheet
               title="自定义 CSS"
               subtitle="CUSTOM STYLE"
-              onClose={() => setShowCssSheet(false)}
+              onClose={() => {
+                // 关闭时丢弃"未应用"的预览草稿，避免预览态残留
+                setCssDraft(currentScript.customCss || "");
+                setShowCssSheet(false);
+              }}
               onBack={backToTools}
             >
               <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
-                <div className="text-[10.5px] leading-relaxed text-black/45">
-                  只作用于本 App 的画面。用 <span className="font-mono">.ensemble-scope</span>{" "}
-                  作为前缀即可命中（例如{" "}
-                  <span className="font-mono">.ensemble-scope .rounded-2xl {"{...}"}</span>）。
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[10.5px] leading-relaxed text-black/45 flex-1 min-w-0">
+                    只作用于本 App 的画面。用{" "}
+                    <span className="font-mono">.ensemble-scope</span> 作为前缀即可命中。
+                  </div>
+                  {/* 实时预览开关 */}
+                  <button
+                    type="button"
+                    onClick={() => setCssPreviewOn((v) => !v)}
+                    className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10.5px] font-medium transition-colors ${
+                      cssPreviewOn
+                        ? "bg-[#111111] text-white"
+                        : "bg-black/[0.05] text-black/45"
+                    }`}
+                  >
+                    <Eye size={12} strokeWidth={2} />
+                    {cssPreviewOn ? "预览中" : "预览关"}
+                  </button>
                 </div>
                 <textarea
                   value={cssDraft}
@@ -2379,12 +2405,17 @@ ${lastSpeakerNote}
                   先选一条 API，再选该 API 下的具体模型。只对本剧本生效，不改动全局设置。
                 </div>
 
-                {apiConfigList.length === 0 ? (
-                  <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
-                    尚未配置 API，请到「设置 → API 配置」添加
-                  </div>
-                ) : (
-                  apiConfigList.map((cfg) => {
+                {(() => {
+                  // 硅基流动只服务于「全局设置 → 记忆向量」等系统级工具，默认不作为群像对话模型，
+                  // 所以不作为普通项平铺，而是收拢到一行小按键里；点一下才展开。
+                  const visibleApis = apiConfigList.filter(
+                    (cfg) => cfg.provider !== "SiliconFlow"
+                  );
+                  const hiddenApis = apiConfigList.filter(
+                    (cfg) => cfg.provider === "SiliconFlow"
+                  );
+
+                  const renderApiRow = (cfg: ApiConfig) => {
                     const apiSelected = currentScript.apiConfigIdOverride === cfg.id;
                     return (
                       <button
@@ -2421,8 +2452,50 @@ ${lastSpeakerNote}
                         />
                       </button>
                     );
-                  })
-                )}
+                  };
+
+                  if (apiConfigList.length === 0) {
+                    return (
+                      <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
+                        尚未配置 API，请到「设置 → API 配置」添加
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {visibleApis.map(renderApiRow)}
+
+                      {/* 折叠的硅基流动：默认收起成一行小按键，点「展开」才显示 */}
+                      {hiddenApis.length > 0 && (
+                        <div className="rounded-[16px] bg-white overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setShowHiddenApis((v) => !v)}
+                            className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left active:scale-[0.99] transition-transform"
+                          >
+                            <Wrench size={14} strokeWidth={1.9} className="text-black/35 shrink-0" />
+                            <span className="flex-1 text-[12px] font-medium text-black/45">
+                              工具调用（{hiddenApis.length}）
+                            </span>
+                            <ChevronRight
+                              size={15}
+                              strokeWidth={2}
+                              className={`text-black/25 shrink-0 transition-transform ${
+                                showHiddenApis ? "rotate-90" : ""
+                              }`}
+                            />
+                          </button>
+                          {showHiddenApis && (
+                            <div className="px-2 pb-2 space-y-2">
+                              {hiddenApis.map(renderApiRow)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {(currentScript.apiConfigIdOverride ||
                   currentScript.modelOverride) && (
