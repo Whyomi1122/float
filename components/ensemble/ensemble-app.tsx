@@ -137,12 +137,50 @@ export function resolvePalette(override?: {
 interface TriColorSegment {
   type: "act" | "dial" | "inn" | "plain";
   text: string;
+  /** 双语模式下：外语台词对应的中文翻译（渲染在括号里，紧跟台词） */
+  translation?: string;
 }
 
 // 解析三色格式
-export function parseTriColor(raw: string): TriColorSegment[] {
+// bilingual=true 时：把「外语台词（中文翻译）」识别为一个整体 dial 段，
+//   外语原句与（）里的翻译都保留，不被当成动作、也不去符号。
+export function parseTriColor(raw: string, bilingual = false): TriColorSegment[] {
   if (!raw) return [];
   const segments: TriColorSegment[] = [];
+
+  // 双语模式：先抽出「…（…）」形态，外语 + 紧随其后的（）翻译整体成段。
+  // 引号可有可无；（）里允许嵌套，但不多层。
+  if (bilingual) {
+    const biRe = /(?:[“"]([^”"]*)[”"])?\s*([^\n（(]{1,120}?)\s*[（(]([^）)]*)[）)]/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    let matched = false;
+    while ((m = biRe.exec(raw)) !== null) {
+      matched = true;
+      if (m.index > last) {
+        const plain = raw.slice(last, m.index);
+        if (plain) segments.push({ type: "plain", text: plain });
+      }
+      // 外语原句 = m[1]（带引号）优先，否则 m[2]
+      const foreign = (m[1] ?? m[2] ?? "").trim();
+      const zh = (m[3] ?? "").trim();
+      segments.push({
+        type: "dial",
+        text: foreign,
+        translation: zh,
+      });
+      last = biRe.lastIndex;
+    }
+    if (matched) {
+      if (last < raw.length) {
+        const trailing = raw.slice(last);
+        if (trailing) segments.push({ type: "plain", text: trailing });
+      }
+      return segments;
+    }
+    // 没匹配到双语形态 → 退回普通解析
+  }
+
   const regex = /(?:[（\(]([^）\)]*)[）\)])|(?:["“]([^"”]*)[”"])|(?:[【\[]([^】\]]*)[】\]])/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -197,26 +235,31 @@ function TriColorText({
   raw,
   prefix,
   palette,
+  bilingual,
 }: {
   raw: string;
   prefix?: "u";
   palette?: typeof GS_COLORS;
+  bilingual?: boolean;
 }) {
-  const segs = parseTriColor(raw);
+  const segs = parseTriColor(raw, bilingual);
   const pal = palette ?? GS_COLORS;
   return (
+    // 段间距：除旁白外所有块（动作/台词/心理/普通）段距统一且拉大（space-y-5 = 20px，
+    // 与角色块之间的 mt-5 一致，全篇节奏统一）。行距保留 1.9。
     <div
-      className="leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-3"
+      className="leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-5"
       style={{ fontSize: ts(14.5) }}
     >
       {segs.map((s, i) => {
         // 去符号：段内残留的成对标记不渲染（动作圆括号 / 心理方括号 / 台词引号）
-        const body = stripSymbols(s.text).trim();
+        // 双语模式下保留台词引号与翻译括号，不走 stripSymbols。
+        const body = s.text.trim();
         if (!body) return null;
         if (s.type === "plain") {
           return (
             <div key={i} className="whitespace-pre-wrap text-[#2c2c2c]">
-              {body}
+              {stripSymbols(body)}
             </div>
           );
         }
@@ -227,7 +270,7 @@ function TriColorText({
             <div
               key={i}
               style={{ color: pal.act, fontSize: ts(13.5) }}
-              className="whitespace-pre-wrap leading-[1.85]"
+              className="whitespace-pre-wrap leading-[1.9]"
             >
               {body}
             </div>
@@ -240,21 +283,31 @@ function TriColorText({
             <div
               key={i}
               style={{ color: pal.inn, fontSize: ts(13.5) }}
-              className="whitespace-pre-wrap leading-[1.85]"
+              className="whitespace-pre-wrap leading-[1.9]"
             >
               {body}
             </div>
           );
         }
 
-        // 对白：深黑，核心内容，去引号直接呈现
+        // 对白：深黑，核心内容；单独成行。
+        // 双语模式：外语原句（浅色翻译）同行呈现。
         return (
           <div
             key={i}
             style={{ color: pal.dial, fontSize: ts(14.5) }}
-            className="whitespace-pre-wrap font-medium leading-[1.85] -mt-0.5"
+            className="whitespace-pre-wrap font-medium leading-[1.9]"
           >
-            {body}
+            {bilingual && s.translation ? (
+              <>
+                {body}
+                <span className="font-normal" style={{ color: pal.act }}>
+                  （{s.translation}）
+                </span>
+              </>
+            ) : (
+              body
+            )}
           </div>
         );
       })}
@@ -265,15 +318,29 @@ function TriColorText({
 // ──────────────────────────────────────────────────────────────
 // 帧解析缓存：同一 (content, 演员表) 只解析一次。
 // 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
-const __frameCache = new Map<string, EnsembleFrame[]>();
-function framesOfTurn(
+// 时间戳格式化：框底 DATE 需要精确到分钟（2026-10 起，此前只显示到日）。
+// 兼容 ISO 字符串与毫秒数；解析失败时退回原串前 16 位，绝不显示 Invalid Date。
+function formatMinute(ts: string | number | undefined): string {
+  if (ts === undefined || ts === null || ts === "") return "——";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts).slice(0, 16);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(
+    d.getHours()
+  )}:${p(d.getMinutes())}`;
+}
+
+const __frameCache = new Map<string, EnsembleFrame[]>();function framesOfTurn(
   turn: EnsembleTurn,
-  cast: EnsembleCastMember[]
+  cast: EnsembleCastMember[],
+  narrationEnabled = false
 ): EnsembleFrame[] {
-  const key = `${cast.map((c) => c.id).join(",")}|${turn.content}`;
+  const key = `${cast.map((c) => c.id).join(",")}|${narrationEnabled ? 1 : 0}|${turn.content}`;
   const hit = __frameCache.get(key);
   if (hit) return hit;
-  const frames = parseEnsembleReply(turn.content, cast, cast).frames;
+  const frames = parseEnsembleReply(turn.content, cast, cast, {
+    narrationEnabled,
+  }).frames;
   // 简单容量控制：超过 200 条清一次，避免无限增长
   if (__frameCache.size > 200) __frameCache.clear();
   __frameCache.set(key, frames);
@@ -289,25 +356,39 @@ function EnsembleFrameStream({
   frames,
   cast,
   palette,
+  bilingual,
 }: {
   frames: EnsembleFrame[];
   cast: EnsembleCastMember[];
   palette?: typeof GS_COLORS;
+  bilingual?: boolean;
 }) {
   const pal = palette ?? GS_COLORS;
   let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
+  // 帧序：跟踪上一帧是否为旁白，用于给旁白加「上下各 ≥ 一整行」的大段距。
+  let prevWasNarration = false;
 
   return (
-    <div className="space-y-3">
+    // 块与块之间的间隔拉开。仅对「角色块之间」生效，旁白块用自身 my-5 单独控制，
+    // 所以这里不再用统一 space-y，而是逐块自己给上间距。
+    <div>
       {frames.map((f, i) => {
         if (f.kind === "narration") {
+          // 旁白帧：整行被（）包裹只是解析器识别旁白的手段，不留在正文里。
+          // 2026-10 排版：无竖线、无缩进、无斜体（中文斜体是浏览器伪倾斜，几乎看不出，
+          //   韩/日文更糟，故用「灰度 + 大段距」来拉开层级）。
+          // 段间距 ≥ 一整行：上下各 24px（约 1.5 行），首帧不加顶部间距。
+          const narrBody = stripSymbols(f.text);
+          prevWasNarration = true;
           return (
             <div
               key={i}
-              className="text-[#5f5f66] whitespace-pre-wrap leading-[1.9] border-l-2 border-black/[0.10] pl-2.5 ml-0.5"
+              className={`text-[#5f5f66] whitespace-pre-wrap leading-[1.9] ${
+                i === 0 ? "mb-6" : "my-6"
+              }`}
               style={{ fontSize: ts(13.5) }}
             >
-              {f.text}
+              {narrBody}
             </div>
           );
         }
@@ -317,12 +398,20 @@ function EnsembleFrameStream({
           (f.speaker ? cast.find((c) => c.name === f.speaker) : undefined);
         const showName = f.speaker !== lastSpeaker;
         lastSpeaker = f.speaker;
+        // 角色块之间统一间距：换人时给足（20px），同一人的续帧给较小间距（12px）；
+        // 若上一帧是旁白，则不再叠加（旁白自己已带 24px 下间距）。
+        const topMargin = prevWasNarration
+          ? "mt-0"
+          : showName
+            ? "mt-5"
+            : "mt-3";
+        prevWasNarration = false;
 
         return (
-          <div key={i} className={showName ? "pt-0.5" : "pt-1.5"}>
+          <div key={i} className={topMargin}>
             {showName && (
-              <div className="flex items-center gap-2 mb-1.5">
-                <div className="w-6 h-6 rounded-[8px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[10px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className="w-[18px] h-[18px] rounded-full bg-black/[0.06] overflow-hidden flex items-center justify-center text-[9px] font-semibold text-black/55 shrink-0">
                   {member?.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -339,7 +428,11 @@ function EnsembleFrameStream({
                 </div>
               </div>
             )}
-            <TriColorText raw={f.text} palette={pal} />
+            {/* 角色戏份块整体缩进到名字同等位置（缩进 = 头像宽 18 + 间距 6 = 24px），
+                含续帧（未署名）保持同一左边缘。 */}
+            <div className="pl-[24px]">
+              <TriColorText raw={f.text} palette={pal} bilingual={bilingual} />
+            </div>
           </div>
         );
       })}
@@ -907,10 +1000,25 @@ export function EnsembleApp({
           }`
         : "";
 
-      // 旁白与背景设定：仅在 narrationEnabled 为真时注入提示词
+      // 旁白与背景设定：仅在 narrationEnabled 为真时注入提示词。
+      // ⚠️ 语义（2026-10 修正）：开关 =「允许旁白出现」，**不是**「每轮必须有旁白」。
+      //    旁白只在确有必要（换场、时间跳跃、镜头拉远）时才写；
+      //    大多数轮次应当是纯角色互动，不需要旁白。
+      //    另外：旁白 ≠ 开场白。开场白只在「第一轮 + 空白剧本」时由用户设置后出现，
+      //    与本开关是两回事。
       const narrationBlock =
         script.narrationEnabled && script.background?.trim()
-          ? `\n【剧本全局旁白与背景设定】\n${script.background.trim()}\n`
+          ? `
+【剧本全局旁白与背景设定（写作时的背景依据）】
+${script.background.trim()}
+
+关于旁白的使用规则（重要）：
+· 上面这段设定是你的**背景依据**，不是要求你把其中内容抄进正文。
+· 只有当这一幕确实需要交代镜头外的信息时（换场、时间流逝、场景转换），
+  才另起一段写极简的旁白。绝大多数轮次**不需要旁白**。
+· 不要为了「有旁白」而写旁白，不要每轮都写旁白。
+· 除此之外，一切内容都必须由在场角色演出，不要用旁白替角色说话。
+`
           : "";
 
       // 双语语言格式规则：角色说外语时，外语正常写，后面用（）补中文翻译。
@@ -1092,7 +1200,9 @@ ${lastSpeakerNote}
       // 落库时存原文最稳，不会因解析规则调整而丢失模型原始输出。
       const baseTs = Date.now();
       const baseIso = new Date().toISOString();
-      const frames = parseEnsembleReply(replyContent, script.cast, script.cast).frames;
+      const frames = parseEnsembleReply(replyContent, script.cast, script.cast, {
+        narrationEnabled: script.narrationEnabled === true,
+      }).frames;
       // 说话人署名：整幕可能有多人，取帧里首位有归属的说话人作为「幕主导者」，
       // 用于消息流的时间轴归属与头像兜底（纯旁白幕则记为旁白）。
       const leadFrame = frames.find((f) => f.kind === "dialogue");
@@ -2041,16 +2151,23 @@ ${lastSpeakerNote}
                     </div>
                   ) : (
                     <EnsembleFrameStream
-                      frames={framesOfTurn(turn, currentScript.cast)}
+                      frames={framesOfTurn(
+                        turn,
+                        currentScript.cast,
+                        currentScript.narrationEnabled === true
+                      )}
                       cast={currentScript.cast}
                       palette={palette}
+                      bilingual={currentScript.bilingualEnabled === true}
                     />
                   )}
 
                   {/* 元信息 + 操作：全部改为竖排列表，避免重 roll 后横排被挤压看不清 */}
                   <div className="pt-2.5 border-t border-black/[0.045] space-y-1.5">
                     <div className="flex flex-col gap-1 text-[10px] text-black/35 font-mono tracking-tight leading-relaxed">
-                      <span className="block">DATE {turn.timestamp.slice(0, 10)}</span>
+                      <span className="block">
+                        DATE {formatMinute(turn.timestamp)}
+                      </span>
                       {(turn.model || lastModel) && (
                         <span
                           className="block break-all"

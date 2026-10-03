@@ -126,3 +126,48 @@ for (const c of CASES) {
 
 console.log("\n" + "═".repeat(64));
 console.log(`结果：${pass} 通过 / ${fail} 需检查（共 ${CASES.length}）`);
+
+// ──────────────────────────────────────────────────────────────
+// 旁白开关语义（2026-10 修正）：
+//   · narrationEnabled=false（默认）→ 一句旁白都不产出，全部归角色；
+//   · narrationEnabled=true          → 段首整行括号段可判为旁白帧。
+// 这是 BUG2 的回归护栏：未开开关时绝不能再冒出旁白。
+console.log("\n" + "═".repeat(64));
+console.log("旁白开关语义（BUG2/BUG3 回归护栏）");
+console.log("─".repeat(64));
+
+const NARR_CASE = `金成帝：
+（他抬眼扫过来，语气压得很低）"别动。"
+
+（窗外的雨忽然大了，敲得玻璃作响。）
+
+岳霖玉：
+（指尖一颤）"我自己来。"`;
+
+const offR = parseEnsembleReply(NARR_CASE, CAST, CAST, { narrationEnabled: false });
+const onR = parseEnsembleReply(NARR_CASE, CAST, CAST, { narrationEnabled: true });
+
+const narrOff = offR.frames.filter((f) => f.kind === "narration").length;
+const narrOn = onR.frames.filter((f) => f.kind === "narration").length;
+
+console.log(
+  `  开关 OFF → 旁白帧数 ${narrOff}（期望 0）  ${
+    narrOff === 0 ? "✓" : "✗"
+  }`
+);
+console.log(
+  `  开关 ON  → 旁白帧数 ${narrOn}（期望 >0） ${
+    narrOn > 0 ? "✓" : "✗"
+  }`
+);
+console.log(
+  `  开关 OFF 时「窗外的雨」是否保留正文：${
+    offR.frames.some((f) => f.text.includes("窗外的雨")) ? "✓" : "✗"
+  }`
+);
+
+const narrOk = narrOff === 0 && narrOn > 0;
+console.log(
+  `\n旁白护栏：${narrOk ? "✓ 通过" : "✗ 需检查"}` +
+    `   （OFF=${narrOff} / ON=${narrOn}）`
+);
