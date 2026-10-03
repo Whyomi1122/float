@@ -285,7 +285,7 @@ function EnsembleFrameStream({
           return (
             <div
               key={i}
-              className="text-[#5f5f66] whitespace-pre-wrap leading-[1.9]"
+              className="text-[#5f5f66] whitespace-pre-wrap leading-[1.9] border-l-2 border-black/[0.10] pl-2.5 ml-0.5"
               style={{ fontSize: ts(13.5) }}
             >
               {f.text}
