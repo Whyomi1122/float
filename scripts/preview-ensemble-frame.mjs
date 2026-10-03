@@ -194,7 +194,7 @@ function renderFrameStream(frames, cast) {
   return frames
     .map((f) => {
       if (f.kind === "narration") {
-        return `<div class="fr-narr">${esc(f.text)}</div>`;
+        return `<div class="fr-narr">${esc(stripSymbols(f.text))}</div>`;
       }
       const member =
         (f.speakerId && cast.find((c) => c.id === f.speakerId)) ||
@@ -211,7 +211,7 @@ function renderFrameStream(frames, cast) {
              <div class="fr-name">${esc(f.speaker)}</div>
            </div>`
         : "";
-      return `<div class="fr-item ${showName ? "is-first" : "is-cont"}">${head}${renderTriColor(f.text)}</div>`;
+      return `<div class="fr-item ${showName ? "is-first" : "is-cont"}">${head}<div class="fr-body">${renderTriColor(f.text)}</div></div>`;
     })
     .join("");
 }
@@ -244,15 +244,13 @@ const html = `<!DOCTYPE html>
   }
 
   /* ── 帧流 ── */
-  /* 旁白：左侧细竖线（2px 浅黑）+ 轻微缩进，与角色台词拉开层级 */
+  /* 旁白：按小说长文排版，无竖线、无缩进，以斜体 + 灰度与角色台词拉开层级 */
   .fr-narr {
     color: ${GS.act};
     font-size: 13.5px;
     line-height: 1.9;
+    font-style: italic;
     white-space: pre-wrap;
-    border-left: 2px solid rgba(0,0,0,.10);
-    padding-left: 10px;
-    margin-left: 2px;
     margin-bottom: 12px;
   }
   .fr-item { margin-bottom: 12px; }
@@ -260,19 +258,21 @@ const html = `<!DOCTYPE html>
   .fr-item.is-cont  { padding-top: 6px; }
 
   .fr-head {
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 6px;
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 8px;
   }
   .fr-avatar {
-    width: 24px; height: 24px; border-radius: 8px;
+    width: 18px; height: 18px; border-radius: 50%;
     background: rgba(0,0,0,.06);
     display: flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 600; color: rgba(0,0,0,.55);
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,.04);
+    font-size: 9px; font-weight: 600; color: rgba(0,0,0,.55);
     overflow: hidden; flex: 0 0 auto;
   }
   .fr-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .fr-name { font-weight: 600; font-size: 12px; color: #1a1a1a; }
+
+  /* 正文块整体跟名字左对齐（缩进 = 头像宽 18 + 间距 6 = 24px） */
+  .fr-body { padding-left: 24px; }
 
   /* ── 三色文本 ── */
   .tri-plain { color: #2c2c2c; font-size: 14.5px; line-height: 1.9; white-space: pre-wrap; margin-bottom: 12px; }

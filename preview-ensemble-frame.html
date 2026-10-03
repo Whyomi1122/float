@@ -24,15 +24,13 @@
   }
 
   /* ── 帧流 ── */
-  /* 旁白：左侧细竖线（2px 浅黑）+ 轻微缩进，与角色台词拉开层级 */
+  /* 旁白：按小说长文排版，无竖线、无缩进，以斜体 + 灰度与角色台词拉开层级 */
   .fr-narr {
     color: #5f5f66;
     font-size: 13.5px;
     line-height: 1.9;
+    font-style: italic;
     white-space: pre-wrap;
-    border-left: 2px solid rgba(0,0,0,.10);
-    padding-left: 10px;
-    margin-left: 2px;
     margin-bottom: 12px;
   }
   .fr-item { margin-bottom: 12px; }
@@ -40,19 +38,21 @@
   .fr-item.is-cont  { padding-top: 6px; }
 
   .fr-head {
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 6px;
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 8px;
   }
   .fr-avatar {
-    width: 24px; height: 24px; border-radius: 8px;
+    width: 18px; height: 18px; border-radius: 50%;
     background: rgba(0,0,0,.06);
     display: flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 600; color: rgba(0,0,0,.55);
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,.04);
+    font-size: 9px; font-weight: 600; color: rgba(0,0,0,.55);
     overflow: hidden; flex: 0 0 auto;
   }
   .fr-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .fr-name { font-weight: 600; font-size: 12px; color: #1a1a1a; }
+
+  /* 正文块整体跟名字左对齐（缩进 = 头像宽 18 + 间距 6 = 24px） */
+  .fr-body { padding-left: 24px; }
 
   /* ── 三色文本 ── */
   .tri-plain { color: #2c2c2c; font-size: 14.5px; line-height: 1.9; white-space: pre-wrap; margin-bottom: 12px; }
@@ -89,16 +89,16 @@
 <body>
 <div class="phone">
   <div class="turn">
-    <div class="fr-narr">（雨丝斜斜地打在医院的玻璃窗上，走廊里只有尽头那盏灯还亮着。）</div><div class="fr-item is-first"><div class="fr-head">
+    <div class="fr-narr">雨丝斜斜地打在医院的玻璃窗上，走廊里只有尽头那盏灯还亮着。</div><div class="fr-item is-first"><div class="fr-head">
              <div class="fr-avatar">金</div>
              <div class="fr-name">金成帝</div>
-           </div><div class="tri-act">把外套搭在椅背上，没有立刻坐下</div><div class="tri-dial">检查结果出来了？</div><div class="tri-inn">她要是真撑不住，我这边的事就得往后挪。</div></div><div class="fr-item is-first"><div class="fr-head">
+           </div><div class="fr-body"><div class="tri-act">把外套搭在椅背上，没有立刻坐下</div><div class="tri-dial">检查结果出来了？</div><div class="tri-inn">她要是真撑不住，我这边的事就得往后挪。</div></div></div><div class="fr-item is-first"><div class="fr-head">
              <div class="fr-avatar">岳</div>
              <div class="fr-name">岳霖玉</div>
-           </div><div class="tri-act">低头整理袖口，声音很平</div><div class="tri-dial">良性。医生说观察两周。</div><div class="tri-act">说到这里才抬起眼</div><div class="tri-dial">你那个案子，别耽误。</div></div><div class="fr-item is-first"><div class="fr-head">
+           </div><div class="fr-body"><div class="tri-act">低头整理袖口，声音很平</div><div class="tri-dial">良性。医生说观察两周。</div><div class="tri-act">说到这里才抬起眼</div><div class="tri-dial">你那个案子，别耽误。</div></div></div><div class="fr-item is-first"><div class="fr-head">
              <div class="fr-avatar">金</div>
              <div class="fr-name">金成帝</div>
-           </div><div class="tri-dial">案子没有你重要。</div></div><div class="fr-narr">（走廊里的灯灭了又亮。两人都没再开口。）</div>
+           </div><div class="fr-body"><div class="tri-dial">案子没有你重要。</div></div></div><div class="fr-narr">走廊里的灯灭了又亮。两人都没再开口。</div>
     <div class="meta">
       <div><b>DATE:</b> 2024-12-03 20:15</div>
       <div><b>MODEL:</b> [追光] [角色] [群像] gemini-1.5-flash-8b</div>

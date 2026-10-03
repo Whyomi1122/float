@@ -257,9 +257,12 @@ function TriColorText({
         const body = s.text.trim();
         if (!body) return null;
         if (s.type === "plain") {
+          // 双语模式：plain 段可能包含未被双语正则识别的对白引号，
+          // 保留引号让对白看起来正常；非双语才去符号。
+          const displayed = bilingual ? body : stripSymbols(body);
           return (
             <div key={i} className="whitespace-pre-wrap text-[#2c2c2c]">
-              {stripSymbols(body)}
+              {displayed}
             </div>
           );
         }
@@ -389,7 +392,7 @@ function EnsembleFrameStream({
           return (
             <div
               key={i}
-              className={`text-[#5f5f66] whitespace-pre-wrap leading-[1.9] ${
+              className={`text-[#5f5f66] whitespace-pre-wrap leading-[1.9] italic ${
                 i === 0 ? "mb-6" : "my-6"
               }`}
               style={{ fontSize: ts(13) }}
@@ -463,7 +466,9 @@ function NarrationCard({
         <div className="text-[9.5px] tracking-[0.2em] font-semibold text-black/35 mb-2">
           NARRATION
         </div>
-        <TriColorText raw={text} />
+        <div className="italic">
+          <TriColorText raw={text} />
+        </div>
         {timestamp ? (
           <div className="mt-2 text-[10px] text-black/30 font-mono">
             {timestamp.slice(0, 10)}
@@ -788,7 +793,7 @@ export function EnsembleApp({
 
   // ── 「功能」面板（+ 号）及其子弹窗 ──
   const [showToolsSheet, setShowToolsSheet] = useState(false);
-  const [showPaletteSheet, setShowPaletteSheet] = useState(false);
+  // showPaletteSheet 已删除（卡片配色已移除）
   const [showCssSheet, setShowCssSheet] = useState(false);
   const [showModelSheet, setShowModelSheet] = useState(false);
   /** 剧本设置（输出长度）子弹窗 */
@@ -1357,7 +1362,6 @@ ${lastSpeakerNote}
 
   /** 关闭所有子弹窗，回到剧本界面（统一返回语义：不再弹回「功能」面板） */
   const closeAllSheets = () => {
-    setShowPaletteSheet(false);
     setShowCssSheet(false);
     setShowSettingsSheet(false);
     setShowModelSheet(false);
@@ -1379,7 +1383,6 @@ ${lastSpeakerNote}
   const anySheetOpen =
     showToolsSheet ||
     showNarrationModal ||
-    showPaletteSheet ||
     showCssSheet ||
     showSettingsSheet ||
     showModelSheet;
@@ -1387,7 +1390,6 @@ ${lastSpeakerNote}
   const sheetIsPrimary =
     anySheetOpen &&
     !showNarrationModal &&
-    !showPaletteSheet &&
     !showCssSheet &&
     !showSettingsSheet &&
     !showModelSheet;
@@ -1411,14 +1413,12 @@ ${lastSpeakerNote}
     }
     if (
       showNarrationModal ||
-      showPaletteSheet ||
       showCssSheet ||
       showSettingsSheet ||
       showModelSheet
     ) {
       // 子弹窗：只关掉自己，保持在功能面板上（背景继续模糊，不重新弹出）
       setShowNarrationModal(false);
-      setShowPaletteSheet(false);
       setShowSettingsSheet(false);
       setShowModelSheet(false);
       setModelPickerApiId(null);
@@ -1971,41 +1971,8 @@ ${lastSpeakerNote}
             }
           />
 
-          {/* 正在输入时的取消键（对齐 iOS 的「取消」） */}
-          {isComposing && (
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                cancelGenerating();
-              }}
-              className="shrink-0 mx-4 mt-3 self-start px-3 py-1.5 rounded-full bg-black/[0.06] text-[12px] font-medium text-black/55 active:scale-95 transition-transform"
-            >
-              取消生成
-            </button>
-          )}
-
-          {/* 面板打开时，工作区左上角的「返回」浮层。
-              固定定位在同一位置 → 文案切换时不会跳动。
-              点击 = 关闭当前面板层（子面板 → 功能面板 → 剧本界面）。 */}
-          {anySheetOpen && (
-            <button
-              type="button"
-              aria-label={sheetIsPrimary ? "关闭" : "返回"}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSheetBack();
-              }}
-              className="absolute z-[62] top-2 left-2 px-3 py-2 rounded-full bg-white/95 backdrop-blur text-[12px] font-semibold text-black/60 shadow-[0_2px_10px_rgba(0,0,0,0.10)] active:scale-95 transition-transform"
-              style={{ fontSize: "calc(12px * var(--app-text-scale, 1))" }}
-            >
-              ← {sheetIsPrimary ? "返回剧本" : "返回"}
-            </button>
-          )}
+          {/* 3.1：顶栏「取消生成」与「← 返回剧本」按键已删除。
+              关闭/返回由 MiniSheet 自身顶栏箭头负责，不在工作区顶部重复。 */}
 
           <div
             ref={scrollRef}
@@ -2412,8 +2379,6 @@ ${lastSpeakerNote}
                 setCharsDraft(currentScript.charsPerTurn ?? 600);
                 setActorsDraft(currentScript.actorsPerTurn ?? 2);
                 setShowSettingsSheet(true);
-              } else if (id === "palette") {
-                setShowPaletteSheet(true);
               } else if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
                 setCssPreviewOn(true);
@@ -2424,76 +2389,7 @@ ${lastSpeakerNote}
             }}
           />
 
-          {/* ═══════════ 子弹窗 1：卡片配色（灰阶梯度 + 可自定义） ═══════════ */}
-          {showPaletteSheet && (
-            <MiniSheet
-              title="卡片配色"
-              subtitle="RECEIPT COLOR"
-              onClose={() => {
-                setShowPaletteSheet(false);
-                setShowToolsSheet(true);
-              }}
-            >
-              <div className="bg-white rounded-[16px] p-4 space-y-3.5">
-                {(
-                  [
-                    { key: "dial", label: "对白", hint: "说出口的台词" },
-                    { key: "act", label: "动作", hint: "动作、神态与环境" },
-                    { key: "inn", label: "心理", hint: "内心的独白" },
-                  ] as const
-                ).map((row) => {
-                  const current = resolvePalette(currentScript.palette)[row.key];
-                  return (
-                    <div key={row.key} className="flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-semibold text-[#111111]">
-                          {row.label}
-                        </div>
-                        <div className="text-[10px] text-black/35 mt-0.5">{row.hint}</div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span
-                          className="text-[11px] font-mono text-black/40"
-                          style={{ color: current }}
-                        >
-                          {current}
-                        </span>
-                        <input
-                          type="color"
-                          value={current}
-                          onChange={(e) => {
-                            const next = {
-                              ...resolvePalette(currentScript.palette),
-                              [row.key]: e.target.value,
-                            };
-                            const updated = { ...currentScript, palette: next };
-                            setCurrentScript(updated);
-                            saveOrUpdateEnsembleScript(updated);
-                            setScripts(loadEnsembleScripts());
-                          }}
-                          className="w-9 h-9 rounded-[10px] border border-black/10 bg-white cursor-pointer p-0.5"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const updated = { ...currentScript, palette: undefined };
-                  setCurrentScript(updated);
-                  saveOrUpdateEnsembleScript(updated);
-                  setScripts(loadEnsembleScripts());
-                  setToast("已恢复默认灰阶配色");
-                }}
-                className="w-full py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
-              >
-                恢复默认
-              </button>
-            </MiniSheet>
-          )}
+          {/* 3.3：卡片配色弹窗已删除 */}
 
           {/* ═══════════ 子弹窗 2：自定义 CSS ═══════════ */}
           {showCssSheet && (
@@ -2629,8 +2525,12 @@ ${lastSpeakerNote}
                         step={50}
                         value={charsDraft}
                         onChange={(e) => {
-                          const n = Number(e.target.value);
-                          setCharsDraft(Number.isFinite(n) ? n : 0);
+                          // 允许用户清空到空字符串（让输入框可以删干净再打），
+                          // 不强制写 0 → 失焦时再收敛到合法区间。
+                          const raw = e.target.value;
+                          if (raw === "" || raw === "-") return; // 保持上一个合法值
+                          const n = Number(raw);
+                          if (Number.isFinite(n)) setCharsDraft(n);
                         }}
                         onBlur={() => {
                           // 失焦时收敛到合法区间，避免空值/越界写库
@@ -2655,31 +2555,7 @@ ${lastSpeakerNote}
                     范围 50 – 4000 字
                   </div>
 
-                  {/* 预设：短/中/长/超长 */}
-                  <div className="grid grid-cols-4 gap-2">
-                    {presets.map((p) => {
-                      const active = charsDraft === p.value;
-                      return (
-                        <button
-                          key={p.value}
-                          type="button"
-                          onClick={() => setCharsDraft(p.value)}
-                          className={`py-2.5 rounded-[12px] text-center transition-transform active:scale-95 ${
-                            active ? "bg-[#111111] text-white" : "bg-black/[0.05] text-black/60"
-                          }`}
-                        >
-                          <span className="block text-[12px] font-semibold">{p.label}</span>
-                          <span
-                            className={`block text-[9px] mt-0.5 ${
-                              active ? "text-white/55" : "text-black/35"
-                            }`}
-                          >
-                            {p.hint}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {/* 3.2：短/中/长/超长预设已删除。直接用 ±50 按钮或手动输入。 */}
                 </div>
 
                 {/* 生效值说明：让用户看得见 token 护栏，理解为什么会关联 */}

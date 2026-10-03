@@ -5,7 +5,6 @@ import {
   Clock,
   BookOpen,
   Archive,
-  Palette,
   Code2,
   ListTree,
   Layers,
@@ -63,7 +62,7 @@ export const ENSEMBLE_TOOLS: EnsembleToolItem[] = [
   { id: "time", label: "时间感知", labelEn: "TIME AWARENESS", Icon: Clock, enabled: false },
   { id: "worldbook", label: "世界书", labelEn: "WORLD BOOK", Icon: BookOpen, enabled: false },
   { id: "wrapup", label: "杀青归档", labelEn: "WRAP UP", Icon: Archive, enabled: false },
-  { id: "palette", label: "卡片配色", labelEn: "RECEIPT COLOR", Icon: Palette, enabled: true },
+  // 3.3：卡片配色已删除（用户使用下来完全不会用到）
   { id: "customCss", label: "自定义 CSS", labelEn: "CUSTOM STYLE", Icon: Code2, enabled: true },
   { id: "status", label: "状态面板", labelEn: "STATUS PANEL", Icon: ListTree, enabled: false },
   { id: "model", label: "模型切换", labelEn: "API · SESSION", Icon: Layers, enabled: true },
