@@ -170,9 +170,27 @@ export function parseTriColor(raw: string): TriColorSegment[] {
   return segments;
 }
 
+// 去符号：2026-10 起，正文一律按小说长文呈现，不显示任何标记符号。
+// 语义（动作 / 台词 / 心理）仍由解析阶段判定，只是**不再把符号渲染出来**：
+//   （动作）→ 动作文字     "台词" → 台词文字     【独白】→ 独白文字
+// 台词仍由 TriColorText 单独成行（靠换行 + 深黑区分），故这里的去符号只作用于
+// 段内可能残留的、未被解析器识别为独立分段的成对符号。
+const DE_SYMBOL_PAIRS: Array<[RegExp, RegExp]> = [
+  [/[（(]/g, /[）)]/g],
+  [/[【\[]/g, /[】\]]/g],
+  [/[“"]/g, /[”"]/g],
+];
+function stripSymbols(text: string): string {
+  let out = text;
+  for (const [open, close] of DE_SYMBOL_PAIRS) {
+    out = out.replace(new RegExp(open.source, "g"), "").replace(new RegExp(close.source, "g"), "");
+  }
+  return out;
+}
+
 // 三色文本分段排版组件（对齐目标截图）
 // - 对白：深黑，居中/常规排版，去引号
-// - 动作与环境：中灰小字
+// - 动作与环境：中灰小字，去圆括号（小说长文观感）
 // - 心理与神态：中灰（同动作系），去方括号
 // 全篇不出现左侧竖线、彩色边框、琥珀金高亮。
 function TriColorText({
@@ -192,12 +210,13 @@ function TriColorText({
       style={{ fontSize: ts(14.5) }}
     >
       {segs.map((s, i) => {
+        // 去符号：段内残留的成对标记不渲染（动作圆括号 / 心理方括号 / 台词引号）
+        const body = stripSymbols(s.text).trim();
+        if (!body) return null;
         if (s.type === "plain") {
-          const text = s.text.trim();
-          if (!text) return null;
           return (
             <div key={i} className="whitespace-pre-wrap text-[#2c2c2c]">
-              {text}
+              {body}
             </div>
           );
         }
@@ -210,7 +229,7 @@ function TriColorText({
               style={{ color: pal.act, fontSize: ts(13.5) }}
               className="whitespace-pre-wrap leading-[1.85]"
             >
-              {s.text}
+              {body}
             </div>
           );
         }
@@ -223,7 +242,7 @@ function TriColorText({
               style={{ color: pal.inn, fontSize: ts(13.5) }}
               className="whitespace-pre-wrap leading-[1.85]"
             >
-              {s.text}
+              {body}
             </div>
           );
         }
@@ -235,7 +254,7 @@ function TriColorText({
             style={{ color: pal.dial, fontSize: ts(14.5) }}
             className="whitespace-pre-wrap font-medium leading-[1.85] -mt-0.5"
           >
-            {s.text}
+            {body}
           </div>
         );
       })}
@@ -894,6 +913,17 @@ export function EnsembleApp({
           ? `\n【剧本全局旁白与背景设定】\n${script.background.trim()}\n`
           : "";
 
+      // 双语语言格式规则：角色说外语时，外语正常写，后面用（）补中文翻译。
+      // 只有「台词」需要双语；动作、环境、心理一律正常写，不翻译。
+      const bilingualBlock = script.bilingualEnabled
+        ? `
+5. 双语语言格式（角色说非中文时适用）：
+   先按角色的原语言正常写出他说的那句话，紧跟着用（）补上中文翻译。
+   例：김성제：I don't need your help.（我不需要你帮忙。）
+   只有台词这样处理；动作、神态、环境、心理一律照常用中文正常写，不要翻译。
+`
+        : "";
+
       // 每轮输出长度：剧本级可调（「功能 → 剧本设置」）。
       // charsPerTurn 是给模型看的「整轮总字数目标」；maxTokensPerTurn 是硬护栏。
       //
@@ -921,18 +951,26 @@ export function EnsembleApp({
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
 ${narrationBlock}
-═══════════ 三色排版规范（硬性，违反即视为错误）═══════════
-正文只能用下面三种标记，且语义严格对应、不得串用：
-   （动作或环境细节）  —— 全角圆括号：外部动作、神态、环境变化
-   "台词内容"          —— 全角双引号：说出口的话（台词**必须**用引号，严禁裸写）
-   【内心独白】         —— 全角方括号：心理活动、未说出口的念头
+═══════════ 行文规范（硬性，违反即视为错误）═══════════
+像写小说长文一样自然行文，**不要使用任何标记符号**。系统会自动识别并排版，
+你写的符号只会原样留在正文里，属于错误。
 
+1. 动作、神态、环境描写：直接写成叙述句，**不要加圆括号（）**。
+2. 台词：写成完整的一句话，**不要加引号**。台词单独成段。
+3. 心理活动：直接写，**不要加方括号【】**。
+4. 严禁任何标记符号：（）、【】、""、*、《》、#、~、[ ]。
+${bilingualBlock}
 每个出场角色用一行「角色名：」起头，例如：
    金成帝：
-   （他抬眼扫过来，语气压得很低）"别动。"
-   【这人又在硬撑。】
+   他抬眼扫过来，语气压得很低。
+   别动。
+   这人又在硬撑。
    岳霖玉：
-   （指尖一颤，笔尖停在纸上）"我……我自己来。"
+   指尖一颤，笔尖停在纸上。
+   我……我自己来。
+
+（注意：上面这段里，「他抬眼扫过来」是动作、「别动。」是台词、「这人又在硬撑。」是心理，
+它们只是一句接一句地写出来，没有任何括号或引号。）
 
 ═══════════ 选角：这一幕谁上场，由你按剧情决定 ═══════════
 这是群像剧，核心是**多角色在同一幕里真实互动**，不是轮流独白。
@@ -2145,6 +2183,41 @@ ${lastSpeakerNote}
                   <span
                     className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
                       currentScript.narrationEnabled ? "left-[18px]" : "left-0.5"
+                    }`}
+                  />
+                </span>
+              </button>
+
+              {/* 双语语言格式：开启后角色说外语时，外语原句 + （中文翻译） */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !currentScript.bilingualEnabled;
+                  const updated = { ...currentScript, bilingualEnabled: next };
+                  setCurrentScript(updated);
+                  saveOrUpdateEnsembleScript(updated);
+                  setScripts(loadEnsembleScripts());
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-[16px] text-[13px] font-medium transition-colors ${
+                  currentScript.bilingualEnabled
+                    ? "bg-white text-[#111111]"
+                    : "bg-white/60 text-black/45"
+                }`}
+              >
+                <span className="flex flex-col items-start gap-0.5">
+                  <span>双语语言格式</span>
+                  <span className="text-[10.5px] font-normal text-black/40">
+                    外语原句 +（中文翻译），只作用于台词
+                  </span>
+                </span>
+                <span
+                  className={`w-9 h-5 rounded-full relative transition-colors shrink-0 ${
+                    currentScript.bilingualEnabled ? "bg-[#111111]" : "bg-black/20"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                      currentScript.bilingualEnabled ? "left-[18px]" : "left-0.5"
                     }`}
                   />
                 </span>

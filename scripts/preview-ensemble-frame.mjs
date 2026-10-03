@@ -62,6 +62,15 @@ function parseTriColor(raw) {
   return segs;
 }
 
+// 去符号：与 ensemble-app.tsx 的 stripSymbols 保持一致
+// 正文按小说长文呈现，不显示任何标记符号（（）、【】、""）
+function stripSymbols(text) {
+  return text
+    .replace(/[（(]/g, "").replace(/[）)]/g, "")
+    .replace(/[【\[]/g, "").replace(/[】\]]/g, "")
+    .replace(/[“"]/g, "").replace(/[”"]/g, "");
+}
+
 // 旁白提升：整行被全角圆括号包裹、且出现在空行之后 → 独立旁白帧
 function isWrappedNarration(line) {
   const t = line.trim();
@@ -170,7 +179,7 @@ function renderTriColor(raw) {
   const segs = parseTriColor(raw);
   return segs
     .map((s) => {
-      const t = esc(s.text.trim());
+      const t = esc(stripSymbols(s.text).trim());
       if (!t) return "";
       if (s.type === "plain") return `<div class="tri-plain">${t}</div>`;
       if (s.type === "act")  return `<div class="tri-act">${t}</div>`;

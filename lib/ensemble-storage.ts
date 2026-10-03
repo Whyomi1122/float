@@ -49,6 +49,12 @@ export type EnsembleScript = {
   background?: string;
   /** 是否启用旁白（关闭时 background 不注入提示词，按钮置灰） */
   narrationEnabled?: boolean;
+  /**
+   * 是否启用双语语言格式（缺省关闭）。
+   * 开启后：角色说非中文时，先正常写外语原句，紧跟（）补中文翻译。
+   * 只作用于台词；动作/环境/心理一律正常写中文，不翻译。
+   */
+  bilingualEnabled?: boolean;
   personaId?: string;
   cast: EnsembleCastMember[];
   turns: EnsembleTurn[];
