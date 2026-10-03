@@ -249,7 +249,7 @@ function TriColorText({
     // 与角色块之间的 mt-5 一致，全篇节奏统一）。行距保留 1.9。
     <div
       className="leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-5"
-      style={{ fontSize: ts(14.5) }}
+      style={{ fontSize: ts(14) }}
     >
       {segs.map((s, i) => {
         // 去符号：段内残留的成对标记不渲染（动作圆括号 / 心理方括号 / 台词引号）
@@ -265,11 +265,11 @@ function TriColorText({
         }
 
         if (s.type === "act") {
-          // 动作与环境描写：中灰，稍小字号，斜体感由灰度承担
+          // 动作与环境描写：中灰，稍小字号
           return (
             <div
               key={i}
-              style={{ color: pal.act, fontSize: ts(13.5) }}
+              style={{ color: pal.act, fontSize: ts(13) }}
               className="whitespace-pre-wrap leading-[1.9]"
             >
               {body}
@@ -278,11 +278,11 @@ function TriColorText({
         }
 
         if (s.type === "inn") {
-          // 心理与神态：中灰（与动作同系，不做彩色区分）
+          // 心理与神态：中灰（与动作同系）
           return (
             <div
               key={i}
-              style={{ color: pal.inn, fontSize: ts(13.5) }}
+              style={{ color: pal.inn, fontSize: ts(13) }}
               className="whitespace-pre-wrap leading-[1.9]"
             >
               {body}
@@ -291,11 +291,10 @@ function TriColorText({
         }
 
         // 对白：深黑，核心内容；单独成行。
-        // 双语模式：外语原句（浅色翻译）同行呈现。
         return (
           <div
             key={i}
-            style={{ color: pal.dial, fontSize: ts(14.5) }}
+            style={{ color: pal.dial, fontSize: ts(14) }}
             className="whitespace-pre-wrap font-medium leading-[1.9]"
           >
             {bilingual && s.translation ? (
@@ -357,11 +356,13 @@ function EnsembleFrameStream({
   cast,
   palette,
   bilingual,
+  narrationEnabled,
 }: {
   frames: EnsembleFrame[];
   cast: EnsembleCastMember[];
   palette?: typeof GS_COLORS;
   bilingual?: boolean;
+  narrationEnabled?: boolean;
 }) {
   const pal = palette ?? GS_COLORS;
   let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
@@ -378,6 +379,11 @@ function EnsembleFrameStream({
           // 2026-10 排版：无竖线、无缩进、无斜体（中文斜体是浏览器伪倾斜，几乎看不出，
           //   韩/日文更糟，故用「灰度 + 大段距」来拉开层级）。
           // 段间距 ≥ 一整行：上下各 24px（约 1.5 行），首帧不加顶部间距。
+          // ⚠️ 2026-10 语义：旁白开关 OFF → 旁白帧不渲染（跳过），ON → 才渲染。
+          if (narrationEnabled !== true) {
+            prevWasNarration = false;
+            return null;
+          }
           const narrBody = stripSymbols(f.text);
           prevWasNarration = true;
           return (
@@ -386,7 +392,7 @@ function EnsembleFrameStream({
               className={`text-[#5f5f66] whitespace-pre-wrap leading-[1.9] ${
                 i === 0 ? "mb-6" : "my-6"
               }`}
-              style={{ fontSize: ts(13.5) }}
+              style={{ fontSize: ts(13) }}
             >
               {narrBody}
             </div>
@@ -410,8 +416,8 @@ function EnsembleFrameStream({
         return (
           <div key={i} className={topMargin}>
             {showName && (
-              <div className="flex items-center gap-1.5 mb-2">
-                <div className="w-[18px] h-[18px] rounded-full bg-black/[0.06] overflow-hidden flex items-center justify-center text-[9px] font-semibold text-black/55 shrink-0">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-[42px] h-[42px] rounded-full bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 shrink-0">
                   {member?.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -423,14 +429,14 @@ function EnsembleFrameStream({
                     (f.speaker ?? "?").slice(0, 1)
                   )}
                 </div>
-                <div className="font-semibold text-[12px] text-[#1a1a1a]">
+                <div className="font-semibold text-[13px] text-[#1a1a1a]">
                   {f.speaker}
                 </div>
               </div>
             )}
-            {/* 角色戏份块整体缩进到名字同等位置（缩进 = 头像宽 18 + 间距 6 = 24px），
+            {/* 角色戏份块整体缩进到名字同等位置（缩进 = 头像宽 42 + 间距 8 = 50px），
                 含续帧（未署名）保持同一左边缘。 */}
-            <div className="pl-[24px]">
+            <div className="pl-[50px]">
               <TriColorText raw={f.text} palette={pal} bilingual={bilingual} />
             </div>
           </div>
@@ -2027,7 +2033,13 @@ ${lastSpeakerNote}
               // ── 旁白卡：黑底 P 图标 + NARRATION 标签 ──
               // 仅用于「非帧模型」的历史旁白 turn（旧数据 / 用户手发旁白）。
               // 帧模型生成的整幕（含纯旁白幕）统一走下方帧流渲染。
-              if (isNarrator && turn.rawText === undefined) {
+              // ⚠️ 2026-10 语义修正：旁白开关作用于整个剧本的显示，不是每轮。
+              //    开关 OFF → 历史旁白 turn 也不显示（跳过渲染）；ON → 才显示。
+              if (
+                isNarrator &&
+                turn.rawText === undefined &&
+                currentScript.narrationEnabled === true
+              ) {
                 return (
                   <div key={turn.id} className="group relative">
                     <NarrationCard text={turn.content} timestamp={turn.timestamp} />
@@ -2159,6 +2171,7 @@ ${lastSpeakerNote}
                       cast={currentScript.cast}
                       palette={palette}
                       bilingual={currentScript.bilingualEnabled === true}
+                      narrationEnabled={currentScript.narrationEnabled === true}
                     />
                   )}
 
