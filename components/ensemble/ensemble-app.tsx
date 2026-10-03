@@ -44,6 +44,10 @@ import {
   deleteEnsembleTurn,
   updateEnsembleTurn,
 } from "@/lib/ensemble-storage";
+import {
+  parseEnsembleReply,
+  type EnsembleFrame,
+} from "@/lib/ensemble-parser";
 
 // ══════════════════════════════════════════════════════════
 // API 绑定桥（Ensemble ↔ 全局设置里的 API 配置）
@@ -240,65 +244,88 @@ function TriColorText({
 }
 
 // ──────────────────────────────────────────────────────────────
-// 把模型返回的「一条多角色剧本」切成每人一幕。
-//
-// 模型被要求用「角色名：」起头分隔。但真实输出经常带小动作：
-// 行首空格、被 ** 或 # 包住、用全角冒号、甚至把名字写在「（动作）」里。
-// 所以这里做三级判断：行首标记 → 逐行扫描 → 整段兜底。
-// 切不出来时宁可全部归给第一个角色，也不丢内容。
-// ──────────────────────────────────────────────────────────────
-function splitActorReply(
-  text: string,
-  actors: EnsembleCastMember[],
-  allCast: EnsembleCastMember[]
-): { sender: EnsembleCastMember; content: string }[] {
-  const findByName = (raw: string): EnsembleCastMember | undefined => {
-    const n = raw.trim().replace(/^[-*#>\s]+|[-*#\s:：]+$/g, "");
-    if (!n) return undefined;
-    return (
-      actors.find((a) => a.name === n) ||
-      actors.find((a) => n.startsWith(a.name) || a.name.startsWith(n)) ||
-      allCast.find((a) => a.name === n)
-    );
-  };
+// 帧解析缓存：同一 (content, 演员表) 只解析一次。
+// 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
+const __frameCache = new Map<string, EnsembleFrame[]>();
+function framesOfTurn(
+  turn: EnsembleTurn,
+  cast: EnsembleCastMember[]
+): EnsembleFrame[] {
+  const key = `${cast.map((c) => c.id).join(",")}|${turn.content}`;
+  const hit = __frameCache.get(key);
+  if (hit) return hit;
+  const frames = parseEnsembleReply(turn.content, cast, cast).frames;
+  // 简单容量控制：超过 200 条清一次，避免无限增长
+  if (__frameCache.size > 200) __frameCache.clear();
+  __frameCache.set(key, frames);
+  return frames;
+}
 
-  const lines = text.split(/\r?\n/);
-  const segments: { sender: EnsembleCastMember; lines: string[] }[] = [];
-  const preamble: string[] = [];
+// 帧渲染（第 1 项：单消息流）──
+// 一个消息流里连续渲染整幕的每一帧：
+//   · dialogue 帧 → 角色名内联在正文前（头像 + 名字），台词紧随其后
+//   · narration 帧 → 无归属，以轻微缩进/灰字呈现环境与旁白
+// 相邻同一说话人的帧会自动并组，避免重复署名。
+function EnsembleFrameStream({
+  frames,
+  cast,
+  palette,
+}: {
+  frames: EnsembleFrame[];
+  cast: EnsembleCastMember[];
+  palette?: typeof GS_COLORS;
+}) {
+  const pal = palette ?? GS_COLORS;
+  let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
 
-  for (const line of lines) {
-    // 行首标记：可选的 * # > - 序号，然后是角色名 + 冒号
-    const m = line.match(
-      /^\s*(?:[*#>]{1,3}\s*)?(?:\d+[.、)]\s*)?\*{0,2}\s*([^\s:："“（(【\[]{1,12})\s*[:：]\s*(.*)$/
-    );
-    const hit = m ? findByName(m[1]) : undefined;
-    if (hit) {
-      segments.push({ sender: hit, lines: m![2] ? [m![2]] : [] });
-    } else if (segments.length > 0) {
-      segments[segments.length - 1].lines.push(line);
-    } else {
-      preamble.push(line);
-    }
-  }
+  return (
+    <div className="space-y-3">
+      {frames.map((f, i) => {
+        if (f.kind === "narration") {
+          return (
+            <div
+              key={i}
+              className="text-[#5f5f66] whitespace-pre-wrap leading-[1.9]"
+              style={{ fontSize: ts(13.5) }}
+            >
+              {f.text}
+            </div>
+          );
+        }
 
-  const cleaned = segments
-    .map((s) => ({
-      sender: s.sender,
-      content: s.lines.join("\n").trim(),
-    }))
-    .filter((s) => s.content.length > 0);
+        const member =
+          (f.speakerId && cast.find((c) => c.id === f.speakerId)) ||
+          (f.speaker ? cast.find((c) => c.name === f.speaker) : undefined);
+        const showName = f.speaker !== lastSpeaker;
+        lastSpeaker = f.speaker;
 
-  // 模型没写角色名（整段一个角色）→ 全部归给第一个，前面那点铺垫也带上，不丢字
-  if (cleaned.length === 0) {
-    const body = [...preamble, ...lines].join("\n").trim();
-    return body && actors[0] ? [{ sender: actors[0], content: body }] : [];
-  }
-
-  // 开头的空镜头（比如环境描写）挂在第一个角色头上，避免正文出现断头
-  const pre = preamble.join("\n").trim();
-  if (pre) cleaned[0].content = `${pre}\n\n${cleaned[0].content}`;
-
-  return cleaned;
+        return (
+          <div key={i} className={showName ? "pt-0.5" : "pt-1.5"}>
+            {showName && (
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className="w-6 h-6 rounded-[8px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[10px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
+                  {member?.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={member.avatar}
+                      alt={f.speaker}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    (f.speaker ?? "?").slice(0, 1)
+                  )}
+                </div>
+                <div className="font-semibold text-[12px] text-[#1a1a1a]">
+                  {f.speaker}
+                </div>
+              </div>
+            )}
+            <TriColorText raw={f.text} palette={pal} />
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // 旁白卡：复刻目标截图的「黑底 P 图标 + NARRATION 标签」样式
@@ -1018,41 +1045,32 @@ ${lastSpeakerNote}
         return replyContent;
       }
 
-      // ── 把「一条多角色文本」切成多幕，每人一幕 ──
-      // 出场角色由模型决定，所以这里传全员，让 splitActorReply 按正文里
-      // 实际出现的「角色名：」去认领；认不出的一律兜底给最后一个已知角色。
-      const slices = splitActorReply(replyContent, script.cast, script.cast);
+      // ── 帧模型（第 1 项：单消息流）──
+      // 不再把整幕切成「一人一条 turn」，而是「一条 turn = 整幕原文」。
+      // 渲染层再调用 parseEnsembleReply 把它切帧，在同一个消息流里连续渲染，
+      // 角色名内联显示（不再一人一张卡）。
+      //
+      // 为什么要保留整段原文：重 roll（整幕重生成）与编辑都以「幕」为单位，
+      // 落库时存原文最稳，不会因解析规则调整而丢失模型原始输出。
       const baseTs = Date.now();
       const baseIso = new Date().toISOString();
-      const nextTurns: EnsembleTurn[] = slices.map((sl, i) => ({
-        id: `turn_${baseTs}_${i}`,
-        senderId: sl.sender.id,
-        senderName: sl.sender.name,
-        senderType: "character",
-        content: sl.content,
+      const frames = parseEnsembleReply(replyContent, script.cast, script.cast).frames;
+      // 说话人署名：整幕可能有多人，取帧里首位有归属的说话人作为「幕主导者」，
+      // 用于消息流的时间轴归属与头像兜底（纯旁白幕则记为旁白）。
+      const leadFrame = frames.find((f) => f.kind === "dialogue");
+      const nextTurn: EnsembleTurn = {
+        id: `turn_${baseTs}`,
+        senderId: leadFrame?.speakerId ?? (leadFrame ? undefined : "narration"),
+        senderName: leadFrame?.speaker ?? "旁白",
+        senderType: leadFrame ? "character" : "narration",
+        content: replyContent,
+        rawText: replyContent,
         timestamp: baseIso,
-        tokens: Math.ceil(sl.content.length * 1.3),
+        tokens: Math.ceil(replyContent.length * 1.3),
         model: apiConfig.defaultModel || apiConfig.name || undefined,
-      }));
+      };
 
-      // 兜底：切分失败也要留下内容，绝不静默丢稿
-      if (nextTurns.length === 0) {
-        nextTurns.push({
-          id: `turn_${baseTs}`,
-          senderId: script.cast[0]?.id,
-          senderName: script.cast[0]?.name ?? "未知角色",
-          senderType: "character",
-          content: replyContent,
-          timestamp: baseIso,
-          tokens: Math.ceil(replyContent.length * 1.3),
-          model: apiConfig.defaultModel || apiConfig.name || undefined,
-        });
-      }
-
-      let updated = script;
-      for (const t of nextTurns) {
-        updated = appendEnsembleTurn(updated.id, t) ?? updated;
-      }
+      let updated = appendEnsembleTurn(script.id, nextTurn) ?? script;
       setCurrentScript(updated);
       setScripts(loadEnsembleScripts());
       return replyContent;
@@ -1859,7 +1877,9 @@ ${lastSpeakerNote}
               const castChar = currentScript.cast.find((c) => c.id === turn.senderId);
 
               // ── 旁白卡：黑底 P 图标 + NARRATION 标签 ──
-              if (isNarrator) {
+              // 仅用于「非帧模型」的历史旁白 turn（旧数据 / 用户手发旁白）。
+              // 帧模型生成的整幕（含纯旁白幕）统一走下方帧流渲染。
+              if (isNarrator && turn.rawText === undefined) {
                 return (
                   <div key={turn.id} className="group relative">
                     <NarrationCard text={turn.content} timestamp={turn.timestamp} />
@@ -1886,44 +1906,82 @@ ${lastSpeakerNote}
                   key={turn.id}
                   className="group bg-white rounded-[20px] p-5 border border-black/[0.04] space-y-3.5 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-[10px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
-                        {castChar?.avatar ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={castChar.avatar}
-                            alt={turn.senderName}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : isUser ? (
-                          activePersona?.avatarUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={activePersona.avatarUrl}
-                              alt={turn.senderName}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            turn.senderName.slice(0, 1)
-                          )
-                        ) : (
-                          turn.senderName.slice(0, 1)
-                        )}
+                  {/* 帧模型：一条 turn 承载整幕，卡内按帧连续渲染，角色名内联。
+                      用户投稿（自己写的一幕）不切帧，按原样三色渲染。 */}
+                  {isUser || turn.rawText === undefined ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-[10px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
+                            {castChar?.avatar ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={castChar.avatar}
+                                alt={turn.senderName}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : isUser ? (
+                              activePersona?.avatarUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={activePersona.avatarUrl}
+                                  alt={turn.senderName}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                turn.senderName.slice(0, 1)
+                              )
+                            ) : (
+                              turn.senderName.slice(0, 1)
+                            )}
+                          </div>
+                          <div className="font-semibold text-xs text-[#1a1a1a]">
+                            {turn.senderName}
+                          </div>
+                        </div>
                       </div>
-                      <div className="font-semibold text-xs text-[#1a1a1a]">
-                        {turn.senderName}
-                      </div>
-                    </div>
-                  </div>
 
-                  {editingTurnId === turn.id ? (
+                      {editingTurnId === turn.id ? (
+                        <div className="space-y-2">
+                          <textarea
+                            autoFocus
+                            value={editingTurnDraft}
+                            onChange={(e) => setEditingTurnDraft(e.target.value)}
+                            rows={4}
+                            className="w-full bg-black/[0.03] border border-black/10 rounded-xl p-2.5 text-[13.5px] leading-[1.85] outline-none focus:border-black/25 resize-none"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTurnId(null)}
+                              className="px-3 py-1 text-[11px] text-black/50 hover:bg-black/5 rounded-lg"
+                            >
+                              取消
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => commitTurnEdit(turn.id)}
+                              className="px-3 py-1 text-[11px] bg-[#1a1a1a] text-white rounded-lg"
+                            >
+                              保存
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <TriColorText
+                          raw={turn.content}
+                          prefix={isUser ? "u" : undefined}
+                          palette={palette}
+                        />
+                      )}
+                    </>
+                  ) : editingTurnId === turn.id ? (
                     <div className="space-y-2">
                       <textarea
                         autoFocus
                         value={editingTurnDraft}
                         onChange={(e) => setEditingTurnDraft(e.target.value)}
-                        rows={4}
+                        rows={6}
                         className="w-full bg-black/[0.03] border border-black/10 rounded-xl p-2.5 text-[13.5px] leading-[1.85] outline-none focus:border-black/25 resize-none"
                       />
                       <div className="flex justify-end gap-2">
@@ -1944,9 +2002,9 @@ ${lastSpeakerNote}
                       </div>
                     </div>
                   ) : (
-                    <TriColorText
-                      raw={turn.content}
-                      prefix={isUser ? "u" : undefined}
+                    <EnsembleFrameStream
+                      frames={framesOfTurn(turn, currentScript.cast)}
+                      cast={currentScript.cast}
                       palette={palette}
                     />
                   )}
