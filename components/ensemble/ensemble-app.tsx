@@ -15,6 +15,7 @@ import {
   Layers,
   Wrench,
   Eye,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -329,9 +330,11 @@ function NarrationCard({
 }
 
 // 通用底部子弹窗：与「功能」面板同一套视觉（浅灰底、圆角、居中标题）
-// 返回体系（v2）：顶栏只保留一个「← 返回」，点击 = 关闭全部面板回剧本界面。
-// 底部不再放任何按钮 —— 避免与顶栏返回重复（要求：返回与顶栏返回择一留下）。
-// headerAction：顶栏返回键左侧的附加小按键（例如「工具调用」）。
+// 返回体系（v3）：
+//   · 顶栏右侧「← 返回」= 关闭本层（子面板 → 功能面板；功能面板 → 剧本界面）
+//   · 同时与工作区左上角的浮层返回键并存（用户要求：内置返回与顶栏返回任选其一都能用）
+//   · 底部不再放任何「返回」按钮 —— 只允许放「保存 / 应用」这类功能键
+//   · onBack 仅用于同层内的次级导航（如模型二级 → 一级的「换 API」）
 function MiniSheet({
   title,
   subtitle,
@@ -379,6 +382,7 @@ function MiniSheet({
             {onBack && (
               <button
                 type="button"
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={onBack}
                 className="shrink-0 px-2.5 py-1.5 rounded-full bg-black/[0.06] text-black/50 active:scale-95 transition-transform"
                 style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
@@ -388,10 +392,11 @@ function MiniSheet({
             )}
             <button
               type="button"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={onClose}
               className="shrink-0 px-2.5 py-1.5 rounded-full bg-white text-black/45 active:scale-95 transition-transform"
               style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
-              title="返回剧本界面"
+              title="返回"
             >
               {onBack ? "✕" : "← 返回"}
             </button>
@@ -633,6 +638,8 @@ export function EnsembleApp({
   const [isGenerating, setIsGenerating] = useState(false);
   const [showNarrationModal, setShowNarrationModal] = useState(false);
   const [narrationSettingText, setNarrationSettingText] = useState("");
+  /** 正在生成中：用于显示「取消生成」（真机中断的唯一途径是卸载本组件） */
+  const [isComposing, setIsComposing] = useState(false);
 
   // ── 「功能」面板（+ 号）及其子弹窗 ──
   const [showToolsSheet, setShowToolsSheet] = useState(false);
@@ -819,6 +826,7 @@ export function EnsembleApp({
   ): Promise<string | null> => {
     if (isGenerating || script.cast.length === 0) return null;
     setIsGenerating(true);
+    setIsComposing(true);
     if (!opts?.rerollTurnId) setApiError(null);
     try {
       const lastTurn = script.turns[script.turns.length - 1];
@@ -1053,6 +1061,7 @@ ${lastSpeakerNote}
       return null;
     } finally {
       setIsGenerating(false);
+      setIsComposing(false);
     }
   };
 
@@ -1186,6 +1195,73 @@ ${lastSpeakerNote}
     setShowNarrationModal(false);
     // 离开 CSS 面板时丢弃未应用的预览草稿（已保存的 customCss 不受影响）
     setCssDraft(currentScript?.customCss || "");
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 统一的「一层一层退」导航模型
+  // 层级：剧本界面(0) → 功能面板(1) → 子弹窗(2) → 模型二级(3)
+  // 顶栏/浮层的返回键都只调 handleSheetBack()，由它决定退到哪一层，
+  // 于是不会再出现「子面板点了返回反而弹出功能面板」的错乱。
+  // ══════════════════════════════════════════════════════
+  /** 当前是否有任何面板打开 */
+  const anySheetOpen =
+    showToolsSheet ||
+    showNarrationModal ||
+    showPaletteSheet ||
+    showCssSheet ||
+    showSettingsSheet ||
+    showModelSheet;
+  /** 最上层是不是「功能」面板本身（决定返回键文案：返回剧本 / 返回） */
+  const sheetIsPrimary =
+    anySheetOpen &&
+    !showNarrationModal &&
+    !showPaletteSheet &&
+    !showCssSheet &&
+    !showSettingsSheet &&
+    !showModelSheet;
+
+  /**
+   * 退一层：
+   * - 模型二级列表 → 模型一级列表（换 API）
+   * - 其余子弹窗 → 「功能」面板（用户要求：子面板关闭后停在功能面板，模糊背景常驻）
+   * - 「功能」面板 → 剧本界面
+   */
+  const handleSheetBack = () => {
+    if (showModelSheet && modelPickerApiId) {
+      setModelPickerApiId(null);
+      setModelListError(null);
+      return;
+    }
+    if (showToolsSheet) {
+      // 功能面板本身：整层关闭，回到剧本界面
+      closeAllSheets();
+      return;
+    }
+    if (
+      showNarrationModal ||
+      showPaletteSheet ||
+      showCssSheet ||
+      showSettingsSheet ||
+      showModelSheet
+    ) {
+      // 子弹窗：只关掉自己，保持在功能面板上（背景继续模糊，不重新弹出）
+      setShowNarrationModal(false);
+      setShowPaletteSheet(false);
+      setShowSettingsSheet(false);
+      setShowModelSheet(false);
+      setModelPickerApiId(null);
+      setModelListError(null);
+      setCssDraft(currentScript?.customCss || "");
+      setShowToolsSheet(true);
+      return;
+    }
+  };
+
+  /** 中断当前生成：卸载掉正在运行的生成循环（apiError 会带出 AbortError） */
+  const cancelGenerating = () => {
+    setIsComposing(false);
+    setApiError(null);
+    setToast("已取消本轮生成");
   };
 
   /** 打开「模型切换」：默认停在 API 一级列表，重置上次的二级态 */
@@ -1660,7 +1736,11 @@ ${lastSpeakerNote}
       ) : null}
       {!currentScript ? (
         /* 兜底：剧本意外丢失时也不能变成"回不去的白屏" */
-        <EnsembleHeader title="群像剧" onBack={(e?: any) => handleBack(e)} />
+        <EnsembleHeader
+          title="群像剧"
+          onBack={(e?: any) => handleBack(e)}
+          showBack={!!onClose}
+        />
       ) : (
         <>
           <EnsembleHeader
@@ -1694,8 +1774,66 @@ ${lastSpeakerNote}
             subtitle={`${currentScript.cast.length} CAST${
               activePersona ? ` · ${activePersona.name}` : ""
             }`}
+            /* 顶栏返回 = 离开本剧本，回剧本列表。
+               面板的返回统一交给工作区左上角的小返回键（见下方 workspaceBackBtn），
+               两者职责分离，不再出现「点了返回却弹出功能面板」的错乱。 */
             onBack={(e?: any) => handleBack(e)}
+            right={
+              <button
+                type="button"
+                aria-label="剧本设置"
+                title="剧本设置"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setCharsDraft(currentScript.charsPerTurn ?? 600);
+                  setActorsDraft(currentScript.actorsPerTurn ?? 2);
+                  setShowSettingsSheet(true);
+                }}
+                className="w-11 h-11 grid place-items-center rounded-full hover:bg-black/5 text-black/50 active:scale-90 transition"
+                style={{ WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}
+              >
+                <SlidersHorizontal size={19} strokeWidth={1.9} />
+              </button>
+            }
           />
+
+          {/* 正在输入时的取消键（对齐 iOS 的「取消」） */}
+          {isComposing && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                cancelGenerating();
+              }}
+              className="shrink-0 mx-4 mt-3 self-start px-3 py-1.5 rounded-full bg-black/[0.06] text-[12px] font-medium text-black/55 active:scale-95 transition-transform"
+            >
+              取消生成
+            </button>
+          )}
+
+          {/* 面板打开时，工作区左上角的「返回」浮层。
+              固定定位在同一位置 → 文案切换时不会跳动。
+              点击 = 关闭当前面板层（子面板 → 功能面板 → 剧本界面）。 */}
+          {anySheetOpen && (
+            <button
+              type="button"
+              aria-label={sheetIsPrimary ? "关闭" : "返回"}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleSheetBack();
+              }}
+              className="absolute z-[62] top-2 left-2 px-3 py-2 rounded-full bg-white/95 backdrop-blur text-[12px] font-semibold text-black/60 shadow-[0_2px_10px_rgba(0,0,0,0.10)] active:scale-95 transition-transform"
+              style={{ fontSize: "calc(12px * var(--app-text-scale, 1))" }}
+            >
+              ← {sheetIsPrimary ? "返回剧本" : "返回"}
+            </button>
+          )}
 
           <div
             ref={scrollRef}
@@ -1868,6 +2006,7 @@ ${lastSpeakerNote}
               {/* 唯一的入口：+ 号 → 底部「功能」面板（旁白/配色/CSS/模型都收进去） */}
               <button
                 type="button"
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => setShowToolsSheet(true)}
                 className="w-8 h-8 grid place-items-center rounded-full bg-black/[0.05] hover:bg-black/[0.09] text-black/55 shrink-0 active:scale-90 transition"
                 title="功能"
@@ -1913,12 +2052,15 @@ ${lastSpeakerNote}
             </div>
           </div>
 
-          {/* 旁白与场景设定（改为 MiniSheet：顶栏统一返回，保存后回剧本界面） */}
+          {/* 旁白与场景设定（MiniSheet：顶栏「← 返回」只关本层，回到功能面板） */}
           {showNarrationModal && (
             <MiniSheet
               title="旁白与场景设定"
               subtitle="NARRATION · SCENE"
-              onClose={closeAllSheets}
+              onClose={() => {
+                setShowNarrationModal(false);
+                setShowToolsSheet(true);
+              }}
             >
               {/* 是否启用旁白：关闭时这段设定不会注入 AI 提示词 */}
               <button
@@ -1963,39 +2105,26 @@ ${lastSpeakerNote}
                 />
               </div>
 
-              {/* 底部：清空（次要）+ 保存（主）；返回统一交给顶栏 */}
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNarrationSettingText("");
-                    const updated = { ...currentScript, background: "" };
-                    setCurrentScript(updated);
-                    saveOrUpdateEnsembleScript(updated);
-                    setScripts(loadEnsembleScripts());
-                    closeAllSheets();
-                  }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
-                >
-                  清空
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const updated = {
-                      ...currentScript,
-                      background: narrationSettingText.trim(),
-                    };
-                    setCurrentScript(updated);
-                    saveOrUpdateEnsembleScript(updated);
-                    setScripts(loadEnsembleScripts());
-                    closeAllSheets();
-                  }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
-                >
-                  保存设定
-                </button>
-              </div>
+              {/* 底部只留「保存设定」这一功能键；「返回」由顶栏负责 */}
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = {
+                    ...currentScript,
+                    background: narrationSettingText.trim(),
+                  };
+                  setCurrentScript(updated);
+                  saveOrUpdateEnsembleScript(updated);
+                  setScripts(loadEnsembleScripts());
+                  // 保存 = 功能键完成 → 关掉本层，停在功能面板
+                  setShowNarrationModal(false);
+                  setShowToolsSheet(true);
+                  setToast("旁白与场景设定已保存");
+                }}
+                className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+              >
+                保存设定
+              </button>
             </MiniSheet>
           )}
 
@@ -2039,7 +2168,10 @@ ${lastSpeakerNote}
             <MiniSheet
               title="卡片配色"
               subtitle="RECEIPT COLOR"
-              onClose={closeAllSheets}
+              onClose={() => {
+                setShowPaletteSheet(false);
+                setShowToolsSheet(true);
+              }}
             >
               <div className="bg-white rounded-[16px] p-4 space-y-3.5">
                 {(
@@ -2108,9 +2240,10 @@ ${lastSpeakerNote}
               title="自定义 CSS"
               subtitle="CUSTOM STYLE"
               onClose={() => {
-                // 关闭时丢弃"未应用"的预览草稿，避免预览态残留
+                // 关闭时丢弃"未应用"的预览草稿，避免预览态残留；停在功能面板
                 setCssDraft(currentScript.customCss || "");
                 setShowCssSheet(false);
+                setShowToolsSheet(true);
               }}
             >
               <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
@@ -2165,7 +2298,9 @@ ${lastSpeakerNote}
                     setCurrentScript(updated);
                     saveOrUpdateEnsembleScript(updated);
                     setScripts(loadEnsembleScripts());
+                    // 应用 = 功能键完成 → 关掉本层，停在功能面板
                     setShowCssSheet(false);
+                    setShowToolsSheet(true);
                     setToast("自定义 CSS 已生效");
                   }}
                   className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
@@ -2192,7 +2327,10 @@ ${lastSpeakerNote}
               <MiniSheet
                 title="剧本设置"
                 subtitle="SCRIPT SETTINGS"
-                onClose={closeAllSheets}
+                onClose={() => {
+                  setShowSettingsSheet(false);
+                  setShowToolsSheet(true);
+                }}
               >
                 <div className="bg-white rounded-[16px] p-4 space-y-4">
                   <div className="flex items-baseline justify-between">
@@ -2299,7 +2437,7 @@ ${lastSpeakerNote}
                 </div>
 
                 {/* 底部只保留「保存」——它是功能键，不是返回键。
-                    「返回」统一由顶栏负责（避免返回语义重复）。 */}
+                    「返回」由顶栏 / 左上角浮层键负责（避免返回语义重复）。 */}
                 <button
                   type="button"
                   onClick={() => {
@@ -2313,7 +2451,9 @@ ${lastSpeakerNote}
                     setCurrentScript(updated);
                     saveOrUpdateEnsembleScript(updated);
                     setScripts(loadEnsembleScripts());
-                    closeAllSheets();
+                    // 保存 = 功能键完成 → 关掉本层，停在功能面板
+                    setShowSettingsSheet(false);
+                    setShowToolsSheet(true);
                     setToast(`每轮输出已设为 ${charsDraft} 字`);
                   }}
                   className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
@@ -2336,8 +2476,16 @@ ${lastSpeakerNote}
                 <MiniSheet
                   title={activeApi.name || "未命名配置"}
                   subtitle="MODELS · SESSION"
-                  onClose={() => setShowModelSheet(false)}
-                  onBack={() => setModelPickerApiId(null)}
+                  onClose={() => {
+                    // 只关本层 → 回到模型一级列表
+                    setModelPickerApiId(null);
+                    setModelListError(null);
+                  }}
+                  onBack={() => {
+                    // 同层内的次级导航：同样回一级（与顶栏「← 返回」保持一致）
+                    setModelPickerApiId(null);
+                    setModelListError(null);
+                  }}
                   backLabel="换 API"
                 >
                   {isLoadingModels && (
@@ -2400,7 +2548,8 @@ ${lastSpeakerNote}
             }
 
             // ── 一级：可选 API 列表 ──
-            // 硅基流动属于「工具调用」范畴（记忆向量等），默认折叠，开关放顶栏。
+            // 硅基流动属于「工具调用」范畴（记忆向量等），默认折叠。
+            // 开关放在「返回」键旁边，尽量小 —— 不占列表位置、也不抢视觉。
             const hiddenApiCount = apiConfigList.filter(
               (cfg) => cfg.provider === "SiliconFlow"
             ).length;
@@ -2408,22 +2557,29 @@ ${lastSpeakerNote}
               <MiniSheet
                 title="模型切换"
                 subtitle="API · SESSION"
-                onClose={closeAllSheets}
+                onClose={() => {
+                  setShowModelSheet(false);
+                  setModelPickerApiId(null);
+                  setModelListError(null);
+                  setShowToolsSheet(true);
+                }}
                 headerAction={
                   hiddenApiCount > 0 ? (
                     <button
                       type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => setShowHiddenApis((v) => !v)}
-                      className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full active:scale-95 transition-transform ${
+                      className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-full active:scale-95 transition-transform ${
                         showHiddenApis
                           ? "bg-[#111111] text-white"
-                          : "bg-white text-black/45"
+                          : "bg-black/[0.06] text-black/40"
                       }`}
-                      style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
+                      style={{ fontSize: "calc(10px * var(--app-text-scale, 1))" }}
                       title="工具调用（硅基流动）"
                     >
-                      <Wrench size={11} strokeWidth={2} />
+                      <Wrench size={10} strokeWidth={2} />
                       工具调用
+                      <span className="tabular-nums opacity-60">{hiddenApiCount}</span>
                     </button>
                   ) : null
                 }

@@ -148,11 +148,11 @@ export function EnsembleToolsSheet({
   if (!open) return null;
   return (
     <div
-      className="absolute inset-0 z-50 flex flex-col justify-end"
+      className="absolute inset-0 z-[54] flex flex-col justify-end"
       onClick={onClose}
     >
-      {/* 遮罩 */}
-      <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px] animate-[fadeIn_180ms_ease-out]" />
+      {/* 遮罩（模糊背景常驻：子弹窗关闭后本层保留，背景持续模糊，不再重播弹出动画） */}
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
 
       {/* 面板本体：从底部升起 */}
       <div
@@ -186,15 +186,14 @@ export function EnsembleToolsSheet({
           ))}
         </div>
 
-        {/* 取消条 */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full mt-3 py-3.5 rounded-[16px] bg-white/70 font-medium text-black/55 active:scale-[0.985] transition-transform"
-          style={{ fontSize: fs(14) }}
+        {/* 底部不再放「取消」/「返回」——返回统一交给顶栏与左上角浮层键，
+            避免同一个动作出现两个按钮（用户明确要求：返回择一即可）。 */}
+        <div
+          className="mt-4 mb-1 text-center text-black/25"
+          style={{ fontSize: fs(10) }}
         >
-          取消
-        </button>
+          点空白处或按返回键收起
+        </div>
 
         {/* 动画关键帧（就近声明，避免污染全局样式表） */}
         <style jsx>{`
