@@ -9,7 +9,6 @@ import {
   Trash2,
   Users,
   Compass,
-  X,
   Check,
   RefreshCw,
   Pencil,
@@ -330,20 +329,25 @@ function NarrationCard({
 }
 
 // 通用底部子弹窗：与「功能」面板同一套视觉（浅灰底、圆角、居中标题）
-// onBack：关闭后要回到哪一层（需求 1.5——子弹窗返回「功能」面板，而不是直接回剧情界面）
+// 返回体系（v2）：顶栏只保留一个「← 返回」，点击 = 关闭全部面板回剧本界面。
+// 底部不再放任何按钮 —— 避免与顶栏返回重复（要求：返回与顶栏返回择一留下）。
+// headerAction：顶栏返回键左侧的附加小按键（例如「工具调用」）。
 function MiniSheet({
   title,
   subtitle,
   onClose,
   onBack,
   backLabel = "返回",
+  headerAction,
   children,
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
+  /** 可选：同层内的“上一级”（如模型二级→一级）。存在时显示在右侧。 */
   onBack?: () => void;
   backLabel?: string;
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -351,7 +355,7 @@ function MiniSheet({
       <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative bg-[#f2f2f4] rounded-t-[26px] px-4 pt-6 pb-5 max-h-[88%] overflow-y-auto"
+        className="relative bg-[#f2f2f4] rounded-t-[26px] px-4 pt-6 pb-6 max-h-[88%] overflow-y-auto"
       >
         <div className="px-1.5 mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -370,40 +374,30 @@ function MiniSheet({
               </div>
             )}
           </div>
-          {onBack && (
+          <div className="shrink-0 flex items-center gap-1.5">
+            {headerAction}
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="shrink-0 px-2.5 py-1.5 rounded-full bg-black/[0.06] text-black/50 active:scale-95 transition-transform"
+                style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
+              >
+                ← {backLabel}
+              </button>
+            )}
             <button
               type="button"
-              onClick={onBack}
+              onClick={onClose}
               className="shrink-0 px-2.5 py-1.5 rounded-full bg-white text-black/45 active:scale-95 transition-transform"
               style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
-              title="返回功能列表"
+              title="返回剧本界面"
             >
-              ← {backLabel}
+              {onBack ? "✕" : "← 返回"}
             </button>
-          )}
+          </div>
         </div>
         <div className="space-y-2.5">{children}</div>
-        {onBack ? (
-          // 二级面板：底部只保留「返回功能」，关闭交给点遮罩或顶部返回。
-          // 之前这里并排放了「返回功能」+「关闭」，与顶栏形成重复。
-          <button
-            type="button"
-            onClick={onBack}
-            className="w-full mt-3 py-3.5 rounded-[16px] bg-[#111111] font-semibold text-white active:scale-[0.985] transition-transform"
-            style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
-          >
-            返回功能
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full mt-3 py-3.5 rounded-[16px] bg-white/70 font-medium text-black/55 active:scale-[0.985] transition-transform"
-            style={{ fontSize: "calc(14px * var(--app-text-scale, 1))" }}
-          >
-            取消
-          </button>
-        )}
       </div>
     </div>
   );
@@ -1180,16 +1174,18 @@ ${lastSpeakerNote}
     });
   };
 
-  /** 子弹窗「返回」：先关掉所有子弹窗，再重新打开「功能」面板（需求 1.5） */
-  const backToTools = () => {
+  /** 关闭所有子弹窗，回到剧本界面（统一返回语义：不再弹回「功能」面板） */
+  const closeAllSheets = () => {
     setShowPaletteSheet(false);
     setShowCssSheet(false);
-    // 离开 CSS 面板时丢弃未应用的预览草稿（已保存的 customCss 不受影响）
-    setCssDraft(currentScript?.customCss || "");
+    setShowSettingsSheet(false);
     setShowModelSheet(false);
     setModelPickerApiId(null);
     setModelListError(null);
-    setShowToolsSheet(true);
+    setShowToolsSheet(false);
+    setShowNarrationModal(false);
+    // 离开 CSS 面板时丢弃未应用的预览草稿（已保存的 customCss 不受影响）
+    setCssDraft(currentScript?.customCss || "");
   };
 
   /** 打开「模型切换」：默认停在 API 一级列表，重置上次的二级态 */
@@ -1917,99 +1913,90 @@ ${lastSpeakerNote}
             </div>
           </div>
 
-          {/* 旁白与场景设定弹窗 */}
+          {/* 旁白与场景设定（改为 MiniSheet：顶栏统一返回，保存后回剧本界面） */}
           {showNarrationModal && (
-            <div className="absolute inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-xl border border-black/5 flex flex-col gap-3">
-                <div className="flex items-center justify-between pb-2 border-b border-black/5">
-                  <span className="font-semibold text-sm text-[#1a1a1a]">
-                    旁白与场景设定
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowNarrationModal(false)}
-                    className="p-1 hover:bg-black/5 rounded-full text-black/40"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                {/* 是否启用旁白：关闭时这段设定不会注入 AI 提示词 */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !(currentScript.narrationEnabled);
-                    const updated = { ...currentScript, narrationEnabled: next };
-                    setCurrentScript(updated);
-                    saveOrUpdateEnsembleScript(updated);
-                    setScripts(loadEnsembleScripts());
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
-                    currentScript.narrationEnabled
-                      ? "bg-black/[0.05] border-black/10 text-[#1a1a1a]"
-                      : "bg-black/[0.02] border-black/5 text-black/45"
+            <MiniSheet
+              title="旁白与场景设定"
+              subtitle="NARRATION · SCENE"
+              onClose={closeAllSheets}
+            >
+              {/* 是否启用旁白：关闭时这段设定不会注入 AI 提示词 */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !currentScript.narrationEnabled;
+                  const updated = { ...currentScript, narrationEnabled: next };
+                  setCurrentScript(updated);
+                  saveOrUpdateEnsembleScript(updated);
+                  setScripts(loadEnsembleScripts());
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-[16px] text-[13px] font-medium transition-colors ${
+                  currentScript.narrationEnabled
+                    ? "bg-white text-[#111111]"
+                    : "bg-white/60 text-black/45"
+                }`}
+              >
+                <span>启用旁白</span>
+                <span
+                  className={`w-9 h-5 rounded-full relative transition-colors ${
+                    currentScript.narrationEnabled ? "bg-[#111111]" : "bg-black/20"
                   }`}
                 >
-                  <span>启用旁白</span>
                   <span
-                    className={`w-9 h-5 rounded-full relative transition-colors ${
-                      currentScript.narrationEnabled ? "bg-[#1a1a1a]" : "bg-black/20"
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                      currentScript.narrationEnabled ? "left-[18px]" : "left-0.5"
                     }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                        currentScript.narrationEnabled ? "left-[18px]" : "left-0.5"
-                      }`}
-                    />
-                  </span>
-                </button>
+                  />
+                </span>
+              </button>
 
-                <div className="text-xs text-black/50">
+              <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
+                <div className="text-[10.5px] leading-relaxed text-black/45">
                   设定当前剧本的宏观环境、旁白氛围或隐藏剧情要求，AI 会严格遵从。
                 </div>
-
                 <textarea
                   value={narrationSettingText}
                   onChange={(e) => setNarrationSettingText(e.target.value)}
                   placeholder="例如：深夜首尔街头下着淅淅沥沥的冷雨，角色们刚结束高强度的工作，彼此心情沉重但都克制着情绪..."
-                  rows={5}
-                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-xs text-[#1a1a1a] placeholder:text-black/30 outline-none focus:border-black/20 resize-none leading-relaxed"
+                  rows={7}
+                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[12px] text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
                 />
-
-                <div className="flex items-center justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNarrationSettingText("");
-                      const updated = { ...currentScript, background: "" };
-                      setCurrentScript(updated);
-                      saveOrUpdateEnsembleScript(updated);
-                      setScripts(loadEnsembleScripts());
-                      setShowNarrationModal(false);
-                    }}
-                    className="px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg"
-                  >
-                    清空
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const updated = {
-                        ...currentScript,
-                        background: narrationSettingText.trim(),
-                      };
-                      setCurrentScript(updated);
-                      saveOrUpdateEnsembleScript(updated);
-                      setScripts(loadEnsembleScripts());
-                      setShowNarrationModal(false);
-                    }}
-                    className="px-4 py-1.5 bg-[#1a1a1a] text-white rounded-xl text-xs font-medium"
-                  >
-                    保存设定
-                  </button>
-                </div>
               </div>
-            </div>
+
+              {/* 底部：清空（次要）+ 保存（主）；返回统一交给顶栏 */}
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNarrationSettingText("");
+                    const updated = { ...currentScript, background: "" };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    closeAllSheets();
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                >
+                  清空
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = {
+                      ...currentScript,
+                      background: narrationSettingText.trim(),
+                    };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    closeAllSheets();
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                >
+                  保存设定
+                </button>
+              </div>
+            </MiniSheet>
           )}
 
           {/* ═══════════ 功能面板（+ 号） ═══════════ */}
@@ -2052,8 +2039,7 @@ ${lastSpeakerNote}
             <MiniSheet
               title="卡片配色"
               subtitle="RECEIPT COLOR"
-              onClose={() => setShowPaletteSheet(false)}
-              onBack={backToTools}
+              onClose={closeAllSheets}
             >
               <div className="bg-white rounded-[16px] p-4 space-y-3.5">
                 {(
@@ -2126,7 +2112,6 @@ ${lastSpeakerNote}
                 setCssDraft(currentScript.customCss || "");
                 setShowCssSheet(false);
               }}
-              onBack={backToTools}
             >
               <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between gap-3">
@@ -2207,8 +2192,7 @@ ${lastSpeakerNote}
               <MiniSheet
                 title="剧本设置"
                 subtitle="SCRIPT SETTINGS"
-                onClose={() => setShowSettingsSheet(false)}
-                onBack={backToTools}
+                onClose={closeAllSheets}
               >
                 <div className="bg-white rounded-[16px] p-4 space-y-4">
                   <div className="flex items-baseline justify-between">
@@ -2228,19 +2212,48 @@ ${lastSpeakerNote}
                     </div>
                   </div>
 
-                  <input
-                    type="range"
-                    min={150}
-                    max={2000}
-                    step={50}
-                    value={charsDraft}
-                    onChange={(e) => setCharsDraft(Number(e.target.value))}
-                    className="w-full accent-[#111111]"
-                  />
+                  {/* 手动输入：直接键入精确字数（不要滑块——滑块无法精准定位） */}
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setCharsDraft((v) => Math.max(50, v - 50))}
+                      className="w-11 h-11 rounded-[13px] bg-black/[0.05] grid place-items-center text-[#111111] text-[20px] font-medium active:scale-95 transition-transform shrink-0"
+                    >
+                      −
+                    </button>
+                    <div className="flex-1 flex items-center justify-center gap-1.5 bg-black/[0.03] border border-black/10 rounded-[13px] h-11 px-3">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={50}
+                        max={4000}
+                        step={50}
+                        value={charsDraft}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          setCharsDraft(Number.isFinite(n) ? n : 0);
+                        }}
+                        onBlur={() => {
+                          // 失焦时收敛到合法区间，避免空值/越界写库
+                          setCharsDraft((v) =>
+                            Math.min(4000, Math.max(50, Math.round(v) || 600))
+                          );
+                        }}
+                        className="w-full bg-transparent text-center text-[17px] font-bold text-[#111111] tabular-nums outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[12px] text-black/40 shrink-0">字</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCharsDraft((v) => Math.min(4000, v + 50))}
+                      className="w-11 h-11 rounded-[13px] bg-black/[0.05] grid place-items-center text-[#111111] text-[20px] font-medium active:scale-95 transition-transform shrink-0"
+                    >
+                      ＋
+                    </button>
+                  </div>
 
-                  <div className="flex items-center justify-between text-[9.5px] text-black/30 font-mono">
-                    <span>150 短</span>
-                    <span>2000 长</span>
+                  <div className="text-[9.5px] text-black/30 font-mono text-center">
+                    范围 50 – 4000 字
                   </div>
 
                   {/* 预设：短/中/长/超长 */}
@@ -2285,35 +2298,28 @@ ${lastSpeakerNote}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setCharsDraft(600)}
-                    className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
-                  >
-                    恢复默认
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const updated = {
-                        ...currentScript,
-                        charsPerTurn: charsDraft,
-                        // 清掉手动 token 上限，交回给字数自动换算，
-                        // 避免旧的 8192 之类的值与新字数目标打架
-                        maxTokensPerTurn: undefined,
-                      };
-                      setCurrentScript(updated);
-                      saveOrUpdateEnsembleScript(updated);
-                      setScripts(loadEnsembleScripts());
-                      setShowSettingsSheet(false);
-                      setToast(`每轮输出已设为 ${charsDraft} 字`);
-                    }}
-                    className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
-                  >
-                    保存
-                  </button>
-                </div>
+                {/* 底部只保留「保存」——它是功能键，不是返回键。
+                    「返回」统一由顶栏负责（避免返回语义重复）。 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = {
+                      ...currentScript,
+                      charsPerTurn: charsDraft,
+                      // 清掉手动 token 上限，交回给字数自动换算，
+                      // 避免旧的 8192 之类的值与新字数目标打架
+                      maxTokensPerTurn: undefined,
+                    };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    closeAllSheets();
+                    setToast(`每轮输出已设为 ${charsDraft} 字`);
+                  }}
+                  className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                >
+                  保存
+                </button>
               </MiniSheet>
             );
           })()}
@@ -2394,12 +2400,33 @@ ${lastSpeakerNote}
             }
 
             // ── 一级：可选 API 列表 ──
+            // 硅基流动属于「工具调用」范畴（记忆向量等），默认折叠，开关放顶栏。
+            const hiddenApiCount = apiConfigList.filter(
+              (cfg) => cfg.provider === "SiliconFlow"
+            ).length;
             return (
               <MiniSheet
                 title="模型切换"
                 subtitle="API · SESSION"
-                onClose={() => setShowModelSheet(false)}
-                onBack={backToTools}
+                onClose={closeAllSheets}
+                headerAction={
+                  hiddenApiCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowHiddenApis((v) => !v)}
+                      className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full active:scale-95 transition-transform ${
+                        showHiddenApis
+                          ? "bg-[#111111] text-white"
+                          : "bg-white text-black/45"
+                      }`}
+                      style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
+                      title="工具调用（硅基流动）"
+                    >
+                      <Wrench size={11} strokeWidth={2} />
+                      工具调用
+                    </button>
+                  ) : null
+                }
               >
                 <div className="px-1 pb-1 text-[11px] leading-relaxed text-black/35">
                   先选一条 API，再选该 API 下的具体模型。只对本剧本生效，不改动全局设置。
@@ -2466,33 +2493,8 @@ ${lastSpeakerNote}
                     <>
                       {visibleApis.map(renderApiRow)}
 
-                      {/* 折叠的硅基流动：默认收起成一行小按键，点「展开」才显示 */}
-                      {hiddenApis.length > 0 && (
-                        <div className="rounded-[16px] bg-white overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => setShowHiddenApis((v) => !v)}
-                            className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left active:scale-[0.99] transition-transform"
-                          >
-                            <Wrench size={14} strokeWidth={1.9} className="text-black/35 shrink-0" />
-                            <span className="flex-1 text-[12px] font-medium text-black/45">
-                              工具调用（{hiddenApis.length}）
-                            </span>
-                            <ChevronRight
-                              size={15}
-                              strokeWidth={2}
-                              className={`text-black/25 shrink-0 transition-transform ${
-                                showHiddenApis ? "rotate-90" : ""
-                              }`}
-                            />
-                          </button>
-                          {showHiddenApis && (
-                            <div className="px-2 pb-2 space-y-2">
-                              {hiddenApis.map(renderApiRow)}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {/* 工具调用（硅基流动）：开关在顶栏返回键旁边，这里只负责按开关状态显示 */}
+                      {showHiddenApis && hiddenApis.map(renderApiRow)}
                     </>
                   );
                 })()}
