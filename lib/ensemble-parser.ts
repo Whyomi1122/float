@@ -28,8 +28,8 @@ export type EnsembleFrame = {
   speakerAvatar?: string | null;
   /** 该帧的正文（原样保留，由渲染层决定排版） */
   text: string;
-  /** 帧类型：dialogue=有说话人，narration=旁白/环境，inner=心理描写 */
-  kind: "dialogue" | "narration" | "inner";
+  /** 帧类型：dialogue=有说话人，narration=旁白/环境，inner=心理描写，action=叙述性文字（动作/环境/神态） */
+  kind: "dialogue" | "narration" | "inner" | "action";
 };
 
 export type EnsembleParsedReply = {
@@ -55,6 +55,41 @@ const NARRATION_TOKEN = /^\s*[\[［【]\s*旁白\s*[\]］】]\s*[:：]?\s*/;
  * 渲染层据此上雾霾蓝 #93A9D1 —— 这是「心理」与「动作/环境」唯一的分野。
  */
 const INNER_TOKEN = /^\s*[\[［【]\s*心理\s*[\]］】]\s*[:：]?\s*/;
+
+/**
+ * 叙述性文字协议暗号：行首 `[叙述]` / `[动作]`（兼容 `【】` / 全角）+ 可选冒号。
+ *
+ * 用户定稿（2026-10-04 第5轮）：
+ *   · 「叙述文字」= 动作 / 环境 / 神态，统一渲染为灰 #A9A9A9。
+ *   · 保留「［叙述］」与「［动作］」两个暗号，但**同色** —— 这样模型即使
+ *     把动作标成叙述（或反过来），视觉结果完全一致，不会出错（容错设计）。
+ *   · 归到**上一个开口的角色**（与心理同源），但渲染时只糊颜色、不出头像。
+ */
+const ACTION_TOKEN = /^\s*[\[［【]\s*(?:叙述|动作)\s*[\]］】]\s*[:：]?\s*/;
+
+/**
+ * 对白协议暗号：行首 `[对白]`（兼容 `【对白】` / 全角）+ 可选冒号。
+ *
+ * 用户定稿（2026-10-04 第5轮·最终契约）：
+ *   · 「角色名：」独占一行 = **归属声明行**，只声明「下面这些块归谁」，本身无内容。
+ *   · 该行之后出现的每一个 `［暗号］:` 块（对白/叙述/动作/心理）都归属该角色。
+ *   · 对白块内的多行（韩语原文 + 中文译文 + 纯中文句）**全部黑色**，
+ *     由本暗号一次性声明类型，绝不与叙述块混淆。
+ */
+const DIALOGUE_TOKEN = /^\s*[\[［【]\s*对白\s*[\]］】]\s*[:：]?\s*/;
+
+/**
+ * 归属声明行：`角色名：` 独占一行（行内除名字与全角冒号外没有别的内容）。
+ * 与 matchSpeakerPrefix 不同，这里要求**冒号后为空**，才认定为归属声明。
+ */
+function matchOwnerLine(line: string): string | null {
+  const m = line.match(/^\s*([^\s:：""（(【\[［\]］]{1,12})\s*[:：]\s*$/);
+  if (!m) return null;
+  const name = m[1].trim();
+  if (!name) return null;
+  if (/[，。！？；、,.!?;]/.test(name)) return null;
+  return name;
+}
 
 /**
  * 剥离模型推理泄漏块（<think>/<thinking>），并提取 <content> 主体。
@@ -183,6 +218,18 @@ export function parseEnsembleReply(
   // 冻结该帧的说话人归属：心理属于「上一个开口的角色」，不是旁白。
   let currentInner: { text: string[]; speaker?: string; speakerId?: string; speakerAvatar?: string | null } | null =
     null;
+  // 当前是否正在累积一个「叙述性文字」帧（由 [叙述] / [动作] 暗号开启）。
+  // 同心理：归属上一个开口的角色，但渲染时只糊灰色，不出头像。
+  let currentAction: { text: string[]; speaker?: string; speakerId?: string; speakerAvatar?: string | null } | null =
+    null;
+  // 当前是否正在累积一个「对白」帧（由 [对白] 暗号开启），归属当前角色。
+  let currentDialogue: { text: string[]; speaker: string; speakerId?: string; speakerAvatar?: string | null } | null =
+    null;
+  // ── 归属声明（2026-10 第5轮定稿）──
+  // 「角色名：」独占一行 = 归属声明行；之后所有 ［暗号］ 块都归这个角色，
+  // 直到下一个归属声明。这让解析彻底摆脱「猜行首人名」的脆弱逻辑。
+  let currentOwner: { name: string; id?: string; avatar?: string | null } | null =
+    null;
   // 角色名之前的散行，先攒着，遇到说话人时作为旁白帧 flush
   const narrationBuffer: string[] = [];
   // 首帧之前是否已出现过说话人（用于判断是否真正「群像」）
@@ -225,6 +272,23 @@ export function parseEnsembleReply(
     currentInner = null;
   };
 
+  /** 落地下一个 [叙述] / [动作] 块。归属上一个开口的角色，渲染时只糊灰色。 */
+  const flushAction = () => {
+    if (currentAction) {
+      const t = currentAction.text.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      if (t) {
+        frames.push({
+          text: t,
+          kind: "action",
+          speaker: currentAction.speaker,
+          speakerId: currentAction.speakerId,
+          speakerAvatar: currentAction.speakerAvatar,
+        });
+      }
+    }
+    currentAction = null;
+  };
+
   const flushCurrent = () => {
     if (current) {
       current.text = current.text.replace(/\n+$/, "").trim();
@@ -235,99 +299,153 @@ export function parseEnsembleReply(
     current = null;
   };
 
+  /** 落地下一个 [对白] 块。归属当前角色，整块黑色。 */
+  const flushDialogue = () => {
+    if (currentDialogue) {
+      const t = currentDialogue.text.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      if (t) {
+        frames.push({
+          text: t,
+          kind: "dialogue",
+          speaker: currentDialogue.speaker,
+          speakerId: currentDialogue.speakerId,
+          speakerAvatar: currentDialogue.speakerAvatar,
+        });
+      }
+    }
+    currentDialogue = null;
+  };
+
+  /** 关闭所有正在累积的块（换归属 / 换块类型前统一调用）。 */
+  const flushAllBlocks = () => {
+    flushNarration();
+    flushExplicitNarration();
+    flushInner();
+    flushAction();
+    flushDialogue();
+    flushCurrent();
+  };
+
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
+
+    // ── ⓪ 归属声明行「角色名：」（独占一行）──
+    // 声明「下面这些 ［暗号］ 块都归谁」。本身不产出帧。
+    const ownerName = matchOwnerLine(line);
+    if (ownerName) {
+      const member = findCastMember(ownerName, actors, allCast);
+      if (member) {
+        flushAllBlocks();
+        currentOwner = {
+          name: member.name,
+          id: member.id,
+          avatar: member.avatar ?? null,
+        };
+        speakersSeen.add(member.name);
+        continue;
+      }
+      // 认不出的人名 → 不当归属声明，落回普通正文
+    }
 
     // ── ① 显式旁白暗号 [旁白] ──
     if (NARRATION_TOKEN.test(line)) {
       const rest = line.replace(NARRATION_TOKEN, "").trim();
-      flushNarration();
-      flushCurrent();
-      flushExplicitNarration();
-      flushInner();
+      flushAllBlocks();
       currentNarration = rest ? [rest] : [];
       continue;
     }
 
-    // ── ①b 显式心理暗号 [心理]（与旁白同构，归属上一个开口的角色）──
+    // ── ①b 显式心理暗号 [心理]（归属当前角色）──
     if (INNER_TOKEN.test(line)) {
       const rest = line.replace(INNER_TOKEN, "").trim();
-      flushNarration();
-      flushExplicitNarration();
-      flushInner();
-      // 冻结归属：心理属于「在此之前最后开口的那个角色」
-      const owner = current;
-      flushCurrent();
+      flushAllBlocks();
       currentInner = {
         text: rest ? [rest] : [],
-        speaker: owner?.speaker,
-        speakerId: owner?.speakerId,
-        speakerAvatar: owner?.speakerAvatar,
+        speaker: currentOwner?.name,
+        speakerId: currentOwner?.id,
+        speakerAvatar: currentOwner?.avatar ?? null,
       };
       continue;
     }
 
-    const hit = matchSpeakerPrefix(line);
-
-    if (hit) {
-      const member = findCastMember(hit.name, actors, allCast);
-      // 认领成功 → 换帧
-      if (member) {
-        flushNarration();
-        flushExplicitNarration();
-        flushInner();
-        flushCurrent();
-        speakersSeen.add(member.name);
-        // 幕首无归属散行：关闭旁白时归给这第一个出场的角色，别丢字
-        const headPrefix = pendingHead.splice(0).join("\n").trim();
-        current = {
-          speaker: member.name,
-          speakerId: member.id,
-          speakerAvatar: member.avatar ?? null,
-          text: headPrefix
-            ? headPrefix + (hit.rest ? `\n${hit.rest}` : "")
-            : hit.rest,
-          kind: "dialogue",
-        };
-        continue;
-      }
-      // 认不出的人名 → 不当作说话人，当作普通正文
+    // ── ①c 显式叙述/动作暗号 [叙述] / [动作]（同色，归属当前角色）──
+    if (ACTION_TOKEN.test(line)) {
+      const rest = line.replace(ACTION_TOKEN, "").trim();
+      flushAllBlocks();
+      currentAction = {
+        text: rest ? [rest] : [],
+        speaker: currentOwner?.name,
+        speakerId: currentOwner?.id,
+        speakerAvatar: currentOwner?.avatar ?? null,
+      };
+      continue;
     }
 
-    // ── ② 显式旁白块累积中：所有行先归它 ──
+    // ── ①d 显式对白暗号 [对白]（归属当前角色，整块黑色）──
+    if (DIALOGUE_TOKEN.test(line)) {
+      const rest = line.replace(DIALOGUE_TOKEN, "").trim();
+      flushAllBlocks();
+      if (currentOwner) {
+        currentDialogue = {
+          text: rest ? [rest] : [],
+          speaker: currentOwner.name,
+          speakerId: currentOwner.id,
+          speakerAvatar: currentOwner.avatar ?? null,
+        };
+      } else {
+        // 没有归属声明却出现 [对白] → 兜底：当普通对白帧（无归属）
+        currentDialogue = {
+          text: rest ? [rest] : [],
+          speaker: "—",
+          speakerId: undefined,
+          speakerAvatar: null,
+        };
+      }
+      continue;
+    }
+
+    // ── ② 五种块累积中：所有行先归对应块 ──
     if (currentNarration) {
       currentNarration.push(line);
       continue;
     }
-
-    // ── ②b 显式心理块累积中：所有行先归它 ──
     if (currentInner) {
       currentInner.text.push(line);
       continue;
     }
-
-    // ── ③ 未开场散行：攒进 pendingHead（若还没出现任何角色）──
-    if (!current) {
-      if (speakersSeen.size === 0) {
-        pendingHead.push(line);
-      }
-      narrationBuffer.push(line);
+    if (currentAction) {
+      currentAction.text.push(line);
+      continue;
+    }
+    if (currentDialogue) {
+      currentDialogue.text.push(line);
       continue;
     }
 
-    // ── ④ 普通行：追加到当前说话人 ──
-    const chunk = line.trim();
-    if (!chunk) {
-      // 空行：仅在后面还有内容时保留为一个分隔（避免帧尾挂空行）
-      if (current.text && !current.text.endsWith("\n")) current.text += "\n";
+    // ── ③ 兜底：不在任何块里的散行 ──
+    // 有归属声明 → 当该角色的叙述性文字（灰）；否则进 pendingHead/旁白缓冲。
+    if (currentOwner) {
+      flushNarration();
+      flushExplicitNarration();
+      currentAction = {
+        text: [line],
+        speaker: currentOwner.name,
+        speakerId: currentOwner.id,
+        speakerAvatar: currentOwner.avatar ?? null,
+      };
       continue;
     }
-    current.text = current.text ? `${current.text}\n${chunk}` : chunk;
+    if (speakersSeen.size === 0) {
+      pendingHead.push(line);
+    }
+    narrationBuffer.push(line);
   }
 
   flushNarration();
   flushExplicitNarration();
   flushInner();
+  flushAction();
+  flushDialogue();
   flushCurrent();
 
   // 兜底：整段都没解析出帧 → 全作为一帧，绝不静默丢稿。
