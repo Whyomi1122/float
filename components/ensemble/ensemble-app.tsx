@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Plus,
   Send,
   Trash2,
@@ -2395,7 +2396,7 @@ ${lastSpeakerNote}
           {showCssSheet && (
             <MiniSheet
               title="自定义 CSS"
-              subtitle="CUSTOM STYLE"
+              subtitle="CUSTOM STYLE · LIVE"
               onClose={() => {
                 // 关闭时丢弃"未应用"的预览草稿，避免预览态残留；停在功能面板
                 setCssDraft(currentScript.customCss || "");
@@ -2403,50 +2404,107 @@ ${lastSpeakerNote}
                 setShowToolsSheet(true);
               }}
             >
-              <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-[10.5px] leading-relaxed text-black/45 flex-1 min-w-0">
-                    只作用于本 App 的画面。用{" "}
-                    <span className="font-mono">.ensemble-scope</span> 作为前缀即可命中。
-                  </div>
-                  {/* 实时预览开关 */}
+              {/* LIVE PREVIEW 实时预览区域 */}
+              <div className="bg-[#f5f5f7] rounded-[16px] p-3 mb-2">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="text-[10px] font-semibold tracking-wider text-black/50">LIVE PREVIEW · 实时预览</div>
                   <button
                     type="button"
                     onClick={() => setCssPreviewOn((v) => !v)}
-                    className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10.5px] font-medium transition-colors ${
+                    className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-medium transition-colors ${
                       cssPreviewOn
                         ? "bg-[#111111] text-white"
-                        : "bg-black/[0.05] text-black/45"
+                        : "bg-black/[0.08] text-black/40"
                     }`}
                   >
-                    <Eye size={12} strokeWidth={2} />
-                    {cssPreviewOn ? "预览中" : "预览关"}
+                    <Eye size={10} strokeWidth={2} />
+                    {cssPreviewOn ? "开" : "关"}
                   </button>
+                </div>
+                {/* 示例卡片 */}
+                <div className="bg-white rounded-[14px] p-3 space-y-2.5 text-[11px]" id="group-story-screen">
+                  {/* 旁白示例 */}
+                  <div className="flex items-start gap-2">
+                    <div className="w-8 h-8 rounded-full bg-black/[0.08] grid place-items-center shrink-0 text-[10px] text-black/40">▶</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-black/60 mb-1 text-[10px] tracking-wide">NARRATION</div>
+                      <div className="text-black/45 italic leading-relaxed">角色<br />* 风掀起窗帘。*<br />"你来了。"<br />（他其实等了很久。）</div>
+                      <div className="text-[9px] text-black/25 mt-1.5 tabular-nums">TOKENS 42</div>
+                      <div className="text-[9px] text-black/20 mt-0.5">1/1</div>
+                    </div>
+                  </div>
+                  {/* 角色对话示例 */}
+                  <div className="flex items-start gap-2">
+                    <div className="w-8 h-8 rounded-full bg-[#5f5f66] text-white grid place-items-center shrink-0 text-[11px] font-medium">我</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-[#111111] mb-1 text-[11px]">我</div>
+                      <div className="leading-relaxed text-black/70">* 我点点头。*<br />"嗯，等很久了吧。"</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CSS 编辑区 */}
+              <div className="bg-white rounded-[16px] p-3.5 space-y-2">
+                <div className="text-[10px] leading-relaxed text-black/45">
+                  所有样式都必须以 <span className="font-mono text-black/70 font-semibold">#group-story-screen</span> 开头。改完点「应用」生效。
                 </div>
                 <textarea
                   value={cssDraft}
                   onChange={(e) => setCssDraft(e.target.value)}
-                  rows={9}
+                  rows={8}
                   spellCheck={false}
-                  placeholder={".ensemble-scope {\n  /* 例：整体圆角与留白 */\n}"}
-                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[11px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
+                  placeholder={`/* ========== 群像剧情 · 自定义样式模板 =======\n所有选择器都必须以 #group-story-screen 开头。改完点「应用」生效\n\n/* --------- 顶部（群聊参数栏） --------- */\n/* 顶栏容器 */\n#group-story-screen .gs-chat-top { background: rgb(\n/* 返回 / 按钮 */\n#group-story-screen .gs-chat-top-btn {}\n/* 模组名字 */\n#group-story-screen .gs-chat-top-btn svg { stroke: #\n/* 数组 空 */`}
+                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[10.5px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
                 />
               </div>
 
+              {/* 我的预设区域 */}
+              <div className="bg-white rounded-[16px] p-3.5">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="text-[11px] font-bold text-[#111111]">★ 我的预设</span>
+                  <span className="text-[9px] font-medium tracking-wider text-black/30">/ PRESETS</span>
+                  <button
+                    type="button"
+                    className="ml-auto text-[9px] text-black/40 underline"
+                  >
+                    添加默认用
+                  </button>
+                </div>
+                <div className="text-[10px] leading-relaxed text-black/40 mb-2.5">
+                  把当前这套 CSS 存成模版后，下次点一下名字，就会填入全部样式。点预设后记得再点「应用」才生效。
+                </div>
+                {/* 预设 chips */}
+                <div className="flex flex-wrap gap-2 mb-2.5">
+                  <button type="button" className="px-3 py-1.5 rounded-full border border-black/15 bg-white text-[11px] font-medium text-black/60 active:scale-95 transition-transform flex items-center gap-1">
+                    推特
+                    <span className="text-[9px] text-black/30">×</span>
+                  </button>
+                  <button type="button" className="px-3 py-1.5 rounded-full border border-black/15 bg-white text-[11px] font-medium text-black/60 active:scale-95 transition-transform flex items-center gap-1">
+                    鬼世专属
+                    <span className="text-[9px] text-black/30">×</span>
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="w-full py-2.5 rounded-[14px] border border-dashed border-black/15 text-[12px] font-medium text-black/40 active:scale-[0.985] transition-transform"
+                >
+                  + 存为预设
+                </button>
+              </div>
+
+              {/* 底部按钮 */}
               <div className="flex items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => {
-                    const updated = { ...currentScript, customCss: "" };
-                    setCurrentScript(updated);
-                    saveOrUpdateEnsembleScript(updated);
-                    setScripts(loadEnsembleScripts());
-                    setCssDraft("");
-                    setToast("已清空自定义 CSS");
+                    setCssDraft(currentScript.customCss || "");
+                    setShowCssSheet(false);
+                    setShowToolsSheet(true);
                   }}
                   className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                 >
-                  清空
+                  关闭
                 </button>
                 <button
                   type="button"
@@ -2693,7 +2751,7 @@ ${lastSpeakerNote}
             return (
               <MiniSheet
                 title="模型切换"
-                subtitle="API · SESSION"
+                subtitle="API · SESSION ONLY"
                 onClose={() => {
                   setShowModelSheet(false);
                   setModelPickerApiId(null);
@@ -2721,8 +2779,10 @@ ${lastSpeakerNote}
                   ) : null
                 }
               >
-                <div className="px-1 pb-1 text-[11px] leading-relaxed text-black/35">
-                  先选一条 API，再选该 API 下的具体模型。只对本剧本生效，不改动全局设置。
+                <div className="bg-white rounded-[14px] px-4 py-3 mb-2">
+                  <div className="text-[11.5px] leading-relaxed text-black/50">
+                    仅在群像内临时生效，<span className="text-black/70 font-medium">不会改动设置页</span>。可让聊天与总结用不同模型。
+                  </div>
                 </div>
 
                 {(() => {
@@ -2765,11 +2825,10 @@ ${lastSpeakerNote}
                               : cfg.defaultModel || cfg.provider || "UNKNOWN"}
                           </span>
                         </span>
-                        <ChevronRight
-                          size={17}
-                          strokeWidth={2}
-                          className="text-black/25 shrink-0"
-                        />
+                        <div className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-black/15 bg-white">
+                          <span className="text-[10px] font-semibold tracking-wider text-black/60">MODEL</span>
+                          <ChevronDown size={12} strokeWidth={2.5} className="text-black/40" />
+                        </div>
                       </button>
                     );
                   };
@@ -2813,6 +2872,20 @@ ${lastSpeakerNote}
                     跟随全局默认
                   </button>
                 )}
+
+                {/* 底部「完成」按钮 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModelSheet(false);
+                    setModelPickerApiId(null);
+                    setModelListError(null);
+                    setShowToolsSheet(true);
+                  }}
+                  className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                >
+                  完成
+                </button>
               </MiniSheet>
             );
           })()}
