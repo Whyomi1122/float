@@ -42,19 +42,10 @@ export type EnsembleScript = {
   id: string;
   title: string;
   /**
-   * 剧本全局旁白与背景设定（旁白弹窗保存到这里）。
-   * ⚠️ 注意：这是「导演设定」，只注入 AI 提示词，绝不作为一幕显示在剧情区。
-   * 与「旁白幕（narration turn）」是两套东西，切勿混用。
+   * 剧本全局场景设定（背景/氛围/隐藏剧情）。
+   * ⚠️ 只是「导演设定」，仅注入 AI 提示词，绝不作为一幕显示在剧情区。
    */
   background?: string;
-  /** 是否启用旁白（关闭时 background 不注入提示词，按钮置灰） */
-  narrationEnabled?: boolean;
-  /**
-   * 是否启用双语语言格式（缺省关闭）。
-   * 开启后：角色说非中文时，先正常写外语原句，紧跟（）补中文翻译。
-   * 只作用于台词；动作/环境/心理一律正常写中文，不翻译。
-   */
-  bilingualEnabled?: boolean;
   personaId?: string;
   cast: EnsembleCastMember[];
   turns: EnsembleTurn[];
@@ -79,16 +70,7 @@ export type EnsembleScript = {
    */
   maxTokensPerTurn?: number;
   /**
-   * 卡片配色（三色体系的自定义覆盖）。
-   * 只覆盖颜色，不改结构；缺省则用 GS_COLORS 默认值。
-   */
-  palette?: {
-    dial?: string;
-    act?: string;
-    inn?: string;
-  };
-  /**
-   * 自定义 CSS：用户手写的样式，注入到剧本剧场根容器。
+   * 自定义 CSS：用户手写的样式，注入到剧本正文渲染容器。
    * ⚠️ 仅在客户端渲染时注入，不做任何服务端求值。
    */
   customCss?: string;

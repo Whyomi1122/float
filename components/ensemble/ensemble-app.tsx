@@ -57,11 +57,12 @@ import {
 // 「设置 → 绑定」里为群像单独指定 API，未指定则继承全局默认。
 // ══════════════════════════════════════════════════════════
 
-// 文字缩放：群像此前用的是硬编码 text-[Npx]，不读全局 --app-text-scale，
-// 于是「设置 → 主题 → 文字缩放」在群像里完全不生效（用户实机验证过）。
-// 现在统一走 ts()，与《功能》面板的 fs() 是同一套约定。
-function ts(px: number) {
-  return `calc(${px}px * var(--app-text-scale, 1))`;
+// 字号策略（2026-10 定稿）：群像内部字号**写死**，不跟随全局 --app-text-scale。
+// 此前群像走 ts() 跟随全局缩放，导致「设置 → 主题 → 文字缩放」会连带放大
+// 群像内部排版，把设计稿的节奏（正文/名字/旁白的层级差）整个破坏掉。
+// 现在所有字号一律固定 px，与《功能》面板的 fs() 同一套约定。
+function tpx(px: number): string {
+  return `${px}px`;
 }
 
 const ENSEMBLE_APP_ID = "ensemble";
@@ -113,207 +114,47 @@ export function ensembleModelLabel(characterId?: string): string {
   return cfg.defaultModel || cfg.name || cfg.provider || "未知模型";
 }
 
-// 三色视觉定义（对齐目标截图：不出现彩色高亮）
-// 灰阶梯度承担层级：对白最深 → 动作深灰 → 心理浅灰，三层都适合长文阅读。
-export const GS_COLORS = {
-  dial: "#111111", // 对白：深黑（最实，视觉重心）
-  act: "#5f5f66",  // 动作与环境描写：深灰
-  inn: "#8e8e93",  // 心理与神态：浅灰（最轻，退到背景层）
-};
+// ──────────────────────────────────────────────────────────────
+// 排版常量（2026-10 定稿，全部写死）
+// 单色体系：全篇只用一级灰阶，不再有「对白/动作/心理」三色区分。
+// 层级靠**字号 + 灰度 + 段距**拉开，而不是靠颜色。
+// ──────────────────────────────────────────────────────────────
+const T_TEXT = 14; // 正文（台词 / 动作 / 心理）统一 14px
+const C_TEXT = "#1f1f1f"; // 正文颜色
+const T_NAME = 11.5; // 角色名（必须小于正文）
+const C_NAME = "#8a8a8e"; // 角色名：次级灰
+const T_NARR = 13; // 旁白：比正文小 1px
+const C_NARR = "#7d7d82"; // 旁白：灰
 
-/** 把剧本级配色覆盖合并进默认三色（空值回落到默认） */
-export function resolvePalette(override?: {
-  dial?: string;
-  act?: string;
-  inn?: string;
-}): typeof GS_COLORS {
-  if (!override) return GS_COLORS;
-  return {
-    dial: override.dial?.trim() || GS_COLORS.dial,
-    act: override.act?.trim() || GS_COLORS.act,
-    inn: override.inn?.trim() || GS_COLORS.inn,
-  };
-}
-
-interface TriColorSegment {
-  type: "act" | "dial" | "inn" | "plain";
-  text: string;
-  /** 双语模式下：外语台词对应的中文翻译（渲染在括号里，紧跟台词） */
-  translation?: string;
-}
-
-// 解析三色格式
-// bilingual=true 时：把「外语台词（中文翻译）」识别为一个整体 dial 段，
-//   外语原句与（）里的翻译都保留，不被当成动作、也不去符号。
-export function parseTriColor(raw: string, bilingual = false): TriColorSegment[] {
-  if (!raw) return [];
-  const segments: TriColorSegment[] = [];
-
-  // 双语模式：先抽出「…（…）」形态，外语 + 紧随其后的（）翻译整体成段。
-  // 引号可有可无；（）里允许嵌套，但不多层。
-  if (bilingual) {
-    const biRe = /(?:[“"]([^”"]*)[”"])?\s*([^\n（(]{1,120}?)\s*[（(]([^）)]*)[）)]/g;
-    let last = 0;
-    let m: RegExpExecArray | null;
-    let matched = false;
-    while ((m = biRe.exec(raw)) !== null) {
-      matched = true;
-      if (m.index > last) {
-        const plain = raw.slice(last, m.index);
-        if (plain) segments.push({ type: "plain", text: plain });
-      }
-      // 外语原句 = m[1]（带引号）优先，否则 m[2]
-      const foreign = (m[1] ?? m[2] ?? "").trim();
-      const zh = (m[3] ?? "").trim();
-      segments.push({
-        type: "dial",
-        text: foreign,
-        translation: zh,
-      });
-      last = biRe.lastIndex;
-    }
-    if (matched) {
-      if (last < raw.length) {
-        const trailing = raw.slice(last);
-        if (trailing) segments.push({ type: "plain", text: trailing });
-      }
-      return segments;
-    }
-    // 没匹配到双语形态 → 退回普通解析
-  }
-
-  const regex = /(?:[（\(]([^）\)]*)[）\)])|(?:["“]([^"”]*)[”"])|(?:[【\[]([^】\]]*)[】\]])/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(raw)) !== null) {
-    if (match.index > lastIndex) {
-      const plainText = raw.slice(lastIndex, match.index);
-      if (plainText) segments.push({ type: "plain", text: plainText });
-    }
-    if (match[1] !== undefined) {
-      segments.push({ type: "act", text: match[1] });
-    } else if (match[2] !== undefined) {
-      segments.push({ type: "dial", text: match[2] });
-    } else if (match[3] !== undefined) {
-      segments.push({ type: "inn", text: match[3] });
-    }
-    lastIndex = regex.lastIndex;
-  }
-
-  if (lastIndex < raw.length) {
-    const trailing = raw.slice(lastIndex);
-    if (trailing) segments.push({ type: "plain", text: trailing });
-  }
-
-  return segments;
-}
-
-// 去符号：2026-10 起，正文一律按小说长文呈现，不显示任何标记符号。
-// 语义（动作 / 台词 / 心理）仍由解析阶段判定，只是**不再把符号渲染出来**：
-//   （动作）→ 动作文字     "台词" → 台词文字     【独白】→ 独白文字
-// 台词仍由 TriColorText 单独成行（靠换行 + 深黑区分），故这里的去符号只作用于
-// 段内可能残留的、未被解析器识别为独立分段的成对符号。
-const DE_SYMBOL_PAIRS: Array<[RegExp, RegExp]> = [
-  [/[（(]/g, /[）)]/g],
-  [/[【\[]/g, /[】\]]/g],
-  [/[“"]/g, /[”"]/g],
-];
-function stripSymbols(text: string): string {
-  let out = text;
-  for (const [open, close] of DE_SYMBOL_PAIRS) {
-    out = out.replace(new RegExp(open.source, "g"), "").replace(new RegExp(close.source, "g"), "");
-  }
-  return out;
-}
-
-// 三色文本分段排版组件（对齐目标截图）
-// - 对白：深黑，居中/常规排版，去引号
-// - 动作与环境：中灰小字，去圆括号（小说长文观感）
-// - 心理与神态：中灰（同动作系），去方括号
-// 全篇不出现左侧竖线、彩色边框、琥珀金高亮。
-function TriColorText({
-  raw,
-  prefix,
-  palette,
-  bilingual,
-}: {
-  raw: string;
-  prefix?: "u";
-  palette?: typeof GS_COLORS;
-  bilingual?: boolean;
-}) {
-  const segs = parseTriColor(raw, bilingual);
-  const pal = palette ?? GS_COLORS;
+/**
+ * 正文排版组件（单色版）。
+ *
+ * 与旧 TriColorText 的关键差别：
+ *   · 不再解析 （动作）/"台词"/【心理】 三色标记 —— 这类符号已由解析器在
+ *     输出契约层禁掉，正文里出现就是模型违规，不该再由渲染层「帮忙隐藏」。
+ *   · 不再 stripSymbols —— 隐藏符号会让「模型违规」永远看不见，掩盖问题。
+ *   · 段落 = 换行切分，空行归并，段距写死 16px。
+ */
+function BodyText({ raw }: { raw: string }) {
+  const paras = (raw ?? "")
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (paras.length === 0) return null;
   return (
-    // 段间距：除旁白外所有块（动作/台词/心理/普通）段距统一且拉大（space-y-5 = 20px，
-    // 与角色块之间的 mt-5 一致，全篇节奏统一）。行距保留 1.9。
     <div
-      className="leading-[1.9] tracking-[0.01em] text-[#2c2c2c] space-y-5"
-      style={{ fontSize: ts(14) }}
+      className="tracking-[0.01em]"
+      style={{ fontSize: tpx(T_TEXT), color: C_TEXT, lineHeight: 1.9 }}
     >
-      {segs.map((s, i) => {
-        // 去符号：段内残留的成对标记不渲染（动作圆括号 / 心理方括号 / 台词引号）
-        // 双语模式下保留台词引号与翻译括号，不走 stripSymbols。
-        const body = s.text.trim();
-        if (!body) return null;
-        if (s.type === "plain") {
-          // 双语模式：plain 段可能包含未被双语正则识别的对白引号，
-          // 保留引号让对白看起来正常；非双语才去符号。
-          const displayed = bilingual ? body : stripSymbols(body);
-          return (
-            <div key={i} className="whitespace-pre-wrap text-[#2c2c2c]">
-              {displayed}
-            </div>
-          );
-        }
-
-        if (s.type === "act") {
-          // 动作与环境描写：中灰，稍小字号
-          return (
-            <div
-              key={i}
-              style={{ color: pal.act, fontSize: ts(13) }}
-              className="whitespace-pre-wrap leading-[1.9]"
-            >
-              {body}
-            </div>
-          );
-        }
-
-        if (s.type === "inn") {
-          // 心理与神态：中灰（与动作同系）
-          return (
-            <div
-              key={i}
-              style={{ color: pal.inn, fontSize: ts(13) }}
-              className="whitespace-pre-wrap leading-[1.9]"
-            >
-              {body}
-            </div>
-          );
-        }
-
-        // 对白：深黑，核心内容；单独成行。
-        return (
-          <div
-            key={i}
-            style={{ color: pal.dial, fontSize: ts(14) }}
-            className="whitespace-pre-wrap font-medium leading-[1.9]"
-          >
-            {bilingual && s.translation ? (
-              <>
-                {body}
-                <span className="font-normal" style={{ color: pal.act }}>
-                  （{s.translation}）
-                </span>
-              </>
-            ) : (
-              body
-            )}
-          </div>
-        );
-      })}
+      {paras.map((p, i) => (
+        <div
+          key={i}
+          className="whitespace-pre-wrap"
+          style={{ marginTop: i === 0 ? 0 : 16 }}
+        >
+          {p}
+        </div>
+      ))}
     </div>
   );
 }
@@ -333,72 +174,67 @@ function formatMinute(ts: string | number | undefined): string {
   )}:${p(d.getMinutes())}`;
 }
 
-const __frameCache = new Map<string, EnsembleFrame[]>();function framesOfTurn(
+const __frameCache = new Map<string, EnsembleFrame[]>();
+function framesOfTurn(
   turn: EnsembleTurn,
-  cast: EnsembleCastMember[],
-  narrationEnabled = false
+  cast: EnsembleCastMember[]
 ): EnsembleFrame[] {
-  const key = `${cast.map((c) => c.id).join(",")}|${narrationEnabled ? 1 : 0}|${turn.content}`;
+  const key = `${cast.map((c) => c.id).join(",")}|${turn.content}`;
   const hit = __frameCache.get(key);
   if (hit) return hit;
-  const frames = parseEnsembleReply(turn.content, cast, cast, {
-    narrationEnabled,
-  }).frames;
+  const frames = parseEnsembleReply(turn.content, cast, cast).frames;
   // 简单容量控制：超过 200 条清一次，避免无限增长
   if (__frameCache.size > 200) __frameCache.clear();
   __frameCache.set(key, frames);
   return frames;
 }
 
-// 帧渲染（第 1 项：单消息流）──
+// 帧渲染（单消息流）──
 // 一个消息流里连续渲染整幕的每一帧：
-//   · dialogue 帧 → 角色名内联在正文前（头像 + 名字），台词紧随其后
-//   · narration 帧 → 无归属，以轻微缩进/灰字呈现环境与旁白
-// 相邻同一说话人的帧会自动并组，避免重复署名。
+//   · narration 帧 → 旁白段：整段斜体灰 + 下浅虚线，上下各留 24px
+//   · dialogue 帧 → 角色块：方角虚线框头像 + 角色名（名字在头像右侧），正文紧随
+// 相邻同一说话人的帧自动并组，避免重复署名。
 function EnsembleFrameStream({
   frames,
   cast,
-  palette,
-  bilingual,
-  narrationEnabled,
 }: {
   frames: EnsembleFrame[];
   cast: EnsembleCastMember[];
-  palette?: typeof GS_COLORS;
-  bilingual?: boolean;
-  narrationEnabled?: boolean;
 }) {
-  const pal = palette ?? GS_COLORS;
   let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
-  // 帧序：跟踪上一帧是否为旁白，用于给旁白加「上下各 ≥ 一整行」的大段距。
+  // 跟踪上一帧是否为旁白，用于给旁白加「上下各 ≥ 一整行」的大段距。
   let prevWasNarration = false;
+  // 同一角色的连续帧：第一帧给 16px，续帧给 16px（统一），换人才给 20px。
+  let prevWasSameSpeaker = false;
 
   return (
-    // 块与块之间的间隔拉开。仅对「角色块之间」生效，旁白块用自身 my-5 单独控制，
-    // 所以这里不再用统一 space-y，而是逐块自己给上间距。
     <div>
       {frames.map((f, i) => {
+        // ── 旁白帧 ──
+        // 2026-10 定稿：旁白由模型显式打暗号 `[旁白]` 触发（解析器已 slice 掉暗号），
+        // 不再是靠圆括号猜出来的。呈现为斜体灰 + 下浅虚线，与角色块拉开 24px。
         if (f.kind === "narration") {
-          // 旁白帧：整行被（）包裹只是解析器识别旁白的手段，不留在正文里。
-          // 2026-10 排版：无竖线、无缩进、无斜体（中文斜体是浏览器伪倾斜，几乎看不出，
-          //   韩/日文更糟，故用「灰度 + 大段距」来拉开层级）。
-          // 段间距 ≥ 一整行：上下各 24px（约 1.5 行），首帧不加顶部间距。
-          // ⚠️ 2026-10 语义：旁白开关 OFF → 旁白帧不渲染（跳过），ON → 才渲染。
-          if (narrationEnabled !== true) {
-            prevWasNarration = false;
-            return null;
-          }
-          const narrBody = stripSymbols(f.text);
+          const narrator = !f.speaker;
           prevWasNarration = true;
+          prevWasSameSpeaker = false;
           return (
             <div
               key={i}
-              className={`text-[#5f5f66] whitespace-pre-wrap leading-[1.9] italic ${
-                i === 0 ? "mb-6" : "my-6"
+              className={`whitespace-pre-wrap italic ${
+                i === 0 ? "mt-0 mb-6" : "my-6"
               }`}
-              style={{ fontSize: ts(13) }}
+              style={{
+                fontSize: tpx(T_NARR),
+                color: C_NARR,
+                lineHeight: 1.9,
+                // 下浅虚线：一条 1px 的极浅虚线，作为旁白的「换场」标记
+                paddingBottom: narrator ? 10 : undefined,
+                borderBottom: narrator
+                  ? "1px dashed rgba(0,0,0,0.08)"
+                  : undefined,
+              }}
             >
-              {narrBody}
+              {f.text}
             </div>
           );
         }
@@ -408,20 +244,21 @@ function EnsembleFrameStream({
           (f.speaker ? cast.find((c) => c.name === f.speaker) : undefined);
         const showName = f.speaker !== lastSpeaker;
         lastSpeaker = f.speaker;
-        // 角色块之间统一间距：换人时给足（20px），同一人的续帧给较小间距（12px）；
-        // 若上一帧是旁白，则不再叠加（旁白自己已带 24px 下间距）。
-        const topMargin = prevWasNarration
-          ? "mt-0"
-          : showName
-            ? "mt-5"
-            : "mt-3";
+
+        // 段距（写死）：
+        //   旁白之后     → 0（旁白自己已带 24px 下间距，不叠加）
+        //   换角色       → 20px
+        //   同角色续帧   → 16px
+        const topMargin = prevWasNarration ? 0 : showName ? 20 : 16;
         prevWasNarration = false;
+        prevWasSameSpeaker = !showName;
 
         return (
-          <div key={i} className={topMargin}>
+          <div key={i} style={{ marginTop: topMargin }}>
             {showName && (
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-[42px] h-[42px] rounded-full bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 shrink-0">
+              <div className="flex items-center gap-2.5 mb-2.5">
+                {/* 方角 78px 虚线框头像 */}
+                <div className="w-[78px] h-[78px] rounded-[10px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0">
                   {member?.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -430,52 +267,27 @@ function EnsembleFrameStream({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    (f.speaker ?? "?").slice(0, 1)
+                    <span
+                      className="font-semibold text-black/35"
+                      style={{ fontSize: tpx(22) }}
+                    >
+                      {(f.speaker ?? "?").slice(0, 1)}
+                    </span>
                   )}
                 </div>
-                <div className="font-semibold text-[13px] text-[#1a1a1a]">
+                {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
+                <div
+                  className="font-semibold tracking-wide"
+                  style={{ fontSize: tpx(T_NAME), color: C_NAME }}
+                >
                   {f.speaker}
                 </div>
               </div>
             )}
-            {/* 角色戏份块整体缩进到名字同等位置（缩进 = 头像宽 42 + 间距 8 = 50px），
-                含续帧（未署名）保持同一左边缘。 */}
-            <div className="pl-[50px]">
-              <TriColorText raw={f.text} palette={pal} bilingual={bilingual} />
-            </div>
+            <BodyText raw={f.text} />
           </div>
         );
       })}
-    </div>
-  );
-}
-
-// 旁白卡：复刻目标截图的「黑底 P 图标 + NARRATION 标签」样式
-function NarrationCard({
-  text,
-  timestamp,
-}: {
-  text: string;
-  timestamp?: string;
-}) {
-  return (
-    <div className="flex gap-3.5 bg-white rounded-[20px] px-5 py-4 border border-black/[0.04] shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
-      <div className="w-9 h-9 rounded-[11px] bg-[#111111] shrink-0 grid place-items-center">
-        <span className="text-white text-[13px] font-bold leading-none">P</span>
-      </div>
-      <div className="flex-1 min-w-0 pt-0.5">
-        <div className="text-[9.5px] tracking-[0.2em] font-semibold text-black/35 mb-2">
-          NARRATION
-        </div>
-        <div className="italic">
-          <TriColorText raw={text} />
-        </div>
-        {timestamp ? (
-          <div className="mt-2 text-[10px] text-black/30 font-mono">
-            {timestamp.slice(0, 10)}
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }
@@ -515,14 +327,14 @@ function MiniSheet({
           <div className="min-w-0">
             <div
               className="font-bold tracking-tight text-[#111111] leading-none"
-              style={{ fontSize: "calc(20px * var(--app-text-scale, 1))" }}
+              style={{ fontSize: "20px" }}
             >
               {title}
             </div>
             {subtitle && (
               <div
                 className="tracking-[0.2em] font-medium text-black/30 mt-2"
-                style={{ fontSize: "calc(10px * var(--app-text-scale, 1))" }}
+                style={{ fontSize: "10px" }}
               >
                 {subtitle}
               </div>
@@ -536,7 +348,7 @@ function MiniSheet({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={onBack}
                 className="shrink-0 px-2.5 py-1.5 rounded-full bg-black/[0.06] text-black/50 active:scale-95 transition-transform"
-                style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
+                style={{ fontSize: "11px" }}
               >
                 ← {backLabel}
               </button>
@@ -546,7 +358,7 @@ function MiniSheet({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={onClose}
               className="shrink-0 px-2.5 py-1.5 rounded-full bg-white text-black/45 active:scale-95 transition-transform"
-              style={{ fontSize: "calc(11px * var(--app-text-scale, 1))" }}
+              style={{ fontSize: "11px" }}
               title="返回"
             >
               {onBack ? "✕" : "← 返回"}
@@ -803,8 +615,6 @@ export function EnsembleApp({
   const [charsDraft, setCharsDraft] = useState(600);
   /** 剧本设置里「每轮登场角色数」的草稿值（群像：一轮至少两个角色） */
   const [actorsDraft, setActorsDraft] = useState(2);
-  /** 自定义 CSS 的实时预览开关（预览时把草稿即时注入，不落库） */
-  const [cssPreviewOn, setCssPreviewOn] = useState(true);
   const [cssDraft, setCssDraft] = useState("");
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
@@ -934,7 +744,6 @@ export function EnsembleApp({
       id: "ens_" + Date.now(),
       title: titleInput.trim(),
       personaId: activePersona?.id,
-      narrationEnabled: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       cast: chosenChars.map((c) => ({
@@ -1011,36 +820,12 @@ export function EnsembleApp({
             activePersona.customSettings ? ` ${activePersona.customSettings}` : ""
           }`
         : "";
-
-      // 旁白与背景设定：仅在 narrationEnabled 为真时注入提示词。
-      // ⚠️ 语义（2026-10 修正）：开关 =「允许旁白出现」，**不是**「每轮必须有旁白」。
-      //    旁白只在确有必要（换场、时间跳跃、镜头拉远）时才写；
-      //    大多数轮次应当是纯角色互动，不需要旁白。
-      //    另外：旁白 ≠ 开场白。开场白只在「第一轮 + 空白剧本」时由用户设置后出现，
-      //    与本开关是两回事。
-      const narrationBlock =
-        script.narrationEnabled && script.background?.trim()
-          ? `
-【剧本全局旁白与背景设定（写作时的背景依据）】
-${script.background.trim()}
-
-关于旁白的使用规则（重要）：
-· 上面这段设定是你的**背景依据**，不是要求你把其中内容抄进正文。
-· 只有当这一幕确实需要交代镜头外的信息时（换场、时间流逝、场景转换），
-  才另起一段写极简的旁白。绝大多数轮次**不需要旁白**。
-· 不要为了「有旁白」而写旁白，不要每轮都写旁白。
-· 除此之外，一切内容都必须由在场角色演出，不要用旁白替角色说话。
-`
-          : "";
-
-      // 双语语言格式规则：角色说外语时，外语正常写，后面用（）补中文翻译。
-      // 只有「台词」需要双语；动作、环境、心理一律正常写，不翻译。
-      const bilingualBlock = script.bilingualEnabled
+      // 场景设定：有内容就整段作为背景依据注入，没有就不注入。
+      //      这只是「导演给的世界观/氛围/隐藏剧情」，不是要求模型把内容抄进正文。
+      const sceneBlock = script.background?.trim()
         ? `
-5. 双语语言格式（角色说非中文时适用）：
-   先按角色的原语言正常写出他说的那句话，紧跟着用（）补上中文翻译。
-   例：김성제：I don't need your help.（我不需要你帮忙。）
-   只有台词这样处理；动作、神态、环境、心理一律照常用中文正常写，不要翻译。
+【剧本全局场景设定（写作时的背景依据，不是正文内容）】
+${script.background.trim()}
 `
         : "";
 
@@ -1070,27 +855,40 @@ ${script.background.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
-${narrationBlock}
-═══════════ 行文规范（硬性，违反即视为错误）═══════════
-像写小说长文一样自然行文，**不要使用任何标记符号**。系统会自动识别并排版，
-你写的符号只会原样留在正文里，属于错误。
+${sceneBlock}
+═══════════ 唯一的格式契约：两种行首标记 ═══════════
+系统靠行首标记来分段排版。你只需要用**两种**行首格式，其余一律是普通正文：
 
-1. 动作、神态、环境描写：直接写成叙述句，**不要加圆括号（）**。
-2. 台词：写成完整的一句话，**不要加引号**。台词单独成段。
-3. 心理活动：直接写，**不要加方括号【】**。
-4. 严禁任何标记符号：（）、【】、""、*、《》、#、~、[ ]。
-${bilingualBlock}
-每个出场角色用一行「角色名：」起头，例如：
-   金成帝：
-   他抬眼扫过来，语气压得很低。
-   别动。
-   这人又在硬撑。
-   岳霖玉：
-   指尖一颤，笔尖停在纸上。
-   我……我自己来。
+【格式 A · 角色说话】行首写「角色名：」（用中文全角冒号），下面接这个角色
+说的话、做的动作、心里的念头，一行一句，直到下一个标记出现。
+    金成帝：
+    他抬眼扫过来，语气压得很低。
+    别动。
+    这人又在硬撑。
 
-（注意：上面这段里，「他抬眼扫过来」是动作、「别动。」是台词、「这人又在硬撑。」是心理，
-它们只是一句接一句地写出来，没有任何括号或引号。）
+【格式 B · 旁白】行首写「[旁白]:」或「[旁白]」，下面接镜头、环境、时间流转
+这类**没有归属到具体角色身上**的叙述。旁白是整幕的底色，用来交代场景转换、
+天气、气氛、以及角色之外发生的事。
+    [旁白]:
+    雨停在凌晨三点，路灯下积着一层薄薄的水光。
+
+⚠️ 除以上两种行首标记外，正文里**禁止出现任何其它符号**：
+   不要圆括号（）、不要方括号【】、不要引号 ""、不要星号 *、《》、~、#。
+   动作、神态、心理活动都直接写成叙述句，什么都不要包。
+   （唯一的例外是格式 B 的 [旁白] 这个标记本身，那是系统约定的暗号。）
+
+【正确示范】多人 + 旁白混排：
+    [旁白]:
+    深夜的走廊只剩应急灯，绿光落在墙角。
+    金成帝：
+    他停在门前，手指悬着没落下。
+    这门后面，最好别是他想的那个人。
+    岳霖玉：
+    门内传来一声很轻的响动。
+    ……谁？
+
+（注意：「他停在门前」是动作、「这门后面，最好别是他想的那个人」是心理、
+「……谁？」是台词 —— 全部直接写，没有任何括号或引号包裹。）
 
 ═══════════ 选角：这一幕谁上场，由你按剧情决定 ═══════════
 这是群像剧，核心是**多角色在同一幕里真实互动**，不是轮流独白。
@@ -1123,7 +921,7 @@ ${lastSpeakerNote}
 
 ═══════════ 其它硬性要求 ═══════════
 8. 严禁输出章节标题、Markdown 标题（#）、序号列表、舞台说明、作者点评或总结。
-   严禁跳出角色当作者。严禁使用星号 *、书名号《》、波浪号、井号。
+   严禁跳出角色当作者。
 9. 严格贴合每个角色的视角、语气、身份和性格，说话方式要有辨识度。
 10. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。`;
 
@@ -1136,7 +934,12 @@ ${lastSpeakerNote}
         { role: "system", content: systemPrompt },
         ...contextTurns.slice(-10).map((t) => ({
           role: t.senderType === "user" ? "user" : "assistant",
-          content: `[${t.senderName}]: ${t.content}`,
+          // 历史回合以「角色名：正文」形式回灌。纯旁白幕用 [旁白] 暗号，
+          // 让模型看到「旁白也是这样写的」，形成格式示范的自强化。
+          content:
+            t.senderType === "narration" || t.senderId === "narration"
+              ? `[旁白]: ${t.content}`
+              : `[${t.senderName}]: ${t.content}`,
         })),
       ];
 
@@ -1212,9 +1015,7 @@ ${lastSpeakerNote}
       // 落库时存原文最稳，不会因解析规则调整而丢失模型原始输出。
       const baseTs = Date.now();
       const baseIso = new Date().toISOString();
-      const frames = parseEnsembleReply(replyContent, script.cast, script.cast, {
-        narrationEnabled: script.narrationEnabled === true,
-      }).frames;
+      const frames = parseEnsembleReply(replyContent, script.cast, script.cast).frames;
       // 说话人署名：整幕可能有多人，取帧里首位有归属的说话人作为「幕主导者」，
       // 用于消息流的时间轴归属与头像兜底（纯旁白幕则记为旁白）。
       const leadFrame = frames.find((f) => f.kind === "dialogue");
@@ -1848,47 +1649,10 @@ ${lastSpeakerNote}
   // ══════════════════════════════════════════════════════
   // 视图 4：剧本剧场（对话）
   // ══════════════════════════════════════════════════════
-  // 三色配色：剧本级覆盖优先，空值回落到 GS_COLORS 灰阶梯度
-  const palette = resolvePalette(currentScript?.palette);
-
   return (
     <div className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
-      {/* ensemble-text-scale-bridge（说明见 scripts/ensure-ensemble-visual-provider.py） */}
-      <style
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{
-          __html: `
-.ensemble-scope{font-size:calc(14px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[8px\]{font-size:calc(8px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[9px\]{font-size:calc(9px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[9\.5px\]{font-size:calc(9.5px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[10px\]{font-size:calc(10px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[10\.5px\]{font-size:calc(10.5px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[11px\]{font-size:calc(11px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[11\.5px\]{font-size:calc(11.5px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[12px\]{font-size:calc(12px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[12\.5px\]{font-size:calc(12.5px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[13px\]{font-size:calc(13px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[13\.5px\]{font-size:calc(13.5px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[14px\]{font-size:calc(14px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[14\.5px\]{font-size:calc(14.5px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[15px\]{font-size:calc(15px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[15\.5px\]{font-size:calc(15.5px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[16px\]{font-size:calc(16px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[17px\]{font-size:calc(17px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[18px\]{font-size:calc(18px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[19px\]{font-size:calc(19px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[20px\]{font-size:calc(20px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[22px\]{font-size:calc(22px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[24px\]{font-size:calc(24px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[26px\]{font-size:calc(26px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[28px\]{font-size:calc(28px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[30px\]{font-size:calc(30px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[34px\]{font-size:calc(34px * var(--app-text-scale,1));}
-.ensemble-scope .text-\[40px\]{font-size:calc(40px * var(--app-text-scale,1));}
-          `,
-        }}
-      />
+      {/* 字号缩放桥接已删除（2026-10）：群像内部字号一律写死，
+          不再跟随全局 --app-text-scale，故无需 .ensemble-scope 的 34 行覆盖。 */}
 
       {/* 剧本级自定义 CSS：仅作用于本 App 的 .ensemble-scope 命名空间 */}
       {currentScript?.customCss?.trim() ? (
@@ -1898,9 +1662,9 @@ ${lastSpeakerNote}
         />
       ) : null}
 
-      {/* CSS 实时预览：编辑面板打开且开启预览时，把草稿即时注入（不改库）。
+      {/* CSS 草稿即时预览：编辑面板打开时把草稿注入（不改库）。
           放在已保存样式之后，同优先级下后者覆盖前者，所见即所得。 */}
-      {showCssSheet && cssPreviewOn && cssDraft.trim() ? (
+      {showCssSheet && cssDraft.trim() ? (
         <style
           data-ensemble-css-preview
           // eslint-disable-next-line react/no-danger
@@ -2001,32 +1765,10 @@ ${lastSpeakerNote}
               // ── 旁白卡：黑底 P 图标 + NARRATION 标签 ──
               // 仅用于「非帧模型」的历史旁白 turn（旧数据 / 用户手发旁白）。
               // 帧模型生成的整幕（含纯旁白幕）统一走下方帧流渲染。
-              // ⚠️ 2026-10 语义修正：旁白开关作用于整个剧本的显示，不是每轮。
-              //    开关 OFF → 历史旁白 turn 也不显示（跳过渲染）；ON → 才显示。
-              if (
-                isNarrator &&
-                turn.rawText === undefined &&
-                currentScript.narrationEnabled === true
-              ) {
-                return (
-                  <div key={turn.id} className="group relative">
-                    <NarrationCard text={turn.content} timestamp={turn.timestamp} />
-                    <TurnActionBar
-                      turn={turn}
-                      versions={rollsMap[turn.id]}
-                      index={rollIndexMap[turn.id] ?? 0}
-                      isRerolling={rerollingTurnId === turn.id}
-                      canReroll={!isNarrator}
-                      onReroll={() => handleRerollTurn(turn)}
-                      onSwitch={(d) => switchRoll(turn.id, d)}
-                      onEdit={() => {
-                        setEditingTurnDraft(turn.content);
-                        setEditingTurnId(turn.id);
-                      }}
-                      onDelete={() => requestDeleteTurn(turn)}
-                    />
-                  </div>
-                );
+              // 历史遗留的旁白 turn（非帧模型 / 旧数据）：旁白不是独立卡片，
+              // 统一并入下方常规卡片渲染，由帧层负责斜体灰样式。
+              if (isNarrator && turn.rawText === undefined) {
+                return null;
               }
 
               return (
@@ -2096,11 +1838,7 @@ ${lastSpeakerNote}
                           </div>
                         </div>
                       ) : (
-                        <TriColorText
-                          raw={turn.content}
-                          prefix={isUser ? "u" : undefined}
-                          palette={palette}
-                        />
+                        <BodyText raw={turn.content} />
                       )}
                     </>
                   ) : editingTurnId === turn.id ? (
@@ -2131,15 +1869,8 @@ ${lastSpeakerNote}
                     </div>
                   ) : (
                     <EnsembleFrameStream
-                      frames={framesOfTurn(
-                        turn,
-                        currentScript.cast,
-                        currentScript.narrationEnabled === true
-                      )}
+                      frames={framesOfTurn(turn, currentScript.cast)}
                       cast={currentScript.cast}
-                      palette={palette}
-                      bilingual={currentScript.bilingualEnabled === true}
-                      narrationEnabled={currentScript.narrationEnabled === true}
                     />
                   )}
 
@@ -2246,81 +1977,16 @@ ${lastSpeakerNote}
             </div>
           </div>
 
-          {/* 旁白与场景设定（MiniSheet：顶栏「← 返回」只关本层，回到功能面板） */}
+          {/* 场景设定（MiniSheet：顶栏「← 返回」只关本层，回到功能面板） */}
           {showNarrationModal && (
             <MiniSheet
-              title="旁白与场景设定"
-              subtitle="NARRATION · SCENE"
+              title="场景设定"
+              subtitle="SCENE"
               onClose={() => {
                 setShowNarrationModal(false);
                 setShowToolsSheet(true);
               }}
             >
-              {/* 是否启用旁白：关闭时这段设定不会注入 AI 提示词 */}
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !currentScript.narrationEnabled;
-                  const updated = { ...currentScript, narrationEnabled: next };
-                  setCurrentScript(updated);
-                  saveOrUpdateEnsembleScript(updated);
-                  setScripts(loadEnsembleScripts());
-                }}
-                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-[16px] text-[13px] font-medium transition-colors ${
-                  currentScript.narrationEnabled
-                    ? "bg-white text-[#111111]"
-                    : "bg-white/60 text-black/45"
-                }`}
-              >
-                <span>启用旁白</span>
-                <span
-                  className={`w-9 h-5 rounded-full relative transition-colors ${
-                    currentScript.narrationEnabled ? "bg-[#111111]" : "bg-black/20"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                      currentScript.narrationEnabled ? "left-[18px]" : "left-0.5"
-                    }`}
-                  />
-                </span>
-              </button>
-
-              {/* 双语语言格式：开启后角色说外语时，外语原句 + （中文翻译） */}
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !currentScript.bilingualEnabled;
-                  const updated = { ...currentScript, bilingualEnabled: next };
-                  setCurrentScript(updated);
-                  saveOrUpdateEnsembleScript(updated);
-                  setScripts(loadEnsembleScripts());
-                }}
-                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-[16px] text-[13px] font-medium transition-colors ${
-                  currentScript.bilingualEnabled
-                    ? "bg-white text-[#111111]"
-                    : "bg-white/60 text-black/45"
-                }`}
-              >
-                <span className="flex flex-col items-start gap-0.5">
-                  <span>双语语言格式</span>
-                  <span className="text-[10.5px] font-normal text-black/40">
-                    外语原句 +（中文翻译），只作用于台词
-                  </span>
-                </span>
-                <span
-                  className={`w-9 h-5 rounded-full relative transition-colors shrink-0 ${
-                    currentScript.bilingualEnabled ? "bg-[#111111]" : "bg-black/20"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                      currentScript.bilingualEnabled ? "left-[18px]" : "left-0.5"
-                    }`}
-                  />
-                </span>
-              </button>
-
               <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
                 <div className="text-[10.5px] leading-relaxed text-black/45">
                   设定当前剧本的宏观环境、旁白氛围或隐藏剧情要求，AI 会严格遵从。
@@ -2348,7 +2014,7 @@ ${lastSpeakerNote}
                   // 保存 = 功能键完成 → 关掉本层，停在功能面板
                   setShowNarrationModal(false);
                   setShowToolsSheet(true);
-                  setToast("旁白与场景设定已保存");
+                  setToast("场景设定已保存");
                 }}
                 className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
               >
@@ -2363,10 +2029,7 @@ ${lastSpeakerNote}
             onClose={() => setShowToolsSheet(false)}
             activeIds={
               [
-                currentScript.narrationEnabled && currentScript.background?.trim()
-                  ? "narration"
-                  : null,
-                currentScript.palette ? "palette" : null,
+                currentScript.background?.trim() ? "narration" : null,
                 currentScript.customCss?.trim() ? "customCss" : null,
                 currentScript.apiConfigIdOverride ? "model" : null,
               ].filter(Boolean) as EnsembleToolId[]
@@ -2382,7 +2045,6 @@ ${lastSpeakerNote}
                 setShowSettingsSheet(true);
               } else if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
-                setCssPreviewOn(true);
                 setShowCssSheet(true);
               } else if (id === "model") {
                 openModelSheet();
@@ -2404,93 +2066,21 @@ ${lastSpeakerNote}
                 setShowToolsSheet(true);
               }}
             >
-              {/* LIVE PREVIEW 实时预览区域 */}
-              <div className="bg-[#f5f5f7] rounded-[16px] p-3 mb-2">
-                <div className="flex items-center justify-between mb-2.5">
-                  <div className="text-[10px] font-semibold tracking-wider text-black/50">LIVE PREVIEW · 实时预览</div>
-                  <button
-                    type="button"
-                    onClick={() => setCssPreviewOn((v) => !v)}
-                    className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-medium transition-colors ${
-                      cssPreviewOn
-                        ? "bg-[#111111] text-white"
-                        : "bg-black/[0.08] text-black/40"
-                    }`}
-                  >
-                    <Eye size={10} strokeWidth={2} />
-                    {cssPreviewOn ? "开" : "关"}
-                  </button>
-                </div>
-                {/* 示例卡片 */}
-                <div className="bg-white rounded-[14px] p-3 space-y-2.5 text-[11px]" id="group-story-screen">
-                  {/* 旁白示例 */}
-                  <div className="flex items-start gap-2">
-                    <div className="w-8 h-8 rounded-full bg-black/[0.08] grid place-items-center shrink-0 text-[10px] text-black/40">▶</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-black/60 mb-1 text-[10px] tracking-wide">NARRATION</div>
-                      <div className="text-black/45 italic leading-relaxed">角色<br />* 风掀起窗帘。*<br />"你来了。"<br />（他其实等了很久。）</div>
-                      <div className="text-[9px] text-black/25 mt-1.5 tabular-nums">TOKENS 42</div>
-                      <div className="text-[9px] text-black/20 mt-0.5">1/1</div>
-                    </div>
-                  </div>
-                  {/* 角色对话示例 */}
-                  <div className="flex items-start gap-2">
-                    <div className="w-8 h-8 rounded-full bg-[#5f5f66] text-white grid place-items-center shrink-0 text-[11px] font-medium">我</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-[#111111] mb-1 text-[11px]">我</div>
-                      <div className="leading-relaxed text-black/70">* 我点点头。*<br />"嗯，等很久了吧。"</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {/* CSS 编辑区 */}
               <div className="bg-white rounded-[16px] p-3.5 space-y-2">
                 <div className="text-[10px] leading-relaxed text-black/45">
-                  所有样式都必须以 <span className="font-mono text-black/70 font-semibold">#group-story-screen</span> 开头。改完点「应用」生效。
+                  下方 CSS 会注入到群像正文的渲染容器，选择器请以{" "}
+                  <span className="font-mono text-black/70 font-semibold">.ensemble-frames</span>{" "}
+                  开头。改完点「应用」生效。
                 </div>
                 <textarea
                   value={cssDraft}
                   onChange={(e) => setCssDraft(e.target.value)}
                   rows={8}
                   spellCheck={false}
-                  placeholder={`/* ========== 群像剧情 · 自定义样式模板 =======\n所有选择器都必须以 #group-story-screen 开头。改完点「应用」生效\n\n/* --------- 顶部（群聊参数栏） --------- */\n/* 顶栏容器 */\n#group-story-screen .gs-chat-top { background: rgb(\n/* 返回 / 按钮 */\n#group-story-screen .gs-chat-top-btn {}\n/* 模组名字 */\n#group-story-screen .gs-chat-top-btn svg { stroke: #\n/* 数组 空 */`}
+                  placeholder={`/* ========== 群像正文 · 自定义样式 ==========\n   选择器请以 .ensemble-frames 开头，改完点「应用」生效\n\n   .ensemble-frames { }\n   .ensemble-frames .frame-name { }\n*/`}
                   className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[10.5px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
                 />
-              </div>
-
-              {/* 我的预设区域 */}
-              <div className="bg-white rounded-[16px] p-3.5">
-                <div className="flex items-center gap-2 mb-2.5">
-                  <span className="text-[11px] font-bold text-[#111111]">★ 我的预设</span>
-                  <span className="text-[9px] font-medium tracking-wider text-black/30">/ PRESETS</span>
-                  <button
-                    type="button"
-                    className="ml-auto text-[9px] text-black/40 underline"
-                  >
-                    添加默认用
-                  </button>
-                </div>
-                <div className="text-[10px] leading-relaxed text-black/40 mb-2.5">
-                  把当前这套 CSS 存成模版后，下次点一下名字，就会填入全部样式。点预设后记得再点「应用」才生效。
-                </div>
-                {/* 预设 chips */}
-                <div className="flex flex-wrap gap-2 mb-2.5">
-                  <button type="button" className="px-3 py-1.5 rounded-full border border-black/15 bg-white text-[11px] font-medium text-black/60 active:scale-95 transition-transform flex items-center gap-1">
-                    推特
-                    <span className="text-[9px] text-black/30">×</span>
-                  </button>
-                  <button type="button" className="px-3 py-1.5 rounded-full border border-black/15 bg-white text-[11px] font-medium text-black/60 active:scale-95 transition-transform flex items-center gap-1">
-                    鬼世专属
-                    <span className="text-[9px] text-black/30">×</span>
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="w-full py-2.5 rounded-[14px] border border-dashed border-black/15 text-[12px] font-medium text-black/40 active:scale-[0.985] transition-transform"
-                >
-                  + 存为预设
-                </button>
               </div>
 
               {/* 底部按钮 */}
@@ -2532,12 +2122,6 @@ ${lastSpeakerNote}
             // 避免"面板上写 600 字、实际被 900 token 掐断"这种不一致。
             const effectiveTokens = Math.max(1024, Math.ceil(charsDraft * 1.6 * 1.4));
             const estMinutes = Math.round((charsDraft / 400) * 10) / 10;
-            const presets: { label: string; value: number; hint: string }[] = [
-              { label: "短", value: 300, hint: "约 3 句话" },
-              { label: "中", value: 600, hint: "推荐" },
-              { label: "长", value: 1000, hint: "约 2 段" },
-              { label: "超长", value: 1600, hint: "慢" },
-            ];
             return (
               <MiniSheet
                 title="剧本设置"
@@ -2769,7 +2353,7 @@ ${lastSpeakerNote}
                           ? "bg-[#111111] text-white"
                           : "bg-black/[0.06] text-black/40"
                       }`}
-                      style={{ fontSize: "calc(10px * var(--app-text-scale, 1))" }}
+                      style={{ fontSize: "10px" }}
                       title="工具调用（硅基流动）"
                     >
                       <Wrench size={10} strokeWidth={2} />

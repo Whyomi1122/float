@@ -2,13 +2,8 @@
 
 import React from "react";
 import {
-  Clock,
-  BookOpen,
-  Archive,
   Code2,
-  ListTree,
   Layers,
-  Music,
   MessageSquareText,
   SlidersHorizontal,
   ChevronRight,
@@ -18,29 +13,23 @@ import {
 // ══════════════════════════════════════════════════════════
 // 群像「功能」面板（TOOLS）
 // 视觉对齐目标截图：浅灰底 → 大标题「功能」+ TOOLS 小字 →
-// 白底圆角卡列表（深黑方角图标 + 中文主标题 + 英文副标题 + ›）→ 底部取消条。
+// 白底圆角卡列表（深黑方角图标 + 中文主标题 + 英文副标题 + ›）。
 //
-// 字号策略（需求 1.4）：全部走 fs() → calc(Npx * var(--app-text-scale, 1))，
-// 与「设置 → 主题 → 文字缩放」绑定；变量缺失时按 1 倍（即基准值）渲染。
-// 主标题基准 15px，默认观感不过大也不过小。
+// 字号策略（2026-10 修正）：群像字号**写死**，不跟随全局 --app-text-scale。
+// 此前 fs() 走 calc(Npx * var(--app-text-scale))，导致「设置 → 主题 → 文字缩放」
+// 会连带放大群像内部排版，破坏设计稿节奏。现已全部改为固定 px。
 // ══════════════════════════════════════════════════════════
 
-/** 把像素基准值转成跟随全局文字缩放的 font-size */
+/** 字号基准值 → 固定 px 字符串（群像内部不随全局缩放变化） */
 function fs(px: number): string {
-  return `calc(${px}px * var(--app-text-scale, 1))`;
+  return `${px}px`;
 }
 
 export type EnsembleToolId =
   | "narration"
   | "scriptSettings"
-  | "time"
-  | "worldbook"
-  | "wrapup"
-  | "palette"
   | "customCss"
-  | "status"
-  | "model"
-  | "bgm";
+  | "model";
 
 export interface EnsembleToolItem {
   id: EnsembleToolId;
@@ -57,16 +46,10 @@ export interface EnsembleToolItem {
 
 /** 面板条目定义。顺序与目标截图一致。 */
 export const ENSEMBLE_TOOLS: EnsembleToolItem[] = [
-  { id: "narration", label: "旁白与设定", labelEn: "NARRATION", Icon: MessageSquareText, enabled: true },
+  { id: "narration", label: "场景设定", labelEn: "SCENE", Icon: MessageSquareText, enabled: true },
   { id: "scriptSettings", label: "剧本设置", labelEn: "SCRIPT SETTINGS", Icon: SlidersHorizontal, enabled: true },
-  { id: "time", label: "时间感知", labelEn: "TIME AWARENESS", Icon: Clock, enabled: false },
-  { id: "worldbook", label: "世界书", labelEn: "WORLD BOOK", Icon: BookOpen, enabled: false },
-  { id: "wrapup", label: "杀青归档", labelEn: "WRAP UP", Icon: Archive, enabled: false },
-  // 3.3：卡片配色已删除（用户使用下来完全不会用到）
   { id: "customCss", label: "自定义 CSS", labelEn: "CUSTOM STYLE", Icon: Code2, enabled: true },
-  { id: "status", label: "状态面板", labelEn: "STATUS PANEL", Icon: ListTree, enabled: false },
   { id: "model", label: "模型切换", labelEn: "API · SESSION", Icon: Layers, enabled: true },
-  { id: "bgm", label: "网易云配乐", labelEn: "NETEASE BGM", Icon: Music, enabled: false },
 ];
 
 function ToolRow({

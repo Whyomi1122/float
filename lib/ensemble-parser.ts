@@ -1,13 +1,18 @@
-﻿// lib/ensemble-parser.ts
+// lib/ensemble-parser.ts
 // 群像模式（Ensemble）——「帧」解析器
 //
 // 设计目标（第 1 项：单消息流）：
 //   模型一次返回「整幕」文本（多角色 + 旁白混排），本模块把它解析成
 //   EnsembleFrame[]，前端遍历帧连续渲染，角色名内联，不再一人一张卡。
 //
-// 帧模型参考了 vn-parser 的骨架（think 剥离 → 主体提取 → 逐行切帧 → 兜底），
-// 但标记体系换成本项目的中文三色规范：
-//   （动作/环境） / "台词" / 【内心独白】 / 角色名： 起头
+// ── 2026-10 定稿：旁白协议 ──────────────────────────────
+// 旁白不再靠「看不出是环境还是动作的圆括号」猜测，而是由模型显式打暗号：
+//   行首 `[旁白]:` 或 `[旁白]：`  → 该行是旁白帧
+// 解析器读到后**把 `[旁白]:` 整个 slice 掉**，只留正文，并打 kind:"narration"。
+// 界面上永远不出现「旁白」两个字，用户只看到斜体灰 + 下浅虚线这一种视觉。
+//
+// 其它未带暗号的散行（角色名之前的段落）同样落为 narration，作为兜底，
+// 保证「绝不丢字」。
 //
 // ⚠️ 纯函数、无副作用，不 import 任何 UI，方便单测与在组件外调用。
 
@@ -21,7 +26,7 @@ export type EnsembleFrame = {
   speakerId?: string;
   /** 说话人头像（命中演员表时带上） */
   speakerAvatar?: string | null;
-  /** 该帧的正文（保留三色标记原样，交给 TriColorText 渲染） */
+  /** 该帧的正文（原样保留，由渲染层决定排版） */
   text: string;
   /** 帧类型：dialogue=有说话人，narration=旁白/环境 */
   kind: "dialogue" | "narration";
@@ -36,7 +41,13 @@ export type EnsembleParsedReply = {
   rawText: string;
 };
 
-export const ENSEMBLE_PARSER_VERSION = 1;
+export const ENSEMBLE_PARSER_VERSION = 2;
+
+/**
+ * 旁白协议暗号：行首 `[旁白]` / `【旁白】` + 可选冒号。
+ * 冒号可有可无，因为 `[旁白]` 本身已足够明确；带不带都会被完整消费。
+ */
+const NARRATION_TOKEN = /^\s*[\[【]\s*旁白\s*[\]】]\s*[:：]?\s*/;
 
 /**
  * 剥离模型推理泄漏块（<think>/<thinking>），并提取 <content> 主体。
@@ -56,11 +67,14 @@ function stripReasoningAndExtract(text: string): string {
  * 把一行「角色名：」的行首识别出来。
  * 兼容：行首空格、** / # / > / - 装饰、有序号、全角/半角冒号、书名号包裹。
  * 返回 { name, rest }，未命中返回 null。
+ *
+ * ⚠️ 方括号唯一认领格式**必须带冒号**：`[角色名]:` / `[角色名]：`。
+ *    这样 `[旁白]`（不带冒号）不会被误当成一个叫「旁白」的角色，
+ *    而是在上方 NARRATION_TOKEN 处被显式消费。
  */
 function matchSpeakerPrefix(line: string): { name: string; rest: string } | null {
-  // 与 splitActorReply 保持一致的宽松度，但更克制：只在「行首」认领
-  // ① 优先识别半角方括号格式 [角色名]: ——预设和模型输出常用此格式
-  const bracketM = line.match(/^\s*\[([^\]]{1,12})\]\s*[:：]\s*(.*)$/);
+  // ① 优先识别半角/全角方括号格式 [角色名]: ——预设和模型输出常用此格式
+  const bracketM = line.match(/^\s*[\[【]([^\]】]{1,12})[\]】]\s*[:：]\s*(.*)$/);
   if (bracketM) {
     const bName = bracketM[1].trim();
     if (bName) {
@@ -86,7 +100,6 @@ function matchSpeakerPrefix(line: string): { name: string; rest: string } | null
 
 /**
  * 在演员表里按名字找人（精确优先 → 前缀模糊 → 全员表兜底）。
- * 与 splitActorReply 的 findByName 同语义，保证行为一致。
  */
 function findCastMember(
   raw: string,
@@ -105,30 +118,24 @@ function findCastMember(
 /**
  * 解析整幕回复 → 帧序列。
  *
- * 规则：
- *   1. 行首「角色名：」→ 开一个新的 dialogue 帧，后续行归入该帧，
- *      直到遇到下一个「角色名：」（而不是像旧 splitActorReply 那样只切幕）。
- *   2. 任何角色名之前的散行（环境描写/旁白）→ narration 帧。
- *   3. 整段都没认领到角色名 → 全部作为 narration（单帧），不丢字。
+ * 规则（2026-10 定稿）：
+ *   1. 行首 `[旁白]`（可带冒号）→ 显式旁白帧，暗号本身被 slice 掉，
+ *      不进入正文；该行起的连续非空行都并入这一旁白帧，直到遇到
+ *      下一个 `[旁白]` 或「角色名：」。
+ *   2. 行首「角色名：」（在演员表里能认领）→ 开一个 dialogue 帧，
+ *      后续行归入该帧，直到下一个说话人/旁白。
+ *   3. 任何角色名与 `[旁白]` 之前的散行（环境描写）→ 兜底 narration 帧。
+ *   4. 整段都没认领到任何标记 → 全部作为 narration（单帧），不丢字。
  *
  * @param text    模型原始回复
  * @param actors  本幕候选演员（通常传全员）
  * @param allCast 全员名单（兜底认领）
- * @param opts.narrationEnabled
- *        是否允许把散行判为「旁白帧」。
- *        ⚠️ 语义（2026-10 修正）：这个开关 =「允许旁白出现」，而不是「每轮必须有旁白」。
- *        - false（默认）：**一句旁白都不提**。角色名之前的散行、空行后的括号段落，
- *          一律并入相邻角色帧，绝不让模型把角色的戏份抢走给旁白。
- *        - true：允许把「无归属的散行 / 段首整行括号」判为旁白帧；
- *          但角色名起头的段落仍永远归角色，不会被旁白抢走。
  */
 export function parseEnsembleReply(
   text: string,
   actors: EnsembleCastMember[] = [],
-  allCast: EnsembleCastMember[] = actors,
-  opts: { narrationEnabled?: boolean } = {}
+  allCast: EnsembleCastMember[] = actors
 ): EnsembleParsedReply {
-  const narrationAllowed = opts.narrationEnabled === true;
   const rawText = text ?? "";
   const body = stripReasoningAndExtract(rawText);
 
@@ -141,35 +148,31 @@ export function parseEnsembleReply(
 
   // 当前正在累积的帧（有 speaker 才 push）
   let current: EnsembleFrame | null = null;
+  // 当前是否正在累积一个「显式旁白」帧（由 [旁白] 暗号开启）
+  let currentNarration: string[] | null = null;
   // 角色名之前的散行，先攒着，遇到说话人时作为旁白帧 flush
   const narrationBuffer: string[] = [];
-  // 首帧之前是否已出现过说话人（用于决定旁白帧插在哪）
+  // 首帧之前是否已出现过说话人（用于判断是否真正「群像」）
   const speakersSeen = new Set<string>();
-  // 已经出现过的最后一个说话人：关闭旁白时，无归属散行归他（旁白语义修正）
-  let lastSpeakerFrame: EnsembleFrame | null = null;
-  // 幕首的散行（尚未出现任何角色）：关闭旁白时暂存，等第一个角色出现后并进他的帧
+  // 幕首的散行（尚未出现任何角色）：暂存，等第一个角色出现后并进他的帧
   const pendingHead: string[] = [];
 
   const flushNarration = () => {
     const t = narrationBuffer.join("\n").trim();
     if (t) {
-      // 旁白未开启 → 这段无归属文字不是旁白，是上一位角色的戏份，归回去。
-      if (!narrationAllowed) {
-        if (lastSpeakerFrame) {
-          lastSpeakerFrame.text = lastSpeakerFrame.text
-            ? `${lastSpeakerFrame.text}\n${t}`
-            : t;
-        } else if (current) {
-          current.text = current.text ? `${current.text}\n${t}` : t;
-        } else {
-          // 幕首、尚无任何角色：暂时挂起，等第一个角色出现时并入
-          pendingHead.push(t);
-        }
-      } else {
-        frames.push({ text: t, kind: "narration" });
-      }
+      // 无归属散行 → 旁白帧（渲染层负责斜体灰样式）。
+      frames.push({ text: t, kind: "narration" });
     }
     narrationBuffer.length = 0;
+  };
+
+  /** 落地下一个 [旁白] 块。 */
+  const flushExplicitNarration = () => {
+    if (currentNarration) {
+      const t = currentNarration.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      if (t) frames.push({ text: t, kind: "narration" });
+    }
+    currentNarration = null;
   };
 
   const flushCurrent = () => {
@@ -177,7 +180,6 @@ export function parseEnsembleReply(
       current.text = current.text.replace(/\n+$/, "").trim();
       if (current.text) {
         frames.push(current);
-        lastSpeakerFrame = current;
       }
     }
     current = null;
@@ -185,14 +187,25 @@ export function parseEnsembleReply(
 
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
+
+    // ── ① 显式旁白暗号 [旁白] ──
+    if (NARRATION_TOKEN.test(line)) {
+      const rest = line.replace(NARRATION_TOKEN, "").trim();
+      flushNarration();
+      flushCurrent();
+      flushExplicitNarration();
+      currentNarration = rest ? [rest] : [];
+      continue;
+    }
+
     const hit = matchSpeakerPrefix(line);
 
     if (hit) {
       const member = findCastMember(hit.name, actors, allCast);
-      // 认领成功 → 换帧（或仍然认领给同一人但没换行时继续累积）
+      // 认领成功 → 换帧
       if (member) {
-        // 旁白缓冲先落地（它属于这一帧之前的环境）
         flushNarration();
+        flushExplicitNarration();
         flushCurrent();
         speakersSeen.add(member.name);
         // 幕首无归属散行：关闭旁白时归给这第一个出场的角色，别丢字
@@ -208,46 +221,39 @@ export function parseEnsembleReply(
         };
         continue;
       }
-      // 认认不出的人名 → 不当年说话人，当作普通正文
+      // 认不出的人名 → 不当作说话人，当作普通正文
     }
 
-    // ── 旁白提升（段落级）──
-    // 仅在「允许旁白」时才启用。中文三色体系下，「（整行圆括号包裹）」既可能是
-    // 角色动作，也可能是环境镜头，仅靠文本无法区分。这里用最强的判据：
-    //   当前行整行是一个圆括号段 + 它处于段落起始（前一行是空行 / 是首行）
-    //   + 已经有正在进行的角色帧 → 判为独立旁白帧。
-    // ⚠️ 关闭旁白时，这条规则**不生效**：括号段落只是角色的动作描写，
-    //    照常并入该角色的帧，绝不抢走角色的戏份。
-    const isBlankPrev = li === 0 || lines[li - 1].trim() === "";
-    const wholeParen = /^\s*[（(][\s\S]*[）)]\s*$/.test(line);
-    if (narrationAllowed && current && isBlankPrev && wholeParen) {
-      flushNarration();
-      flushCurrent();
+    // ── ② 显式旁白块累积中：所有行先归它 ──
+    if (currentNarration) {
+      currentNarration.push(line);
+      continue;
+    }
+
+    // ── ③ 未开场散行：攒进 pendingHead（若还没出现任何角色）──
+    if (!current) {
+      if (speakersSeen.size === 0) {
+        pendingHead.push(line);
+      }
       narrationBuffer.push(line);
       continue;
     }
 
-    // 普通行：追加到当前说话人或旁白缓冲
-    if (current) {
-      const chunk = line.trim();
-      if (!chunk) {
-        // 空行：仅在后面还有内容时保留为一个分隔（避免帧尾挂空行）
-        if (current.text && !current.text.endsWith("\n")) current.text += "\n";
-        continue;
-      }
-      current.text = current.text ? `${current.text}\n${chunk}` : chunk;
-    } else {
-      narrationBuffer.push(line);
+    // ── ④ 普通行：追加到当前说话人 ──
+    const chunk = line.trim();
+    if (!chunk) {
+      // 空行：仅在后面还有内容时保留为一个分隔（避免帧尾挂空行）
+      if (current.text && !current.text.endsWith("\n")) current.text += "\n";
+      continue;
     }
+    current.text = current.text ? `${current.text}\n${chunk}` : chunk;
   }
 
   flushNarration();
+  flushExplicitNarration();
   flushCurrent();
 
   // 兜底：整段都没解析出帧 → 全作为一帧，绝不静默丢稿。
-  // 关闭旁白时这唯一的一帧也标成 dialogue？——不行，它确实没有归属。
-  // 但若 roster 非空，说明模型没按「角色名：」格式写，这里仍以 narration 承载，
-  // 渲染层在关闭旁白时会以「无归属正文」样式呈现（而非旁白卡）。
   if (frames.length === 0 && body) {
     frames.push({ text: body, kind: "narration" });
   }
