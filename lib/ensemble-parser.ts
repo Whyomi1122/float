@@ -1,4 +1,4 @@
-// lib/ensemble-parser.ts
+﻿// lib/ensemble-parser.ts
 // 群像模式（Ensemble）——「帧」解析器
 //
 // 设计目标（第 1 项：单消息流）：
@@ -59,8 +59,19 @@ function stripReasoningAndExtract(text: string): string {
  */
 function matchSpeakerPrefix(line: string): { name: string; rest: string } | null {
   // 与 splitActorReply 保持一致的宽松度，但更克制：只在「行首」认领
+  // ① 优先识别半角方括号格式 [角色名]: ——预设和模型输出常用此格式
+  const bracketM = line.match(/^\s*\[([^\]]{1,12})\]\s*[:：]\s*(.*)$/);
+  if (bracketM) {
+    const bName = bracketM[1].trim();
+    if (bName) {
+      let bRest = (bracketM[2] || "").trim();
+      bRest = bRest.replace(/[*#>]+\s*$/, "").trim();
+      return { name: bName, rest: bRest };
+    }
+  }
+  // ② 通用格式：全角书名号 / ** / # 装饰 + 角色名 + 冒号
   const m = line.match(
-    /^\s*(?:[*#>\u3010]{1,3}\s*)?(?:\d+[.、)]\s*)?\*{0,2}\s*([^\s:："“（(【\[]{1,12})\s*[:：]\s*(.*)$/
+    /^\s*(?:[*#>\u3010]{1,3}\s*)?(?:\d+[.、)\]\s*)?\*{0,2}\s*([^\s:：""（(【\[]{1,12})\s*[:：]\s*(.*)$/
   );
   if (!m) return null;
   const name = m[1].trim();

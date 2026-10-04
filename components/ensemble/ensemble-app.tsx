@@ -59,7 +59,7 @@ import {
 // 文字缩放：群像此前用的是硬编码 text-[Npx]，不读全局 --app-text-scale，
 // 于是「设置 → 主题 → 文字缩放」在群像里完全不生效（用户实机验证过）。
 // 现在统一走 ts()，与《功能》面板的 fs() 是同一套约定。
-function ts(px: number): string {
+function ts(px: number) {
   return `calc(${px}px * var(--app-text-scale, 1))`;
 }
 
