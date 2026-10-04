@@ -28,8 +28,8 @@ export type EnsembleFrame = {
   speakerAvatar?: string | null;
   /** 该帧的正文（原样保留，由渲染层决定排版） */
   text: string;
-  /** 帧类型：dialogue=有说话人，narration=旁白/环境 */
-  kind: "dialogue" | "narration";
+  /** 帧类型：dialogue=有说话人，narration=旁白/环境，inner=心理描写 */
+  kind: "dialogue" | "narration" | "inner";
 };
 
 export type EnsembleParsedReply = {
@@ -48,6 +48,13 @@ export const ENSEMBLE_PARSER_VERSION = 2;
  * 冒号可有可无，因为 `[旁白]` 本身已足够明确；带不带都会被完整消费。
  */
 const NARRATION_TOKEN = /^\s*[\[［【]\s*旁白\s*[\]］】]\s*[:：]?\s*/;
+
+/**
+ * 心理描写协议暗号：行首 `[心理]` / `【心理】` + 可选冒号。
+ * 与旁白同构：解析器读到后把暗号整个 slice 掉，只留正文，并打 kind:"inner"。
+ * 渲染层据此上雾霾蓝 #93A9D1 —— 这是「心理」与「动作/环境」唯一的分野。
+ */
+const INNER_TOKEN = /^\s*[\[［【]\s*心理\s*[\]］】]\s*[:：]?\s*/;
 
 /**
  * 剥离模型推理泄漏块（<think>/<thinking>），并提取 <content> 主体。
@@ -172,6 +179,10 @@ export function parseEnsembleReply(
   let current: EnsembleFrame | null = null;
   // 当前是否正在累积一个「显式旁白」帧（由 [旁白] 暗号开启）
   let currentNarration: string[] | null = null;
+  // 当前是否正在累积一个「心理描写」帧（由 [心理] 暗号开启），
+  // 冻结该帧的说话人归属：心理属于「上一个开口的角色」，不是旁白。
+  let currentInner: { text: string[]; speaker?: string; speakerId?: string; speakerAvatar?: string | null } | null =
+    null;
   // 角色名之前的散行，先攒着，遇到说话人时作为旁白帧 flush
   const narrationBuffer: string[] = [];
   // 首帧之前是否已出现过说话人（用于判断是否真正「群像」）
@@ -197,6 +208,23 @@ export function parseEnsembleReply(
     currentNarration = null;
   };
 
+  /** 落地下一个 [心理] 块。心理归属上一个开口的角色（若还没有则无归属）。 */
+  const flushInner = () => {
+    if (currentInner) {
+      const t = currentInner.text.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      if (t) {
+        frames.push({
+          text: t,
+          kind: "inner",
+          speaker: currentInner.speaker,
+          speakerId: currentInner.speakerId,
+          speakerAvatar: currentInner.speakerAvatar,
+        });
+      }
+    }
+    currentInner = null;
+  };
+
   const flushCurrent = () => {
     if (current) {
       current.text = current.text.replace(/\n+$/, "").trim();
@@ -216,7 +244,26 @@ export function parseEnsembleReply(
       flushNarration();
       flushCurrent();
       flushExplicitNarration();
+      flushInner();
       currentNarration = rest ? [rest] : [];
+      continue;
+    }
+
+    // ── ①b 显式心理暗号 [心理]（与旁白同构，归属上一个开口的角色）──
+    if (INNER_TOKEN.test(line)) {
+      const rest = line.replace(INNER_TOKEN, "").trim();
+      flushNarration();
+      flushExplicitNarration();
+      flushInner();
+      // 冻结归属：心理属于「在此之前最后开口的那个角色」
+      const owner = current;
+      flushCurrent();
+      currentInner = {
+        text: rest ? [rest] : [],
+        speaker: owner?.speaker,
+        speakerId: owner?.speakerId,
+        speakerAvatar: owner?.speakerAvatar,
+      };
       continue;
     }
 
@@ -228,6 +275,7 @@ export function parseEnsembleReply(
       if (member) {
         flushNarration();
         flushExplicitNarration();
+        flushInner();
         flushCurrent();
         speakersSeen.add(member.name);
         // 幕首无归属散行：关闭旁白时归给这第一个出场的角色，别丢字
@@ -252,6 +300,12 @@ export function parseEnsembleReply(
       continue;
     }
 
+    // ── ②b 显式心理块累积中：所有行先归它 ──
+    if (currentInner) {
+      currentInner.text.push(line);
+      continue;
+    }
+
     // ── ③ 未开场散行：攒进 pendingHead（若还没出现任何角色）──
     if (!current) {
       if (speakersSeen.size === 0) {
@@ -273,6 +327,7 @@ export function parseEnsembleReply(
 
   flushNarration();
   flushExplicitNarration();
+  flushInner();
   flushCurrent();
 
   // 兜底：整段都没解析出帧 → 全作为一帧，绝不静默丢稿。

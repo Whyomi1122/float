@@ -116,41 +116,64 @@ export function ensembleModelLabel(characterId?: string): string {
 
 // ──────────────────────────────────────────────────────────────
 // 排版常量（2026-10 定稿，全部写死）
-// 单色体系：全篇只用一级灰阶，不再有「对白/动作/心理」三色区分。
-// 层级靠**字号 + 灰度 + 段距**拉开，而不是靠颜色。
+// 三色体系（用户定稿）：
+//   · 对话（韩语原文 / 中文翻译）→ 黑色 C_DIALOG
+//   · 心理描写（［心理］暗号）     → 雾霾蓝 #93A9D1
+//   · 其它（动作 / 环境 / 旁白）  → 灰色，旁白锁定 C_NARR，其它 C_ACT
+// 层级同时靠**字号 + 灰度 + 段距**拉开。
 // ──────────────────────────────────────────────────────────────
 const T_TEXT = 14; // 正文（台词 / 动作 / 心理）统一 14px
-const C_TEXT = "#1f1f1f"; // 正文颜色
+const C_DIALOG = "#1f1f1f"; // 对话：黑
+const C_INNER = "#93A9D1"; // 心理描写：雾霾蓝（定稿）
+const C_ACT = "#A9A9A9"; // 其它（动作 / 环境）：灰（定稿）
 const T_NAME = 11.5; // 角色名（必须小于正文）
-const C_NAME = "#8a8a8e"; // 角色名：次级灰
+const C_NAME = "#8a8a8e"; // 角色名：次级灰（锁定最新版）
 const T_NARR = 13; // 旁白：比正文小 1px
-const C_NARR = "#7d7d82"; // 旁白：灰
+const C_NARR = "#7d7d82"; // 旁白：灰（锁定最新版）
+/** 头像尺寸（定稿 35px，此前 78px 过大被用户吐槽「像生图来了」） */
+const AVATAR_PX = 35;
 
 /**
- * 正文排版组件（单色版）。
+ * 正文排版组件（三色版）。
  *
- * 与旧 TriColorText 的关键差别：
- *   · 不再解析 （动作）/"台词"/【心理】 三色标记 —— 这类符号已由解析器在
- *     输出契约层禁掉，正文里出现就是模型违规，不该再由渲染层「帮忙隐藏」。
- *   · 不再 stripSymbols —— 隐藏符号会让「模型违规」永远看不见，掩盖问题。
+ *   · 对话（dialogue 帧）→ 黑；其中**中文对话**由模型用 `（）` 包裹，
+ *     渲染时把 `（…）` 段染成黑色（与台词同色，只是加括号以示译文）。
+ *   · 心理（inner 帧）→ 雾霾蓝 #93A9D1，斜体。
+ *   · 其它 → 灰 #A9A9A9。
+ *   · 不再 stripSymbols —— 隐藏符号会让「模型违规」永远看不见。
  *   · 段落 = 换行切分，空行归并，段距写死 16px。
  */
-function BodyText({ raw }: { raw: string }) {
+function BodyText({
+  raw,
+  kind = "act",
+}: {
+  raw: string;
+  kind?: "dialogue" | "inner" | "act";
+}) {
   const paras = (raw ?? "")
     .split(/\n+/)
     .map((s) => s.trim())
     .filter(Boolean);
   if (paras.length === 0) return null;
+  const color =
+    kind === "dialogue" ? C_DIALOG : kind === "inner" ? C_INNER : C_ACT;
   return (
     <div
-      className="tracking-[0.01em]"
-      style={{ fontSize: tpx(T_TEXT), color: C_TEXT, lineHeight: 1.9 }}
+      className={`tracking-[0.01em] ${kind === "inner" ? "italic" : ""}`}
+      style={{ fontSize: tpx(T_TEXT), color, lineHeight: 1.9 }}
     >
       {paras.map((p, i) => (
         <div
           key={i}
           className="whitespace-pre-wrap"
-          style={{ marginTop: i === 0 ? 0 : 16 }}
+          style={{
+            marginTop: i === 0 ? 0 : 16,
+            // 对话帧里被 `（）` 包裹的中文译文：保持黑色、略降不透明度以示「译文」
+            color:
+              kind === "dialogue" && /^[（(].*[）)]$/.test(p)
+                ? C_DIALOG
+                : undefined,
+          }}
         >
           {p}
         </div>
@@ -175,6 +198,37 @@ function formatMinute(ts: string | number | undefined): string {
 }
 
 const __frameCache = new Map<string, EnsembleFrame[]>();
+
+/**
+ * 把「用户 persona（面具）」注入演员表，得到一个虚拟 cast 成员。
+ *
+ * 为什么必须注入：剧本的 `cast` 只含**建剧本时勾选的 AI 演员**，用户 persona
+ * （如「岳霖玉」）只以 `personaId` 存在剧本上，不在 cast 数组里。
+ * 于是当模型以「岳霖玉：」开场时，`findCastMember` 三级兜底全部落空 →
+ * member undefined → 该帧降级 narration（斜体灰、无头像、无署名），
+ * 且首帧内容还会被 pendingHead 重复并进下一个角色 —— 这正是图3 的根因。
+ *
+ * 解决：把 persona 当作「id = persona.id、name = persona.name」的虚拟成员
+ * 追加到识别用名单末尾。**只用于识别与渲染**，不回写剧本 cast（保持数据干净）。
+ */
+function castWithPersona(
+  cast: EnsembleCastMember[],
+  persona: { id?: string; name?: string; avatarUrl?: string } | null | undefined
+): EnsembleCastMember[] {
+  if (!persona?.name) return cast;
+  const pid = persona.id ?? `persona:${persona.name}`;
+  if (cast.some((c) => c.id === pid || c.name === persona.name)) return cast;
+  return [
+    ...cast,
+    {
+      id: pid,
+      name: persona.name,
+      avatar: persona.avatarUrl ?? null,
+      persona: "",
+    },
+  ];
+}
+
 function framesOfTurn(
   turn: EnsembleTurn,
   cast: EnsembleCastMember[]
@@ -253,12 +307,25 @@ function EnsembleFrameStream({
         prevWasNarration = false;
         prevWasSameSpeaker = !showName;
 
+        // 心理帧：不重复出头像/名字（它属于「上一个开口的人」），
+        // 只在正文上做雾霾蓝 + 斜体区分。
+        if (f.kind === "inner") {
+          return (
+            <div key={i} style={{ marginTop: showName ? 16 : 12 }}>
+              <BodyText raw={f.text} kind="inner" />
+            </div>
+          );
+        }
+
         return (
           <div key={i} style={{ marginTop: topMargin }}>
             {showName && (
               <div className="flex items-center gap-2.5 mb-2.5">
-                {/* 方角 78px 虚线框头像 */}
-                <div className="w-[78px] h-[78px] rounded-[10px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0">
+                {/* 方角 35px 虚线框头像（定稿：此前 78px 过大） */}
+                <div
+                  className="rounded-[8px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0"
+                  style={{ width: tpx(AVATAR_PX), height: tpx(AVATAR_PX) }}
+                >
                   {member?.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -269,7 +336,7 @@ function EnsembleFrameStream({
                   ) : (
                     <span
                       className="font-semibold text-black/35"
-                      style={{ fontSize: tpx(22) }}
+                      style={{ fontSize: tpx(15) }}
                     >
                       {(f.speaker ?? "?").slice(0, 1)}
                     </span>
@@ -284,7 +351,7 @@ function EnsembleFrameStream({
                 </div>
               </div>
             )}
-            <BodyText raw={f.text} />
+            <BodyText raw={f.text} kind="dialogue" />
           </div>
         );
       })}
@@ -856,15 +923,14 @@ ${script.background.trim()}
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
 ${sceneBlock}
-═══════════ 唯一的格式契约：两种行首标记 ═══════════
-系统靠行首标记来分段排版。你只需要用**两种**行首格式，其余一律是普通正文：
+═══════════ 唯一的格式契约：三种行首标记 ═══════════
+系统靠行首标记来分段排版。你只需要用**三种**行首格式，其余一律是普通正文：
 
 【格式 A · 角色说话】行首写「角色名：」（用中文全角冒号），下面接这个角色
-说的话、做的动作、心里的念头，一行一句，直到下一个标记出现。
+说的话、做的动作，一行一句，直到下一个标记出现。
     金成帝：
     他抬眼扫过来，语气压得很低。
     别动。
-    这人又在硬撑。
 
 【格式 B · 旁白】行首写「［旁白］:」或「［旁白］」，下面接镜头、环境、时间流转
 这类**没有归属到具体角色身上**的叙述。旁白是整幕的底色，用来交代场景转换、
@@ -872,23 +938,40 @@ ${sceneBlock}
     ［旁白］:
     雨停在凌晨三点，路灯下积着一层薄薄的水光。
 
-⚠️ 除以上两种行首标记外，正文里**禁止出现任何其它符号**：
-   不要圆括号（）、不要方括号【】、不要引号 ""、不要星号 *、《》、~、#。
-   动作、神态、心理活动都直接写成叙述句，什么都不要包。
-   （唯一的例外是格式 B 的 ［旁白］ 这个标记本身，那是系统约定的暗号。）
+【格式 C · 心理描写】行首写「［心理］:」或「［心理］」，下面接**角色内心**
+的念头、独白、情绪。它属于**上一个开口的角色**，用来把说不出口的心里话
+单独拎出来（渲染成雾霾蓝色，与对话/动作区分）。
+    金成帝：
+    他停下脚步，背对着她。
+    ［心理］:
+    她要是这时候回头，我大概就撑不住了。
 
-【正确示范】多人 + 旁白混排：
+⚠️ 除以上三种行首标记外，正文里**禁止出现任何其它符号**：
+   不要方括号【】、不要引号 ""、不要星号 *、《》、~、#。
+   （唯一例外：格式 A 里**中文对话**必须用圆括号（）包裹，见下方双语规则；
+   以及格式 B / C 的行首标记本身。）
+   ⚠️ 特别说明：韩语原句**不要**加括号，直接写。只有中文对话才加（）。
+
+═══════════ 双语格式（写死，务必遵守）═══════════
+只要角色说韩语，就必须**先写韩语原句，紧跟一行中文翻译**，中文翻译用圆括号
+（）包起来。固定为：
+    「밥 먹었어?」
+    （吃饭了吗？）
+不得只写中文、也不得只写韩语。翻译行紧跟在韩语下面，不要空行。
+
+【正确示范】多人 + 旁白 + 心理 + 双语混排：
     ［旁白］:
     深夜的走廊只剩应急灯，绿光落在墙角。
     金成帝：
     他停在门前，手指悬着没落下。
+    ［心理］:
     这门后面，最好别是他想的那个人。
     岳霖玉：
-    门内传来一声很轻的响动。
-    ……谁？
+    「누구세요?」
+    （谁？）
 
-（注意：「他停在门前」是动作、「这门后面，最好别是他想的那个人」是心理、
-「……谁？」是台词 —— 全部直接写，没有任何括号或引号包裹。）
+（注意：「他停在门前」是动作 → 灰色；［心理］块 → 雾霾蓝；
+「누구세요?」是韩语台词、下一行「（谁？）」是中文翻译 → 都是黑色。）
 
 ═══════════ 选角：这一幕谁上场，由你按剧情决定 ═══════════
 这是群像剧，核心是**多角色在同一幕里真实互动**，不是轮流独白。
@@ -1028,7 +1111,10 @@ ${lastSpeakerNote}
       // 落库时存原文最稳，不会因解析规则调整而丢失模型原始输出。
       const baseTs = Date.now();
       const baseIso = new Date().toISOString();
-      const frames = parseEnsembleReply(replyContent, script.cast, script.cast).frames;
+      // 解析时带 persona：让「岳霖玉：」这类用户 persona 署名能被认领出帧，
+      // 从而 leadFrame 拿得到说话人与头像（否则整幕会被误判为旁白）。
+      const parseCast = castWithPersona(script.cast, activePersona);
+      const frames = parseEnsembleReply(replyContent, parseCast, parseCast).frames;
       // 说话人署名：整幕可能有多人，取帧里首位有归属的说话人作为「幕主导者」，
       // 用于消息流的时间轴归属与头像兜底（纯旁白幕则记为旁白）。
       const leadFrame = frames.find((f) => f.kind === "dialogue");
@@ -1882,8 +1968,11 @@ ${lastSpeakerNote}
                     </div>
                   ) : (
                     <EnsembleFrameStream
-                      frames={framesOfTurn(turn, currentScript.cast)}
-                      cast={currentScript.cast}
+                      frames={framesOfTurn(
+                        turn,
+                        castWithPersona(currentScript.cast, activePersona)
+                      )}
+                      cast={castWithPersona(currentScript.cast, activePersona)}
                     />
                   )}
 
