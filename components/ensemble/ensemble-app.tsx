@@ -116,18 +116,18 @@ export function ensembleModelLabel(characterId?: string): string {
 
 // ──────────────────────────────────────────────────────────────
 // 排版常量（2026-10 定稿，全部写死）
-// 三色体系（用户定稿）：
+// 配色体系（用户定稿）：
 //   · 对话（韩语原文 / 中文翻译）→ 黑色 C_DIALOG
-//   · 心理描写（［心理］暗号）     → 石板蓝 #536878（第5轮定稿，替换原雾霾蓝）
+//   · 心理描写（［心理］暗号）     → **与叙述完全一致**（1005 反馈：心理太明显，并入叙述）
 //   · 其它（动作 / 环境 / 旁白）  → 灰色
 // 长文可读性优化（第5轮定稿）：层级靠**字号 + 灰度 + 段距**三重拉开。
 //   核心原则：对白往前（重）· 叙述退后（淡）· 旁白是换场的空白。
 // ──────────────────────────────────────────────────────────────
-const T_DIALOG = 15; // 对白：比正文大 1px，成为视觉主角
+const T_DIALOG = 14; // 对白（1005 反馈：15 → 14）
 const T_ACT = 13.5; // 叙述/动作：略小于对白，退为背景
-const T_INNER = 14; // 心理：与正文齐平
+const T_INNER = 13.5; // 心理：与叙述完全一致（1005 反馈）
 const C_DIALOG = "#1f1f1f"; // 对话：黑
-const C_INNER = "#536878"; // 心理描写：石板蓝（第5轮定稿）
+const C_INNER = "#b4b4b8"; // 心理：与叙述同色（1005 反馈：取消蓝色）
 const C_ACT = "#b4b4b8"; // 叙述/动作：更淡的灰，退到背景
 const T_NAME = 12.5; // 角色名（第5轮：11.5 → 12.5，锚点更清晰）
 const C_NAME = "#5a5a5e"; // 角色名：加深（原 #8a8a8e 太浅，认不出人）
@@ -138,7 +138,7 @@ const AVATAR_PX = 35;
 // 段距（长文排版定稿）：
 const GAP_DIALOG = 11; // 对白段之间
 const GAP_ACT = 7; // 叙述/动作段之间（更紧，成组）
-const GAP_INNER = 11; // 心理块上下
+const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
 const GAP_NARR = 26; // 旁白上下（换场呼吸点）
 const GAP_BLOCK = 26; // 角色块之间（换人）
 
@@ -311,30 +311,36 @@ function EnsembleFrameStream({
         const member =
           (f.speakerId && cast.find((c) => c.id === f.speakerId)) ||
           (f.speaker ? cast.find((c) => c.name === f.speaker) : undefined);
-        const showName = f.speaker !== lastSpeaker;
-        lastSpeaker = f.speaker;
+        // ── 头像/名字的「块头」判定（2026-10-05 修 F1）──
+        // 现象：action / inner 帧虽带 speaker，但渲染时不出头像/名字（它属于
+        //   上一个开口的人）；若它抢先把 lastSpeaker 更新掉，紧跟其后的
+        //   dialogue 帧就变成「同一个人」→ 也不出头像 → 整块永久丢失头像名字。
+        // 修法：action / inner **不推进** lastSpeaker，让它们之后的第一个
+        //   dialogue 帧仍被识别为「该角色的首帧」→ 正常出头像 + 名字。
+        //   （模型习惯「先叙述后开口」，此修法正好命中。）
+        const isSpeakerFrame = f.kind === "dialogue";
+        const showName = isSpeakerFrame && f.speaker !== lastSpeaker;
+        if (isSpeakerFrame) lastSpeaker = f.speaker;
 
         // 段距（长文排版定稿，第5轮）：
         //   旁白之后     → 0（旁白自带 26px 下间距，不叠加）
         //   换角色       → 26px（角色块之间留大呼吸）
-        //   同角色续帧   → 按类型：对白 11 / 动作 7 / 心理 11
-        //   心理/动作帧  → 比对白更紧凑，形成「成组」感
+        //   同角色续帧   → 对白 11 / 动作 7 / 心理 7
         const topMargin = prevWasNarration
           ? 0
           : showName
           ? GAP_BLOCK
-          : f.kind === "action"
-          ? GAP_ACT
-          : GAP_DIALOG;
+          : f.kind === "dialogue"
+          ? GAP_DIALOG
+          : GAP_ACT;
         prevWasNarration = false;
         prevWasSameSpeaker = !showName;
 
-        // 心理帧：不重复出头像/名字（它属于「上一个开口的人」），
-        // 只在正文上用石板蓝 #536878 区分（定稿：不加斜体）。
+        // 心理帧：与叙述完全一致（1005 反馈），不出头像。
         if (f.kind === "inner") {
           return (
             <div key={i} style={{ marginTop: showName ? GAP_BLOCK : GAP_INNER }}>
-              <BodyText raw={f.text} kind="inner" />
+              <BodyText raw={f.text} kind="act" />
             </div>
           );
         }
