@@ -118,30 +118,40 @@ export function ensembleModelLabel(characterId?: string): string {
 // 排版常量（2026-10 定稿，全部写死）
 // 三色体系（用户定稿）：
 //   · 对话（韩语原文 / 中文翻译）→ 黑色 C_DIALOG
-//   · 心理描写（［心理］暗号）     → 雾霾蓝 #93A9D1（不加斜体）
-//   · 其它（动作 / 环境 / 旁白）  → 灰色，旁白锁定 C_NARR，其它 C_ACT
-// 层级同时靠**字号 + 灰度 + 段距**拉开。
+//   · 心理描写（［心理］暗号）     → 石板蓝 #536878（第5轮定稿，替换原雾霾蓝）
+//   · 其它（动作 / 环境 / 旁白）  → 灰色
+// 长文可读性优化（第5轮定稿）：层级靠**字号 + 灰度 + 段距**三重拉开。
+//   核心原则：对白往前（重）· 叙述退后（淡）· 旁白是换场的空白。
 // ──────────────────────────────────────────────────────────────
-const T_TEXT = 14; // 正文（台词 / 动作 / 心理）统一 14px
+const T_DIALOG = 15; // 对白：比正文大 1px，成为视觉主角
+const T_ACT = 13.5; // 叙述/动作：略小于对白，退为背景
+const T_INNER = 14; // 心理：与正文齐平
 const C_DIALOG = "#1f1f1f"; // 对话：黑
-const C_INNER = "#93A9D1"; // 心理描写：雾霾蓝（定稿）
-const C_ACT = "#A9A9A9"; // 其它（动作 / 环境）：灰（定稿）
-const T_NAME = 11.5; // 角色名（必须小于正文）
-const C_NAME = "#8a8a8e"; // 角色名：次级灰（锁定最新版）
+const C_INNER = "#536878"; // 心理描写：石板蓝（第5轮定稿）
+const C_ACT = "#b4b4b8"; // 叙述/动作：更淡的灰，退到背景
+const T_NAME = 12.5; // 角色名（第5轮：11.5 → 12.5，锚点更清晰）
+const C_NAME = "#5a5a5e"; // 角色名：加深（原 #8a8a8e 太浅，认不出人）
 const T_NARR = 13; // 旁白：比正文小 1px
-const C_NARR = "#7d7d82"; // 旁白：灰（锁定最新版）
+const C_NARR = "#8e8e93"; // 旁白：灰（锁定）
 /** 头像尺寸（定稿 35px，此前 78px 过大被用户吐槽「像生图来了」） */
 const AVATAR_PX = 35;
+// 段距（长文排版定稿）：
+const GAP_DIALOG = 11; // 对白段之间
+const GAP_ACT = 7; // 叙述/动作段之间（更紧，成组）
+const GAP_INNER = 11; // 心理块上下
+const GAP_NARR = 26; // 旁白上下（换场呼吸点）
+const GAP_BLOCK = 26; // 角色块之间（换人）
 
 /**
- * 正文排版组件（三色版）。
+ * 正文排版组件（长文可读性版）。
  *
- *   · 对话（dialogue 帧）→ 黑；其中**双语模式**下，中文译文行由模型用 `（）`
- *     包裹以示「译文」，渲染保留括号（非双语 = 纯中文时由渲染层剥掉，见下）。
- *   · 心理（inner 帧）→ 雾霾蓝 #93A9D1（定稿：**不加斜体**，只用颜色区分）。
- *   · 其它 → 灰 #A9A9A9。
+ *   · 对白（dialogue 帧）→ 黑 #1f1f1f，15px（主角）
+ *   · 叙述/动作（action 帧）→ 淡灰 #b4b4b8，13.5px（退为背景）
+ *   · 心理（inner 帧）→ 石板蓝 #536878，14px（不加斜体，只靠颜色）
+ *   · 旁白（narration 帧）→ 灰 #8e8e93，13px + 斜体（换场呼吸点）
  *   · 不再 stripSymbols —— 隐藏符号会让「模型违规」永远看不见。
- *   · 段落 = 换行切分，空行归并，段距写死 16px。
+ *   · 括号规则：无条件剥除包裹整行的 （）（包括双语译文行）。
+ *   · 段距按 kind 区分，见 GAP_* 常量。
  */
 
 function BodyText({
@@ -158,12 +168,16 @@ function BodyText({
   if (paras.length === 0) return null;
   const color =
     kind === "dialogue" ? C_DIALOG : kind === "inner" ? C_INNER : C_ACT;
+  const size =
+    kind === "dialogue" ? T_DIALOG : kind === "inner" ? T_INNER : T_ACT;
+  // 段内段距：对白/心理宽松些，叙述紧凑些（成组感）
+  const inner = kind === "act" ? GAP_ACT + 5 : GAP_DIALOG + 5;
   // 括号规则（用户定稿 2026-10-04 第5轮）：**无条件剥除**包裹整行的 （），
   // 包括双语译文行。韩语对白的下一行直接写中文，不再用括号包裹。
   return (
     <div
       className="tracking-[0.01em]"
-      style={{ fontSize: tpx(T_TEXT), color, lineHeight: 1.9 }}
+      style={{ fontSize: tpx(size), color, lineHeight: 1.9 }}
     >
       {paras.map((p, i) => {
         const shown = /^[（(][\s\S]*[）)]$/.test(p)
@@ -173,7 +187,7 @@ function BodyText({
           <div
             key={i}
             className="whitespace-pre-wrap"
-            style={{ marginTop: i === 0 ? 0 : 16 }}
+            style={{ marginTop: i === 0 ? 0 : inner }}
           >
             {shown}
           </div>
@@ -300,29 +314,36 @@ function EnsembleFrameStream({
         const showName = f.speaker !== lastSpeaker;
         lastSpeaker = f.speaker;
 
-        // 段距（写死）：
-        //   旁白之后     → 0（旁白自己已带 24px 下间距，不叠加）
-        //   换角色       → 20px
-        //   同角色续帧   → 16px
-        const topMargin = prevWasNarration ? 0 : showName ? 20 : 16;
+        // 段距（长文排版定稿，第5轮）：
+        //   旁白之后     → 0（旁白自带 26px 下间距，不叠加）
+        //   换角色       → 26px（角色块之间留大呼吸）
+        //   同角色续帧   → 按类型：对白 11 / 动作 7 / 心理 11
+        //   心理/动作帧  → 比对白更紧凑，形成「成组」感
+        const topMargin = prevWasNarration
+          ? 0
+          : showName
+          ? GAP_BLOCK
+          : f.kind === "action"
+          ? GAP_ACT
+          : GAP_DIALOG;
         prevWasNarration = false;
         prevWasSameSpeaker = !showName;
 
         // 心理帧：不重复出头像/名字（它属于「上一个开口的人」），
-        // 只在正文上用雾霾蓝区分（定稿：不加斜体）。
+        // 只在正文上用石板蓝 #536878 区分（定稿：不加斜体）。
         if (f.kind === "inner") {
           return (
-            <div key={i} style={{ marginTop: showName ? 16 : 12 }}>
+            <div key={i} style={{ marginTop: showName ? GAP_BLOCK : GAP_INNER }}>
               <BodyText raw={f.text} kind="inner" />
             </div>
           );
         }
 
-        // 叙述/动作帧（用户定稿 2026-10-04 第5轮）：叙述性文字统一灰 #A9A9A9，
+        // 叙述/动作帧（用户定稿 2026-10-04 第5轮）：叙述性文字统一淡灰 #b4b4b8，
         // 不出头像/名字（它属于上一个开口的角色，只是换个颜色落笔）。
         if (f.kind === "action") {
           return (
-            <div key={i} style={{ marginTop: showName ? 12 : 8 }}>
+            <div key={i} style={{ marginTop: showName ? GAP_BLOCK : GAP_ACT }}>
               <BodyText raw={f.text} kind="act" />
             </div>
           );
@@ -931,6 +952,11 @@ ${script.background.trim()}
 
       const systemPrompt = `你是一位擅长群像叙事的小说作者，正在续写互动剧本《${script.title}》。
 
+🚨 输出格式铁律（违反则整幕作废，必须重写）：
+   每一幕**必须以「角色名：」独占一行开头**（如「岳霖玉：」），用来声明归属；
+   然后再用 ［对白］/［叙述］/［动作］/［心理］/［旁白］ 五种暗号块承载内容。
+   **绝对禁止**直接裸写小说段落、或把动作/台词混在一段里 —— 那样系统无法排版。
+
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
 ${sceneBlock}
@@ -984,7 +1010,7 @@ ${sceneBlock}
     「어, 너도 얼른 들어가.」
     알겠어, 너도 얼른 들어가.
 
-（注意：［叙述］/［动作］→ 灰色；［心理］→ 雾霾蓝；［对白］→ 黑色；
+（注意：［叙述］/［动作］→ 淡灰；［心理］→ 石板蓝；［对白］→ 黑色；
 ［旁白］→ 灰色斜体；台词与译文都不加括号。）
 
 ═══════════ 选角：这一幕谁上场，由你按剧情决定 ═══════════
@@ -1129,7 +1155,18 @@ ${lastSpeakerNote}
       // 解析时带 persona：让「岳霖玉：」这类用户 persona 署名能被认领出帧，
       // 从而 leadFrame 拿得到说话人与头像（否则整幕会被误判为旁白）。
       const parseCast = castWithPersona(script.cast, activePersona);
-      const frames = parseEnsembleReply(replyContent, parseCast, parseCast).frames;
+      const parsed = parseEnsembleReply(replyContent, parseCast, parseCast);
+      const frames = parsed.frames;
+      // ── 格式健康检查（2026-10 第5轮新增）──
+      // 若整幕没有解析出**任何对话帧**，说明模型没按契约写（多半是漏写归属行
+      // 或暗号，整幕塌成一坨 narration）→ 用户会看到「无头像、无名字、全灰」。
+      // 这时给出明确提示，引导重 roll，而不是让用户对着烂排版发懵。
+      const hasDialogue = frames.some((f) => f.kind === "dialogue");
+      if (!opts?.rerollTurnId && !hasDialogue) {
+        setApiError(
+          "这一轮模型没按格式输出（缺少 ［对白］ 块或归属行），整幕会没有头像和名字。建议重 roll 一次。"
+        );
+      }
       // 说话人署名：整幕可能有多人，取帧里首位有归属的说话人作为「幕主导者」，
       // 用于消息流的时间轴归属与头像兜底（纯旁白幕则记为旁白）。
       const leadFrame = frames.find((f) => f.kind === "dialogue");
