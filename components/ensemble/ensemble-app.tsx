@@ -170,7 +170,6 @@ const CHARS_MAX = 5000; // 用户要求：4000 → 5000（目标值上限）
 const CHARS_GUARD = 1000; // 护栏口径：实际允许写满的字数
 const CHARS_TO_TOKENS = 1.6;
 const TOKEN_HEADROOM = 3;
-const CHARS_TO_TOKENS_LABEL = "按「实际允许 1000 字/轮」换算，留足收尾余量";
 function charsToMaxTokens(_chars?: number): number {
   // 参数保留（兼容旧调用），但护栏口径固定为 CHARS_GUARD。
   return Math.max(4096, Math.ceil(CHARS_GUARD * CHARS_TO_TOKENS * TOKEN_HEADROOM));
@@ -768,8 +767,6 @@ export function EnsembleApp({
   const [onlineSyncDraft, setOnlineSyncDraft] = useState(false);
   /** 剧本设置里「每轮字数」的草稿值，点保存才落库（= 每个角色各自的字数） */
   const [charsDraft, setCharsDraft] = useState(600);
-  /** 剧本设置里「每轮登场角色数」的草稿值（群像：一轮至少两个角色） */
-  const [actorsDraft, setActorsDraft] = useState(2);
   const [cssDraft, setCssDraft] = useState("");
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
@@ -872,7 +869,6 @@ export function EnsembleApp({
     if (!s) return;
     setOpeningDraft(s.openingMessage ?? "");
     setCharsDraft(s.charsPerTurn ?? 600);
-    setActorsDraft(s.actorsPerTurn ?? 2);
     setContextDraft(s.contextLimit ?? 10);
     setPovDraft(s.narrativePov ?? "third");
     setOnlineSyncDraft(s.onlineSync ?? false);
@@ -1433,20 +1429,8 @@ ${lastSpeakerNote}
   // 顶栏/浮层的返回键都只调 handleSheetBack()，由它决定退到哪一层，
   // 于是不会再出现「子面板点了返回反而弹出功能面板」的错乱。
   // ══════════════════════════════════════════════════════
-  /** 当前是否有任何面板打开 */
-  const anySheetOpen =
-    showToolsSheet ||
-    showNarrationModal ||
-    showCssSheet ||
-    showSettingsSheet ||
-    showModelSheet;
-  /** 最上层是不是「功能」面板本身（决定返回键文案：返回剧本 / 返回） */
-  const sheetIsPrimary =
-    anySheetOpen &&
-    !showNarrationModal &&
-    !showCssSheet &&
-    !showSettingsSheet &&
-    !showModelSheet;
+  // 注：anySheetOpen / sheetIsPrimary 两个派生量曾用于返回键文案，
+  // 现已由 handleSheetBack() 自行判定层级（1006 清理），故删除。
 
   /**
    * 退一层：
@@ -2420,7 +2404,6 @@ ${lastSpeakerNote}
             // 与 triggerAiTurn 共用同一套换算（charsToMaxTokens），
             // 保证面板上写的就是真实发出去的护栏值。
             const effectiveTokens = charsToMaxTokens(charsDraft);
-            const estMinutes = Math.round((charsDraft / 400) * 10) / 10;
             const numBadge = (n: string) => (
               <span className="font-mono text-[10px] text-black/20 tracking-widest">
                 {n}
