@@ -160,19 +160,31 @@ const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
 const GAP_NARR = 26; // 旁白上下（换场呼吸点）
 const GAP_BLOCK = 26; // 角色块之间（换人）
 
-// ── 每轮输出长度 / token 护栏（D10 定稿 2026-10-06）──
-// 用户口径（1006 反馈 R2）：「设置 600 字/轮」是**目标值**，不是硬上限。
-// 护栏要按「实际允许 1000 字/轮」来算，留出几百字差值，避免模型写着写着
-// 被 token 上限硬切断、话没说完。所以护栏**不跟随 charSettings**，
-// 而是固定按 CHARS_GUARD 换算 —— 无论用户目标设多小，都有写满 1000 字的余量。
+// ── 每轮输出长度 / token 护栏（用户公式定稿 2026-10-06 二次反馈）──
+// 用户口径：N（界面设的每轮字数）是**目标值**，不是硬上限。
+// 实际允许写的字数上限 M 按用户给定公式计算：
+//     M = N + max(400, N × 0.5)
+//   例：N=600 → M=1000 ｜ N=800 → M=1200 ｜ N=1000 → M=1500
+//       N=1200 → M=1800 ｜ N=1500 → M=2250 ｜ N=2000 → M=3000
+// 目的：留出几百字余量，保证话能说完、不被中途硬切断。
 const CHARS_MIN = 50;
-const CHARS_MAX = 5000; // 用户要求：4000 → 5000（目标值上限）
-const CHARS_GUARD = 1000; // 护栏口径：实际允许写满的字数
+const CHARS_MAX = 5000; // 目标值上限
 const CHARS_TO_TOKENS = 1.6;
+// 护栏 token = M 对应的 token，再乘余量系数（thinking 模型的思维链也占 maxOutputTokens）
 const TOKEN_HEADROOM = 3;
-function charsToMaxTokens(_chars?: number): number {
-  // 参数保留（兼容旧调用），但护栏口径固定为 CHARS_GUARD。
-  return Math.max(4096, Math.ceil(CHARS_GUARD * CHARS_TO_TOKENS * TOKEN_HEADROOM));
+
+/** 用户公式：由目标字数 N 求实际允许的字数上限 M。 */
+function targetCharsToMaxChars(n: number): number {
+  return Math.round(n + Math.max(400, n * 0.5));
+}
+
+/**
+ * 由目标字数 N 求请求用的 maxOutputTokens。
+ * 不再对下限做 4096 之类的小值硬钳制 —— 之前正是这个下限让
+ * 「设 250 字却显示 4096」显得莫名其妙（1006 二次反馈：护栏还是很高）。
+ */
+function charsToMaxTokens(chars: number): number {
+  return Math.ceil(targetCharsToMaxChars(chars) * CHARS_TO_TOKENS * TOKEN_HEADROOM);
 }
 
 /**
@@ -765,6 +777,12 @@ export function EnsembleApp({
   const [onlineSyncDraft, setOnlineSyncDraft] = useState(false);
   /** 剧本设置里「每轮字数」的草稿值，点保存才落库（= 每个角色各自的字数） */
   const [charsDraft, setCharsDraft] = useState(600);
+  /**
+   * 字数输入框的**字符串**草稿。
+   * 必须与 charsDraft（number）分开：存 number 时清空输入框会被 React 立刻回填 0，
+   * 用户无法删干净，再输入就得到「0250」这种带前导 0 的脏值（1006 实机 bug）。
+   */
+  const [charsInput, setCharsInput] = useState("600");
   const [cssDraft, setCssDraft] = useState("");
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
@@ -867,7 +885,9 @@ export function EnsembleApp({
     // 1006 反馈④：原「场景设定」子弹窗已删除，内容并入开场白。
     // 老剧本只有 background 没 openingMessage → 做一次性迁移，内容不丢。
     setOpeningDraft(s.openingMessage?.trim() ? s.openingMessage : (s.background ?? ""));
-    setCharsDraft(s.charsPerTurn ?? 600);
+    const chars = s.charsPerTurn ?? 600;
+    setCharsDraft(chars);
+    setCharsInput(String(chars));
     setContextDraft(s.contextLimit ?? 10);
     setPovDraft(s.narrativePov ?? "third");
     setOnlineSyncDraft(s.onlineSync ?? false);
@@ -1012,11 +1032,22 @@ ${script.background.trim()}
       const totalChars = charsPerTurn;
       const effectiveMaxTokens =
         script.maxTokensPerTurn ?? charsToMaxTokens(totalChars);
+      // 用户公式 M = N + max(400, N × 0.5)：本轮实际允许的字数上限
+      const maxChars = targetCharsToMaxChars(charsPerTurn);
 
       // 上一轮的主说话人：默认只在「被别人搭话」时出现，避免同一人连着霸场。
       const lastSpeakerNote = lastTurn
         ? `\n【上一幕的说话人】${lastTurn.senderName}。除非剧情里有人明确对他开口、他必须回应，否则这一幕请让**别的角色**主导，不要又从头到尾都是他。`
         : "";
+
+      // ── 输出长度控制规则（用户定稿公式，1006 二次反馈）──
+      const outputLenRule = `
+【输出长度控制规则】
+1. 每轮最大字数 N = ${charsPerTurn}，它是**目标长度**，不是硬上限。
+2. 你实际允许输出的字数上限 M = N + max(400, N × 0.5)，即本轮 M = ${maxChars} 字。
+3. 你必须在 M 字以内完整表达，优先保证语义完整。
+4. 若接近 M，必须提前总结收尾；禁止在句子中间、段落中间突然截断。
+5. 禁止为了凑字数而啰嗦。`;
 
       // ── 04 NARRATIVE · 叙事人称（图1）──
       const povBlock =
@@ -1050,7 +1081,7 @@ ${script.openingMessage.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
-${sceneBlock}${openingBlock}${povBlock}${memoryBlock}
+${sceneBlock}${openingBlock}${povBlock}${memoryBlock}${outputLenRule}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 
@@ -2355,6 +2386,8 @@ ${lastSpeakerNote}
             // 与 triggerAiTurn 共用同一套换算（charsToMaxTokens），
             // 保证面板上写的就是真实发出去的护栏值。
             const effectiveTokens = charsToMaxTokens(charsDraft);
+            // 用户公式 M = N + max(400, N × 0.5)：给用户看的「实际最多多少字」
+            const maxChars = targetCharsToMaxChars(charsDraft);
             const numBadge = (n: string) => (
               <span className="font-mono text-[10px] text-black/20 tracking-widest">
                 {n}
@@ -2446,55 +2479,52 @@ ${lastSpeakerNote}
                     <div className="bg-white rounded-[16px] p-4 space-y-3">
                       <div>
                         <div className="text-[13.5px] font-semibold text-[#111111]">
-                          Max Reply Tokens / 回复字数
+                          每轮字数 / Reply Length
                         </div>
                         <div className="text-[10px] text-black/35 mt-1">
-                          控制 AI 每次回复的最大 token 数
+                          AI 每次回复的目标字数
                         </div>
                       </div>
                       <div className="flex items-center gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => setCharsDraft((v) => Math.max(CHARS_MIN, v - 50))}
-                          className="w-10 h-10 rounded-[12px] bg-black/[0.05] grid place-items-center text-[#111111] text-[18px] font-medium active:scale-95 transition-transform shrink-0"
-                        >
-                          −
-                        </button>
-                        <div className="flex-1 flex items-center justify-center gap-1.5 bg-black/[0.03] border border-black/10 rounded-[12px] h-10 px-3">
+                        <div className="flex-1 flex items-center justify-center gap-1.5 bg-black/[0.03] border border-black/10 rounded-[12px] h-12 px-3">
                           <input
-                            type="number"
+                            type="text"
                             inputMode="numeric"
-                            min={CHARS_MIN}
-                            max={CHARS_MAX}
-                            step={50}
-                            value={charsDraft}
+                            pattern="[0-9]*"
+                            value={charsInput}
                             onChange={(e) => {
-                              const raw = e.target.value;
-                              if (raw === "" || raw === "-") return;
-                              const n = Number(raw);
-                              if (Number.isFinite(n)) setCharsDraft(n);
+                              // 1006 反馈：直接输入，不要 ＋/－ 按钮；
+                              // 输入时必须能删干净（不留首位数字）。
+                              // 因此草稿存**字符串**而非 number —— 若存 number，
+                              // 清空会立刻被 React 回填成 0，再次输入就变成 "0250"。
+                              const raw = e.target.value.replace(/[^\d]/g, "");
+                              if (raw === "") {
+                                setCharsInput("");
+                                return;
+                              }
+                              // 去掉前导 0（"0250" → "250"，但 "0" 本身保留以便继续输入）
+                              const normalized = raw.replace(/^0+(?=\d)/, "");
+                              setCharsInput(normalized);
                             }}
-                            onBlur={() =>
-                              setCharsDraft((v) =>
-                                Math.min(CHARS_MAX, Math.max(CHARS_MIN, Math.round(v) || 600))
-                              )
-                            }
+                            onBlur={() => {
+                              // 失焦时才把草稿收敛成合法数字并回写
+                              const n = Number(charsInput);
+                              const safe = Number.isFinite(n) && n > 0
+                                ? Math.min(CHARS_MAX, Math.max(CHARS_MIN, Math.round(n)))
+                                : 600;
+                              setCharsDraft(safe);
+                              setCharsInput(String(safe));
+                            }}
                             className="w-full bg-transparent text-center text-[16px] font-bold text-[#111111] tabular-nums outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                           <span className="text-[11px] text-black/40 shrink-0">字</span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setCharsDraft((v) => Math.min(CHARS_MAX, v + 50))}
-                          className="w-10 h-10 rounded-[12px] bg-black/[0.05] grid place-items-center text-[#111111] text-[18px] font-medium active:scale-95 transition-transform shrink-0"
-                        >
-                          ＋
-                        </button>
                       </div>
                       <div className="text-[10px] leading-relaxed text-black/40">
-                        想让 AI 写多长。它是个「目标值」，不是硬限制——AI 可能多写一点，但
-                        <span className="text-black/60">不会写到一半被切断</span>，
-                        最多写到约 {CHARS_GUARD} 字左右。
+                        想让 AI 写多长。这是「目标值」不是硬限制——AI 可能多写一点，
+                        为的是把话说完、<span className="text-black/60">不会写到一半被切断</span>。
+                        按当前设置，最多可写到约{" "}
+                        <span className="text-black/60 font-medium">{maxChars}</span> 字。
                       </div>
                     </div>
                   </div>
