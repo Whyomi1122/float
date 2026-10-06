@@ -5,7 +5,6 @@ import {
   Code2,
   Layers,
   MessageSquareText,
-  SlidersHorizontal,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -27,7 +26,6 @@ function fs(px: number): string {
 
 export type EnsembleToolId =
   | "narration"
-  | "scriptSettings"
   | "customCss"
   | "model";
 
@@ -44,10 +42,10 @@ export interface EnsembleToolItem {
   active?: boolean;
 }
 
-/** 面板条目定义。顺序与目标截图一致。 */
+/** 面板条目定义。顺序与目标截图一致。
+ *  1006 反馈 R3：「剧本设置」已从本面板移除，改挂到工作区顶栏右上角。 */
 export const ENSEMBLE_TOOLS: EnsembleToolItem[] = [
   { id: "narration", label: "场景设定", labelEn: "SCENE", Icon: MessageSquareText, enabled: true },
-  { id: "scriptSettings", label: "剧本设置", labelEn: "SCRIPT SETTINGS", Icon: SlidersHorizontal, enabled: true },
   { id: "customCss", label: "自定义 CSS", labelEn: "CUSTOM STYLE", Icon: Code2, enabled: true },
   { id: "model", label: "模型切换", labelEn: "API · SESSION", Icon: Layers, enabled: true },
 ];

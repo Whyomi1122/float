@@ -16,7 +16,10 @@ import {
   Layers,
   Wrench,
   Eye,
-  SlidersHorizontal,
+  Settings,
+  Clock,
+  MessageSquare,
+  Eraser,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -158,16 +161,19 @@ const GAP_NARR = 26; // 旁白上下（换场呼吸点）
 const GAP_BLOCK = 26; // 角色块之间（换人）
 
 // ── 每轮输出长度 / token 护栏（D10 定稿 2026-10-06）──
-// UI 与真实请求必须共用这一套公式，否则「面板写 600 字、实际被 900 token 掐断」。
-// 1 字 ≈ 1.6 token；护栏再乘 3 倍余量（thinking 模型的思维链也计入 maxOutputTokens，
-// 余量太紧会让模型草草收笔，历史 bug 的根因就是这里）。
+// 用户口径（1006 反馈 R2）：「设置 600 字/轮」是**目标值**，不是硬上限。
+// 护栏要按「实际允许 1000 字/轮」来算，留出几百字差值，避免模型写着写着
+// 被 token 上限硬切断、话没说完。所以护栏**不跟随 charSettings**，
+// 而是固定按 CHARS_GUARD 换算 —— 无论用户目标设多小，都有写满 1000 字的余量。
 const CHARS_MIN = 50;
-const CHARS_MAX = 5000; // 用户要求：4000 → 5000
+const CHARS_MAX = 5000; // 用户要求：4000 → 5000（目标值上限）
+const CHARS_GUARD = 1000; // 护栏口径：实际允许写满的字数
 const CHARS_TO_TOKENS = 1.6;
 const TOKEN_HEADROOM = 3;
-const CHARS_TO_TOKENS_LABEL = "1 字 ≈ 1.6 token，护栏再留 3 倍余量";
-function charsToMaxTokens(chars: number): number {
-  return Math.max(4096, Math.ceil(chars * CHARS_TO_TOKENS * TOKEN_HEADROOM));
+const CHARS_TO_TOKENS_LABEL = "按「实际允许 1000 字/轮」换算，留足收尾余量";
+function charsToMaxTokens(_chars?: number): number {
+  // 参数保留（兼容旧调用），但护栏口径固定为 CHARS_GUARD。
+  return Math.max(4096, Math.ceil(CHARS_GUARD * CHARS_TO_TOKENS * TOKEN_HEADROOM));
 }
 
 /**
@@ -755,6 +761,11 @@ export function EnsembleApp({
   const [showModelSheet, setShowModelSheet] = useState(false);
   /** 剧本设置（输出长度）子弹窗 */
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  // ── Settings 全页草稿（图1 · 1006）──
+  const [openingDraft, setOpeningDraft] = useState("");
+  const [contextDraft, setContextDraft] = useState(10);
+  const [povDraft, setPovDraft] = useState<"first" | "second" | "third">("third");
+  const [onlineSyncDraft, setOnlineSyncDraft] = useState(false);
   /** 剧本设置里「每轮字数」的草稿值，点保存才落库（= 每个角色各自的字数） */
   const [charsDraft, setCharsDraft] = useState(600);
   /** 剧本设置里「每轮登场角色数」的草稿值（群像：一轮至少两个角色） */
@@ -851,6 +862,23 @@ export function EnsembleApp({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [currentScript?.turns.length, isGenerating, view]);
+
+  /**
+   * 打开 Settings 全页（图1 · 1006）。
+   * 顶栏右上角入口 → 先把当前剧本的值灌进草稿，再展示全页。
+   */
+  const openSettingsPage = () => {
+    const s = currentScript;
+    if (!s) return;
+    setOpeningDraft(s.openingMessage ?? "");
+    setCharsDraft(s.charsPerTurn ?? 600);
+    setActorsDraft(s.actorsPerTurn ?? 2);
+    setContextDraft(s.contextLimit ?? 10);
+    setPovDraft(s.narrativePov ?? "third");
+    setOnlineSyncDraft(s.onlineSync ?? false);
+    setShowToolsSheet(false);
+    setShowSettingsSheet(true);
+  };
 
   /**
    * 统一返回逻辑：逐层退回，最外层关闭 App。
@@ -995,6 +1023,29 @@ ${script.background.trim()}
         ? `\n【上一幕的说话人】${lastTurn.senderName}。除非剧情里有人明确对他开口、他必须回应，否则这一幕请让**别的角色**主导，不要又从头到尾都是他。`
         : "";
 
+      // ── 04 NARRATIVE · 叙事人称（图1）──
+      const povBlock =
+        script.narrativePov === "first"
+          ? "\n【叙事人称：第一人称沉浸】角色的动作/心理描写用「我」，对白照常写。"
+          : script.narrativePov === "second"
+          ? "\n【叙事人称：第二人称代入】镜头跟着用户视角，称呼用户为「你」。"
+          : "\n【叙事人称：第三人称旁观】所有人一律用名字，像小说一样客观叙述。";
+
+      // ── 05 MEMORY LINK · 线上互通（图1）──
+      // ⚠️ 真实记忆库互通需另接记忆服务；此处仅把开关语义写进提示词，
+      //    关闭时明确要求「不得引用线下记忆」，避免模型自行编造跨场景记忆。
+      const memoryBlock = script.onlineSync
+        ? "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。"
+        : "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
+
+      // ── 01 OPENING · 开场白（图1）──
+      const openingBlock = script.openingMessage?.trim()
+        ? `
+【开场白（本剧第一幕的铺垫，你要基于它自然展开第一幕）】
+${script.openingMessage.trim()}
+`
+        : "";
+
       const systemPrompt = `你是一位擅长群像叙事的小说作者，正在续写互动剧本《${script.title}》。
 
 🚨 输出格式铁律（违反则整幕作废，必须重写）：
@@ -1004,7 +1055,7 @@ ${script.background.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
-${sceneBlock}
+${sceneBlock}${openingBlock}${povBlock}${memoryBlock}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 
@@ -1105,7 +1156,7 @@ ${lastSpeakerNote}
 
       const messagesPayload = [
         { role: "system", content: systemPrompt },
-        ...contextTurns.slice(-10).map((t) => ({
+        ...contextTurns.slice(-(script.contextLimit ?? 10)).map((t) => ({
           role: t.senderType === "user" ? "user" : "assistant",
           // 历史回合按**新契约**回灌，形成格式自强化（模型会跟着学看到的格式）：
           //   · 旁白幕           → `［旁白］:\n正文`
@@ -1420,9 +1471,13 @@ ${lastSpeakerNote}
       showSettingsSheet ||
       showModelSheet
     ) {
-      // 子弹窗：只关掉自己，保持在功能面板上（背景继续模糊，不重新弹出）
+      // Settings 全页（图1）是**全屏页**，返回直接回剧本界面，不弹回功能面板。
+      if (showSettingsSheet) {
+        setShowSettingsSheet(false);
+        return;
+      }
+      // 其余子弹窗：只关掉自己，保持在功能面板上（背景继续模糊，不重新弹出）
       setShowNarrationModal(false);
-      setShowSettingsSheet(false);
       setShowModelSheet(false);
       setModelPickerApiId(null);
       setModelListError(null);
@@ -1856,6 +1911,17 @@ ${lastSpeakerNote}
           不再跟随全局 --app-text-scale，故无需 .ensemble-scope 的 34 行覆盖。 */}
 
       {/* 剧本级自定义 CSS：仅作用于本 App 的 .ensemble-scope 命名空间 */}
+      {/* 用户卡片：输入内容一律纯黑（1006 反馈 R1）。
+          用户投稿不切帧，走 BodyText 原样渲染，颜色由这里统一压黑。 */}
+      <style jsx global>{`
+        .ensemble-scope .frame-user,
+        .ensemble-scope .frame-user .frame-body,
+        .ensemble-scope .frame-user div,
+        .ensemble-scope .frame-user span,
+        .ensemble-scope .frame-user p {
+          color: #1f1f1f !important;
+        }
+      `}</style>
       {currentScript?.customCss?.trim() ? (
         <style
           // eslint-disable-next-line react/no-danger
@@ -1916,8 +1982,27 @@ ${lastSpeakerNote}
                面板的返回统一交给工作区左上角的小返回键（见下方 workspaceBackBtn），
                两者职责分离，不再出现「点了返回却弹出功能面板」的错乱。 */
             onBack={(e?: any) => handleBack(e)}
-            /* 顶栏右侧不再放「剧本设置」——它与底部 + 号「功能」面板里的
-               同一条目重复（B14）。全应用只保留一个入口：+ 号 → 功能 → 剧本设置。 */
+            /* 1006 反馈 R3：剧本设置入口移到工作区顶栏右上角（原在 + 号功能面板内）。 */
+            right={
+              <button
+                type="button"
+                aria-label="剧本设置"
+                title="剧本设置"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openSettingsPage();
+                }}
+                className="w-11 h-11 grid place-items-center rounded-full hover:bg-black/5 text-black/50 active:scale-90 transition"
+                style={{
+                  WebkitTapHighlightColor: "transparent",
+                  touchAction: "manipulation",
+                }}
+              >
+                <Settings size={19} strokeWidth={1.9} />
+              </button>
+            }
           />
 
 
@@ -2023,7 +2108,9 @@ ${lastSpeakerNote}
                           </div>
                         </div>
                       ) : (
-                        <BodyText raw={turn.content} />
+                        <div className="frame-user">
+                          <BodyText raw={turn.content} />
+                        </div>
                       )}
                     </>
                   ) : editingTurnId === turn.id ? (
@@ -2227,10 +2314,6 @@ ${lastSpeakerNote}
               if (id === "narration") {
                 setNarrationSettingText(currentScript.background || "");
                 setShowNarrationModal(true);
-              } else if (id === "scriptSettings") {
-                setCharsDraft(currentScript.charsPerTurn ?? 600);
-                setActorsDraft(currentScript.actorsPerTurn ?? 2);
-                setShowSettingsSheet(true);
               } else if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
                 setShowCssSheet(true);
@@ -2332,139 +2415,319 @@ ${lastSpeakerNote}
             </MiniSheet>
           )}
 
-          {/* ═══════════ 子弹窗 2.5：剧本设置（每轮输出长度） ═══════════ */}
+          {/* ═══════════ Settings 全页（图1 · 1006 · 5 编号分区） ═══════════ */}
           {showSettingsSheet && (() => {
             // 与 triggerAiTurn 共用同一套换算（charsToMaxTokens），
             // 保证面板上写的就是真实发出去的护栏值。
             const effectiveTokens = charsToMaxTokens(charsDraft);
             const estMinutes = Math.round((charsDraft / 400) * 10) / 10;
-            return (
-              <MiniSheet
-                title="剧本设置"
-                subtitle="SCRIPT SETTINGS"
-                onClose={() => {
-                  setShowSettingsSheet(false);
-                  setShowToolsSheet(true);
-                }}
-              >
-                <div className="bg-white rounded-[16px] p-4 space-y-4">
-                  <div className="flex items-baseline justify-between">
-                    <div>
-                      <div className="text-[13px] font-semibold text-[#111111]">
-                        每轮输出长度
-                      </div>
-                      <div className="text-[10px] text-black/35 mt-0.5">
-                        单个角色一次输出的目标字数
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="text-[19px] font-bold text-[#111111] tabular-nums">
-                        {charsDraft}
-                      </span>
-                      <span className="text-[11px] text-black/40 ml-0.5">字</span>
-                    </div>
-                  </div>
-
-                  {/* 手动输入：直接键入精确字数（不要滑块——滑块无法精准定位） */}
-                  <div className="flex items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCharsDraft((v) => Math.max(CHARS_MIN, v - 50))
-                      }
-                      className="w-11 h-11 rounded-[13px] bg-black/[0.05] grid place-items-center text-[#111111] text-[20px] font-medium active:scale-95 transition-transform shrink-0"
-                    >
-                      −
-                    </button>
-                    <div className="flex-1 flex items-center justify-center gap-1.5 bg-black/[0.03] border border-black/10 rounded-[13px] h-11 px-3">
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        min={CHARS_MIN}
-                        max={CHARS_MAX}
-                        step={50}
-                        value={charsDraft}
-                        onChange={(e) => {
-                          // 允许用户清空到空字符串（让输入框可以删干净再打），
-                          // 不强制写 0 → 失焦时再收敛到合法区间。
-                          const raw = e.target.value;
-                          if (raw === "" || raw === "-") return; // 保持上一个合法值
-                          const n = Number(raw);
-                          if (Number.isFinite(n)) setCharsDraft(n);
-                        }}
-                        onBlur={() => {
-                          // 失焦时收敛到合法区间，避免空值/越界写库
-                          setCharsDraft((v) =>
-                            Math.min(
-                              CHARS_MAX,
-                              Math.max(CHARS_MIN, Math.round(v) || 600)
-                            )
-                          );
-                        }}
-                        className="w-full bg-transparent text-center text-[17px] font-bold text-[#111111] tabular-nums outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span className="text-[12px] text-black/40 shrink-0">字</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCharsDraft((v) => Math.min(CHARS_MAX, v + 50))
-                      }
-                      className="w-11 h-11 rounded-[13px] bg-black/[0.05] grid place-items-center text-[#111111] text-[20px] font-medium active:scale-95 transition-transform shrink-0"
-                    >
-                      ＋
-                    </button>
-                  </div>
-
-                  <div className="text-[9.5px] text-black/30 font-mono text-center">
-                    范围 {CHARS_MIN} – {CHARS_MAX} 字
-                  </div>
-
-                  {/* 3.2：短/中/长/超长预设已删除。直接用 ±50 按钮或手动输入。 */}
-                </div>
-
-                {/* 生效值说明：让用户看得见 token 护栏，理解为什么会关联 */}
-                <div className="bg-white rounded-[16px] p-3.5">
-                  <div className="text-[10.5px] leading-relaxed text-black/45">
-                    保存后，模型请求的 token 上限会自动放宽到{" "}
-                    <span className="font-mono text-black/70">
-                      {effectiveTokens}
-                    </span>
-                    （{CHARS_TO_TOKENS_LABEL}），
-                    确保「字数目标」先于「token 上限」到达，不会写出半截。
-                    {estMinutes >= 6 ? (
-                      <span className="block mt-1.5 text-black/35">
-                        注意：超长输出生成较慢，预计需 {estMinutes} 秒以上。
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* 底部只保留「保存」——它是功能键，不是返回键。
-                    「返回」由顶栏 / 左上角浮层键负责（避免返回语义重复）。 */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const updated = {
-                      ...currentScript,
-                      charsPerTurn: charsDraft,
-                      // 清掉手动 token 上限，交回给字数自动换算，
-                      // 避免旧的 8192 之类的值与新字数目标打架
-                      maxTokensPerTurn: undefined,
-                    };
-                    setCurrentScript(updated);
-                    saveOrUpdateEnsembleScript(updated);
-                    setScripts(loadEnsembleScripts());
-                    // 保存 = 功能键完成 → 关掉本层，停在功能面板
-                    setShowSettingsSheet(false);
-                    setShowToolsSheet(true);
-                    setToast(`每轮输出已设为 ${charsDraft} 字`);
-                  }}
-                  className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+            const numBadge = (n: string) => (
+              <span className="font-mono text-[10px] text-black/20 tracking-widest">
+                {n}
+              </span>
+            );
+            const sectionHead = (
+              icon: React.ReactNode,
+              label: string,
+              num: string
+            ) => (
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="w-6 h-6 rounded-[4px] bg-[#111111] grid place-items-center text-white shrink-0">
+                  {icon}
+                </span>
+                <span
+                  className="tracking-[0.22em] font-semibold text-black/45 flex-1"
+                  style={{ fontSize: "10.5px" }}
                 >
-                  保存
-                </button>
-              </MiniSheet>
+                  {label}
+                </span>
+                {numBadge(num)}
+              </div>
+            );
+            return (
+              <div className="absolute inset-0 z-[56] bg-[#f2f2f4] flex flex-col">
+                {/* 顶栏：‹ Settings / ENSEMBLE · CONFIGURATION */}
+                <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettingsSheet(false);
+                      setShowToolsSheet(false);
+                    }}
+                    className="w-9 h-9 grid place-items-center rounded-full hover:bg-black/5 text-black/60 active:scale-90 transition"
+                    aria-label="返回"
+                  >
+                    <ChevronLeft size={22} strokeWidth={1.8} />
+                  </button>
+                  <div className="min-w-0">
+                    <div className="text-[21px] font-bold tracking-tight text-[#111111] leading-none">
+                      Settings
+                    </div>
+                    <div
+                      className="tracking-[0.22em] font-medium text-black/25 mt-1.5"
+                      style={{ fontSize: "9px" }}
+                    >
+                      ENSEMBLE · CONFIGURATION
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+                  {/* 01 OPENING */}
+                  <div>
+                    {sectionHead(<MessageSquare size={13} strokeWidth={2} />, "OPENING", "01")}
+                    <div className="bg-white rounded-[16px] p-4">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[13.5px] font-semibold text-[#111111]">
+                          Opening Message / 开场白
+                        </span>
+                        <span
+                          className="tracking-[0.18em] font-medium text-black/25 px-1.5 py-0.5 rounded bg-black/[0.04]"
+                          style={{ fontSize: "8.5px" }}
+                        >
+                          EDITABLE
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-black/35 mt-1 mb-2.5">
+                        铺垫群像的第一幕场景
+                      </div>
+                      <textarea
+                        value={openingDraft}
+                        onChange={(e) => setOpeningDraft(e.target.value)}
+                        rows={5}
+                        placeholder="开场白写在这里，AI 会基于它展开第一幕…"
+                        className="w-full bg-black/[0.03] border border-black/8 rounded-xl p-3 text-[12.5px] leading-[1.85] text-[#1f1f1f] placeholder:text-black/25 outline-none focus:border-black/25 resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 02 GENERATION */}
+                  <div>
+                    {sectionHead(<Wrench size={13} strokeWidth={2} />, "GENERATION", "02")}
+                    <div className="bg-white rounded-[16px] p-4 space-y-3">
+                      <div>
+                        <div className="text-[13.5px] font-semibold text-[#111111]">
+                          Max Reply Tokens / 回复字数
+                        </div>
+                        <div className="text-[10px] text-black/35 mt-1">
+                          控制 AI 每次回复的最大 token 数
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setCharsDraft((v) => Math.max(CHARS_MIN, v - 50))}
+                          className="w-10 h-10 rounded-[12px] bg-black/[0.05] grid place-items-center text-[#111111] text-[18px] font-medium active:scale-95 transition-transform shrink-0"
+                        >
+                          −
+                        </button>
+                        <div className="flex-1 flex items-center justify-center gap-1.5 bg-black/[0.03] border border-black/10 rounded-[12px] h-10 px-3">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={CHARS_MIN}
+                            max={CHARS_MAX}
+                            step={50}
+                            value={charsDraft}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === "" || raw === "-") return;
+                              const n = Number(raw);
+                              if (Number.isFinite(n)) setCharsDraft(n);
+                            }}
+                            onBlur={() =>
+                              setCharsDraft((v) =>
+                                Math.min(CHARS_MAX, Math.max(CHARS_MIN, Math.round(v) || 600))
+                              )
+                            }
+                            className="w-full bg-transparent text-center text-[16px] font-bold text-[#111111] tabular-nums outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <span className="text-[11px] text-black/40 shrink-0">字</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCharsDraft((v) => Math.min(CHARS_MAX, v + 50))}
+                          className="w-10 h-10 rounded-[12px] bg-black/[0.05] grid place-items-center text-[#111111] text-[18px] font-medium active:scale-95 transition-transform shrink-0"
+                        >
+                          ＋
+                        </button>
+                      </div>
+                      <div className="text-[9.5px] leading-relaxed text-black/40">
+                        目标字数（非硬上限）。token 护栏按「实际允许 {CHARS_GUARD} 字/轮」放宽到{" "}
+                        <span className="font-mono text-black/60">{effectiveTokens}</span>
+                        ，保证话能说完不被切断。
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 03 CONTEXT */}
+                  <div>
+                    {sectionHead(<Clock size={13} strokeWidth={2} />, "CONTEXT", "03")}
+                    <div className="bg-white rounded-[16px] p-4">
+                      <div className="text-[13.5px] font-semibold text-[#111111]">
+                        Context Limit / 记忆轮数
+                      </div>
+                      <div className="text-[10px] text-black/35 mt-1 mb-2.5">
+                        每次请求发送最近多少轮对话给 AI
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min={1}
+                          max={30}
+                          step={1}
+                          value={contextDraft}
+                          onChange={(e) => setContextDraft(Number(e.target.value))}
+                          className="flex-1 accent-[#111111]"
+                        />
+                        <span className="text-[15px] font-bold text-[#111111] tabular-nums shrink-0">
+                          {contextDraft}
+                          <span className="text-[10px] font-medium text-black/40 ml-0.5">轮</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 04 NARRATIVE */}
+                  <div>
+                    {sectionHead(<Eye size={13} strokeWidth={2} />, "NARRATIVE", "04")}
+                    <div className="bg-white rounded-[16px] p-4 space-y-2">
+                      <div>
+                        <div className="text-[13.5px] font-semibold text-[#111111]">
+                          Narrative POV / 叙事人称
+                        </div>
+                      </div>
+                      {(
+                        [
+                          ["first", "第一人称沉浸", "角色动作用「我」描写，对白照常"],
+                          ["second", "第二人称代入", "镜头跟着你，称呼你为「你」"],
+                          ["third", "第三人称旁观", "所有人用名字，像小说"],
+                        ] as const
+                      ).map(([val, label, desc]) => {
+                        const on = povDraft === val;
+                        return (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => setPovDraft(val)}
+                            className={`w-full flex items-start gap-2.5 text-left rounded-[12px] px-3 py-2.5 transition-colors ${
+                              on ? "bg-black/[0.05]" : "hover:bg-black/[0.03]"
+                            }`}
+                          >
+                            <span
+                              className={`w-4 h-4 rounded-full border-[1.5px] grid place-items-center shrink-0 mt-0.5 ${
+                                on ? "border-[#111111]" : "border-black/25"
+                              }`}
+                            >
+                              {on && <span className="w-2 h-2 rounded-full bg-[#111111]" />}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-[12.5px] font-medium text-[#111111]">
+                                {label}
+                                {val === "third" && (
+                                  <span className="text-black/35 font-normal"> · 群像推荐</span>
+                                )}
+                              </span>
+                              <span className="block text-[10px] text-black/35 mt-0.5">{desc}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 05 MEMORY LINK */}
+                  <div>
+                    {sectionHead(<Layers size={13} strokeWidth={2} />, "MEMORY LINK", "05")}
+                    <div className="bg-white rounded-[16px] p-4 space-y-2">
+                      <div>
+                        <div className="text-[13.5px] font-semibold text-[#111111]">
+                          Online Sync / 线上互通
+                        </div>
+                        <div className="text-[10px] text-black/35 mt-1">
+                          开启后记忆双向流通：角色在剧里「想起」你与线上聊天的记忆，剧里发生的事他们回到单聊也记得（需启用记忆库）
+                        </div>
+                      </div>
+                      {(
+                        [
+                          [true, "开启", "线上线下记忆互通"],
+                          [false, "关闭 · 默认", "完全架空，与线上世界隔离"],
+                        ] as const
+                      ).map(([val, label, desc]) => {
+                        const on = onlineSyncDraft === val;
+                        return (
+                          <button
+                            key={String(val)}
+                            type="button"
+                            onClick={() => setOnlineSyncDraft(val)}
+                            className={`w-full flex items-start gap-2.5 text-left rounded-[12px] px-3 py-2.5 transition-colors ${
+                              on ? "bg-black/[0.05]" : "hover:bg-black/[0.03]"
+                            }`}
+                          >
+                            <span
+                              className={`w-4 h-4 rounded-full border-[1.5px] grid place-items-center shrink-0 mt-0.5 ${
+                                on ? "border-[#111111]" : "border-black/25"
+                              }`}
+                            >
+                              {on && <span className="w-2 h-2 rounded-full bg-[#111111]" />}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-[12.5px] font-medium text-[#111111]">
+                                {label}
+                              </span>
+                              <span className="block text-[10px] text-black/35 mt-0.5">{desc}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 底部：SAVE DATA + 清空记录 */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated: EnsembleScript = {
+                        ...currentScript,
+                        openingMessage: openingDraft,
+                        charsPerTurn: charsDraft,
+                        maxTokensPerTurn: undefined,
+                        contextLimit: contextDraft,
+                        narrativePov: povDraft,
+                        onlineSync: onlineSyncDraft,
+                      };
+                      setCurrentScript(updated);
+                      saveOrUpdateEnsembleScript(updated);
+                      setScripts(loadEnsembleScripts());
+                      setToast("已保存");
+                    }}
+                    className="w-full py-3.5 rounded-[14px] bg-[#111111] text-white text-[13px] font-semibold tracking-[0.16em] inline-flex items-center justify-center gap-2 active:scale-[0.985] transition-transform"
+                  >
+                    <Check size={15} strokeWidth={2.4} />
+                    SAVE DATA
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          "清空本剧本的全部记录？此操作不可撤销（剧本与演员表保留）。"
+                        )
+                      )
+                        return;
+                      const updated: EnsembleScript = { ...currentScript, turns: [] };
+                      setCurrentScript(updated);
+                      saveOrUpdateEnsembleScript(updated);
+                      setScripts(loadEnsembleScripts());
+                      setToast("记录已清空");
+                    }}
+                    className="w-full py-3.5 rounded-[14px] bg-white text-[#d9534f] text-[12.5px] font-medium inline-flex items-center justify-center gap-2 active:scale-[0.985] transition-transform"
+                  >
+                    <Eraser size={14} strokeWidth={2} />
+                    清空记录 · CLEAR LOG
+                  </button>
+                </div>
+              </div>
             );
           })()}
 

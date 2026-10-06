@@ -79,6 +79,25 @@ export type EnsembleScript = {
    * 缺省则走 resolveEnsembleApiConfig 的级联兜底。
    */
   apiConfigIdOverride?: string;
+  // ── Settings 全页（图1 · 1006）新增 ──
+  /**
+   * 01 OPENING · 开场白：群像第一幕的场景铺垫。
+   * 非空时作为「首轮」的用户投稿注入，让模型接着写第一幕。
+   */
+  openingMessage?: string;
+  /**
+   * 03 CONTEXT · 记忆轮数：每次请求发送给 AI 的历史轮数上限（缺省 10）。
+   */
+  contextLimit?: number;
+  /**
+   * 04 NARRATIVE · 叙事人称：
+   *   first=第一人称沉浸（角色动作用「我」）｜second=第二人称代入（称你为「你」）｜third=第三人称旁观（群像推荐）
+   */
+  narrativePov?: "first" | "second" | "third";
+  /**
+   * 05 MEMORY LINK · 线上互通：角色是否记得与你在单聊里的内容（需启用记忆库）。
+   */
+  onlineSync?: boolean;
   /**
    * 模型切换：当前剧本在该 API 下指定的具体模型名。
    * 与 apiConfigIdOverride 配合：先定 API，再定模型。
