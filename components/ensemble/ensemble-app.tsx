@@ -809,9 +809,8 @@ export function EnsembleApp({
   const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
   const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
   const [statusTemplateDraft, setStatusTemplateDraft] = useState("");
-  /** 时间感知草稿 */
+  /** 时间感知草稿（W1：realtime 由开关 ON/OFF 直接决定，不再单独存草稿） */
   const [timeEnabledDraft, setTimeEnabledDraft] = useState(false);
-  const [timeRealtimeDraft, setTimeRealtimeDraft] = useState(true);
   const [timeAnchorDraft, setTimeAnchorDraft] = useState("");
   /** 当前正在查看状态卡的角色 id（null = 未打开） */
   const [statusCardTurnId, setStatusCardTurnId] = useState<string | null>(null);
@@ -1097,12 +1096,44 @@ ${script.background.trim()}
 4. 禁止为了凑字数而啰嗦、重复、灌水。`;
 
       // ── 04 NARRATIVE · 叙事人称（图1）──
-      const povBlock =
+      // 1006 第四次反馈 W2/W3：此前人称只是一句软提示，挂在提示词中段，
+      //   模型基本忽略（设「第二人称」仍写"她""岳霖玉"）。现提升为
+      //   **格式铁律级强约束**，并明确「旁白/叙述禁用他/她」。
+      const userName = activePersona?.name || "用户";
+      const userPovRule =
+        script.narrativePov === "second"
+          ? `用户在正文中**必须以「你」指代**（绝不写「${userName}」、也绝不写「他/她」指代用户）。
+     例：✅「你推开门，冷风扑在脸上。」 ❌「${userName}推开门」 ❌「她推开门」（她=用户时）`
+          : script.narrativePov === "first"
+          ? `用户的动作与心理**以「我」书写**（对白照常写角色台词，不改）。`
+          : `用户在正文中**写全称「${userName}」**，不用「你」，也不用「他/她」代指。`;
+
+      const povBlock = `
+═══════════ 叙事人称 · 强制规则（与格式铁律同级，违反必须重写）═══════════
+当前设定：${
         script.narrativePov === "first"
-          ? "\n【叙事人称：第一人称沉浸】角色的动作/心理描写用「我」，对白照常写。"
+          ? "第一人称沉浸"
           : script.narrativePov === "second"
-          ? "\n【叙事人称：第二人称代入】镜头跟着用户视角，称呼用户为「你」。"
-          : "\n【叙事人称：第三人称旁观】所有人一律用名字，像小说一样客观叙述。";
+          ? "第二人称代入"
+          : "第三人称旁观"
+      }
+
+【人称铁律 1 · 用户怎么称呼】
+${userPovRule}
+
+【人称铁律 2 · 旁白与叙述禁止悬空代词】
+［旁白］/［叙述］/［动作］ 里**绝对禁止单独使用「他」「她」「他们」**——
+读者无法判断指谁。必须遵守：
+   · 每个角色**一律写角色全称**（如「岳霖玉」「金成帝」），不用代词。
+   · 例：✅「岳霖玉站在门槛内，看着金成帝转身。」 ❌「她站在门槛内，看着他转身。」
+   · 例：✅「金成帝顺手将空茶壶的盖子合上。」 ❌「他顺手将空茶壶的盖子合上。」
+
+【人称铁律 3 · 代词只在不会误解时可用】
+仅当**同一句/相邻两句内已经点明该角色全称**、且不存在第二个同性别角色时，
+才可用「他/她」回指。否则必须重复全称。**拿不准时，一律写全称。**
+
+【人称铁律 4 · 对白不受限】
+［对白］是角色嘴里说的话，人称照角色自己的说话习惯写，不受以上约束。`;
 
       // ── 05 MEMORY LINK · 线上互通（图1）──
       // ⚠️ 真实记忆库互通需另接记忆服务；此处仅把开关语义写进提示词，
@@ -1143,8 +1174,8 @@ ${script.openingMessage.trim()}
    **绝对禁止**直接裸写小说段落、或把动作/台词混在一段里 —— 那样系统无法排版。
 
 ═══════════ 参演阵容（全员名单）═══════════
-${castDesc}${userDesc}
-${sceneBlock}${openingBlock}${povBlock}${memoryBlock}${timeBlock}${outputLenRule}
+${castDesc}${userDesc}${povBlock}
+${sceneBlock}${openingBlock}${memoryBlock}${timeBlock}${outputLenRule}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 
@@ -1182,21 +1213,23 @@ ${sceneBlock}${openingBlock}${povBlock}${memoryBlock}${timeBlock}${outputLenRule
     深夜的走廊只剩应急灯，绿光落在墙角。
     岳霖玉：
     ［叙述］:
-    她站在门槛内，看着转身准备下楼的金成帝，轻声喊住了他。
+    岳霖玉站在门槛内，看着转身准备下楼的金成帝，轻声喊住了金成帝。
     ［对白］:
     「날씨 많이 추운데, 조심해서 가.」
     밖은 많이 추워, 조심해서 가.
     ［心理］:
-    她用韩语说话时尾音总是下意识放轻，像怕惊扰到别人一样。
+    岳霖玉用韩语说话时尾音总是下意识放轻，像怕惊扰到别人一样。
     金成帝：
     ［动作］:
-    他停在转角的阴影里，手插在黑色夹克口袋里，侧过头看了她一眼。
+    金成帝停在转角的阴影里，手插在黑色夹克口袋里，侧过头看了岳霖玉一眼。
     ［对白］:
     「어, 너도 얼른 들어가.」
     알겠어, 너도 얼른 들어가.
 
 （注意：［叙述］/［动作］→ 灰；［心理］→ 与叙述同色；［对白］→ 黑色；
 ［旁白］→ 淡灰斜体；台词与译文都不加括号。）
+⚠️ 注意上面示范里 **全用角色全称**（岳霖玉 / 金成帝），没有任何"她/他"——
+   旁白与叙述块里**一旦出现悬空的"他/她"就算违规**，必须改成角色全称。
 
 【推荐节奏 · 先叙述后开口】
     每个角色开口**之前**，建议先用一个 ［叙述］/［动作］ 块写他当下的动作或
@@ -1236,7 +1269,9 @@ ${lastSpeakerNote}
 8. 严禁输出章节标题、Markdown 标题（#）、序号列表、舞台说明、作者点评或总结。
    严禁跳出角色当作者。
 9. 严格贴合每个角色的视角、语气、身份和性格，说话方式要有辨识度。
-10. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。${statusBlock}`;
+10. **旁白/叙述/动作块内禁止悬空代词**：不得出现"他/她/他们"，一律写角色全称
+   （对白块不受此限）。拿不准指代是否清楚时，写全称永远是对的。
+11. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。${statusBlock}`;
 
       // ── 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成 ──
       const contextTurns = opts?.rerollTurnId
@@ -2368,8 +2403,11 @@ ${lastSpeakerNote}
                 openModelSheet();
               } else if (id === "timeAwareness") {
                 const t = currentScript.timeAwareness;
-                setTimeEnabledDraft(t?.enabled ?? false);
-                setTimeRealtimeDraft(t?.realtime ?? true);
+                // W1：开关 ON = 感知现实时间；OFF = 架空时间。
+                // 旧数据里可能存着 enabled=true + realtime=false（做反时期），
+                // 这里按「开关即语义」归一化，避免读到旧态后界面自相矛盾。
+                const on = Boolean(t?.enabled) && (t?.realtime ?? true);
+                setTimeEnabledDraft(on);
                 setTimeAnchorDraft(t?.anchor ?? "");
                 setShowTimeSheet(true);
               } else if (id === "statusPanel") {
@@ -2494,47 +2532,25 @@ ${lastSpeakerNote}
                   onChange={setTimeEnabledDraft}
                 />
 
-                {/* 关闭「感知现实时间」→ 开放架空起点 */}
-                <div
-                  className={`space-y-2 transition-opacity ${
-                    timeEnabledDraft && !timeRealtimeDraft ? "" : "opacity-45"
-                  }`}
-                >
-                  <div className="text-[10.5px] text-black/45 leading-relaxed">
-                    关闭「感知现实时间」后，设定一个架空起点：时间会从这个点起，
-                    随现实自然流逝。
+                {/* 开关语义（1006 第四次反馈·W1 定稿）：
+                      · ON  感知现实时间 → 只有开关，**不出现任何时间选择界面**
+                      · OFF 架空时间     → 出现架空起点输入，保存即生效
+                    此前实现做反了：ON 时仍显示锚点区、且需额外点「改用架空起点」
+                    才切换模式。现直接由开关 ON/OFF 决定 realtime。 */}
+                {!timeEnabledDraft && (
+                  <div className="space-y-2">
+                    <div className="text-[10.5px] text-black/45 leading-relaxed">
+                      已关闭「感知现实时间」→ 剧情时间架空。设定一个起点：时间会从
+                      这个点起，随现实自然流逝。保存即生效。
+                    </div>
+                    <input
+                      type="datetime-local"
+                      value={timeAnchorDraft}
+                      onChange={(e) => setTimeAnchorDraft(e.target.value)}
+                      className="w-full bg-black/[0.03] border border-black/[0.07] rounded-[12px] px-3 py-3 text-[13px] text-[#111111] outline-none focus:border-black/25"
+                    />
                   </div>
-                  <input
-                    type="datetime-local"
-                    value={timeAnchorDraft}
-                    disabled={!timeEnabledDraft || timeRealtimeDraft}
-                    onChange={(e) => setTimeAnchorDraft(e.target.value)}
-                    className="w-full bg-black/[0.03] border border-black/[0.07] rounded-[12px] px-3 py-3 text-[13px] text-[#111111] outline-none focus:border-black/25 disabled:cursor-not-allowed"
-                  />
-                  <button
-                    type="button"
-                    disabled={!timeEnabledDraft}
-                    onClick={() => setTimeRealtimeDraft(false)}
-                    className={`w-full py-2.5 rounded-[12px] text-[12px] font-medium transition-colors ${
-                      !timeEnabledDraft
-                        ? "bg-black/[0.04] text-black/25"
-                        : timeRealtimeDraft
-                        ? "bg-black/[0.05] text-black/60"
-                        : "bg-[#111111] text-white"
-                    }`}
-                  >
-                    {timeRealtimeDraft ? "改用架空起点" : "已使用架空起点"}
-                  </button>
-                  {!timeRealtimeDraft && (
-                    <button
-                      type="button"
-                      onClick={() => setTimeRealtimeDraft(true)}
-                      className="w-full py-1.5 text-[11px] text-black/40"
-                    >
-                      改回跟随现实时间
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -2554,9 +2570,15 @@ ${lastSpeakerNote}
                     const updated: EnsembleScript = {
                       ...currentScript,
                       timeAwareness: {
+                        // W1 定稿：enabled = 是否启用时间感知；
+                        // realtime 直接由开关决定 ——
+                        //   ON  → 跟随现实时间（realtime=true，无时间界面）
+                        //   OFF → 架空时间（realtime=false，用 anchor）
                         enabled: timeEnabledDraft,
-                        realtime: timeRealtimeDraft,
-                        anchor: timeAnchorDraft || undefined,
+                        realtime: timeEnabledDraft,
+                        anchor: timeEnabledDraft
+                          ? undefined
+                          : timeAnchorDraft || undefined,
                       },
                     };
                     setCurrentScript(updated);
