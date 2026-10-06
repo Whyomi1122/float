@@ -203,6 +203,34 @@ function charsToMaxTokens(chars: number): number {
   return Math.ceil(targetCharsToMaxChars(chars) * CHARS_TO_TOKENS * TOKEN_HEADROOM);
 }
 
+// ── 架空起点（W1 第二版 · 手动文本输入）──
+// 用户：「时间输入的时候可以规定一下格式 ai 好识别」。
+// 规定格式 YYYY-MM-DD HH:mm（24 小时制），但解析时**容忍常见写法**，
+// 免得用户少写个 0、用 "/" 或 "." 分隔就存不进去。
+// 支持：2015-03-29 15:54 / 2015/3/29 15:54 / 2015.03.29 15:54 / 2015-03-29T15:54
+
+/** 把用户手填的起点字符串规整成 ISO 形式；无法识别返回 null。 */
+function normalizeTimeAnchor(raw: string): string | null {
+  const s = (raw || "").trim().replace(/[年月]/g, "-").replace(/日/g, " ").replace(/[\/.]/g, "-");
+  const m = s.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+  );
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m;
+  const M = Number(mo);
+  const D = Number(d);
+  const H = Number(h);
+  const MI = Number(mi);
+  if (M < 1 || M > 12 || D < 1 || D > 31 || H > 23 || MI > 59) return null;
+  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+  return `${y}-${pad(M)}-${pad(D)}T${pad(H)}:${pad(MI)}`;
+}
+
+/** 起点格式是否可识别（用于输入框下方的即时校验提示）。 */
+function isValidTimeAnchor(raw: string): boolean {
+  return normalizeTimeAnchor(raw) !== null;
+}
+
 /**
  * 正文排版组件（长文可读性版）。
  *
@@ -1096,17 +1124,27 @@ ${script.background.trim()}
 4. 禁止为了凑字数而啰嗦、重复、灌水。`;
 
       // ── 04 NARRATIVE · 叙事人称（图1）──
-      // 1006 第四次反馈 W2/W3：此前人称只是一句软提示，挂在提示词中段，
-      //   模型基本忽略（设「第二人称」仍写"她""岳霖玉"）。现提升为
-      //   **格式铁律级强约束**，并明确「旁白/叙述禁用他/她」。
+      // 1006 第四次反馈 W2/W3（第二版 · 用户实机复验后返工）：
+      //   第一版把「旁白禁用他/她」执行成了「凡是人物都写全称」，结果模型把
+      //   **本该归到角色头上的动作/心理也塞进旁白块并写全名** → 旁白被污染。
+      //   用户原话：「旁白只会说场景，不会说 chars 的内容，都好好归到 chars
+      //   自己的内容里」。
+      //
+      //   第二版正解（本次）：
+      //     ① **收紧旁白的内容边界**——旁白只写环境/场景/氛围/时间流逝，
+      //        **不得出现任何角色名、角色动作或心理**；人物内容一律归角色自己的
+      //        ［叙述］/［动作］/［心理］块。
+      //     ② **角色帧内允许代词**——归属行已锚定是谁（渲染时带该角色的头像+名字），
+      //        所以角色自己的块里写「他/她」不会歧义，反而是自然的中文。
+      //     ③ 用户称呼仍严格按 narrativePov。
       const userName = activePersona?.name || "用户";
       const userPovRule =
         script.narrativePov === "second"
-          ? `用户在正文中**必须以「你」指代**（绝不写「${userName}」、也绝不写「他/她」指代用户）。
+          ? `涉及用户本人时，**必须以「你」指代**（不要写「${userName}」，也不要写「他/她」指代用户）。
      例：✅「你推开门，冷风扑在脸上。」 ❌「${userName}推开门」 ❌「她推开门」（她=用户时）`
           : script.narrativePov === "first"
-          ? `用户的动作与心理**以「我」书写**（对白照常写角色台词，不改）。`
-          : `用户在正文中**写全称「${userName}」**，不用「你」，也不用「他/她」代指。`;
+          ? `涉及用户本人时，**以「我」书写**（对白照常写角色台词，不改）。`
+          : `涉及用户本人时，**写全称「${userName}」**，不用「你」，也不用「他/她」代指用户。`;
 
       const povBlock = `
 ═══════════ 叙事人称 · 强制规则（与格式铁律同级，违反必须重写）═══════════
@@ -1121,18 +1159,31 @@ ${script.background.trim()}
 【人称铁律 1 · 用户怎么称呼】
 ${userPovRule}
 
-【人称铁律 2 · 旁白与叙述禁止悬空代词】
-［旁白］/［叙述］/［动作］ 里**绝对禁止单独使用「他」「她」「他们」**——
-读者无法判断指谁。必须遵守：
-   · 每个角色**一律写角色全称**（如「岳霖玉」「金成帝」），不用代词。
-   · 例：✅「岳霖玉站在门槛内，看着金成帝转身。」 ❌「她站在门槛内，看着他转身。」
-   · 例：✅「金成帝顺手将空茶壶的盖子合上。」 ❌「他顺手将空茶壶的盖子合上。」
+【人称铁律 2 · 旁白只管「景」，不管「人」】（最容易写错，务必遵守）
+［旁白］**只能**写：环境、场景、光线、天气、声音、气味、时间流逝、镜头式的氛围铺陈。
+［旁白］里**绝对不允许出现**：
+   · 任何角色的**名字**（不许写「金成帝」「皮韩宇」…）
+   · 任何角色的**动作**（不许写"他推开门""她坐在窗边"）
+   · 任何角色的**心理/情绪**（不许写"他松了口气""她心里一沉"）
+   ✅ 正确旁白：「深夜的走廊只剩应急灯，绿光落在墙角。雨声从窗外压进来。」
+   ❌ 错误旁白：「金成帝站在门口，他推开门走了进来。」← 这是**人物内容**，不属于旁白
 
-【人称铁律 3 · 代词只在不会误解时可用】
-仅当**同一句/相邻两句内已经点明该角色全称**、且不存在第二个同性别角色时，
-才可用「他/她」回指。否则必须重复全称。**拿不准时，一律写全称。**
+【人称铁律 3 · 人物内容必须归到角色自己的块里】
+一个角色的动作 / 神态 / 心理，**必须写在以该角色为归属的** ［叙述］/［动作］/［心理］ 块里，
+不能塞进旁白。写法：先写归属行「角色名：」，再写 ［叙述］/［动作］ 块。
+   金成帝：
+   ［动作］:
+   他推开门走进来，肩膀被雨打湿了一片。
+   ［心理］:
+   这雨下得没个完，他有点烦。
 
-【人称铁律 4 · 对白不受限】
+【人称铁律 4 · 角色自己的块里可以用「他/她」】
+因为在 ［叙述］/［动作］/［心理］ 块里，归属行已经说清了是谁（渲染时会带这个
+角色的头像和名字），所以**用「他/她」不会产生歧义**，反而更自然。
+   ✅「他推开门走进来。」（上文归属行已写「金成帝：」）
+   ✅「她站在门槛内，看着金成帝转身。」（同段有第二人时才点名区分，其余用代词）
+
+【人称铁律 5 · 对白不受限】
 ［对白］是角色嘴里说的话，人称照角色自己的说话习惯写，不受以上约束。`;
 
       // ── 05 MEMORY LINK · 线上互通（图1）──
@@ -1189,8 +1240,9 @@ ${sceneBlock}${openingBlock}${memoryBlock}${timeBlock}${outputLenRule}
     ［叙述］:   → **叙述性文字**：动作 / 环境 / 神态
     ［动作］:   → 同［叙述］，也用于动作（两者同义、同色）
     ［心理］:   → 角色**内心**的念头、独白、情绪
-    ［旁白］:   → **镜头级旁白**：没有归属到具体角色的场景、时间流转
-                 （旁白不属于任何角色，单独写在归属行之外）
+    ［旁白］:   → **镜头级旁白**：只写环境/场景/氛围/时间流逝
+                 （**不写任何角色名、角色动作或心理**，那些归角色自己的块；
+                  旁白不属于任何角色，单独写在归属行之外）
 
 ⚠️ 正文里**禁止出现任何其它符号**：不要圆括号（）、不要方括号【】、
    不要引号 ""、不要星号 *、《》、~、#。
@@ -1210,26 +1262,27 @@ ${sceneBlock}${openingBlock}${memoryBlock}${timeBlock}${outputLenRule}
 
 【正确示范】多角色 + 叙述 + 旁白 + 心理 + 对白 + 双语混排：
     ［旁白］:
-    深夜的走廊只剩应急灯，绿光落在墙角。
+    深夜的走廊只剩应急灯，绿光落在墙角。雨声从窗外压进来。
     岳霖玉：
     ［叙述］:
-    岳霖玉站在门槛内，看着转身准备下楼的金成帝，轻声喊住了金成帝。
+    她站在门槛内，看着转身准备下楼的金成帝，轻声喊住了他。
     ［对白］:
     「날씨 많이 추운데, 조심해서 가.」
     밖은 많이 추워, 조심해서 가.
     ［心理］:
-    岳霖玉用韩语说话时尾音总是下意识放轻，像怕惊扰到别人一样。
+    她用韩语说话时尾音总是下意识放轻，像怕惊扰到别人一样。
     金成帝：
     ［动作］:
-    金成帝停在转角的阴影里，手插在黑色夹克口袋里，侧过头看了岳霖玉一眼。
+    他停在转角的阴影里，手插在黑色夹克口袋里，侧过头看了她一眼。
     ［对白］:
     「어, 너도 얼른 들어가.」
     알겠어, 너도 얼른 들어가.
 
 （注意：［叙述］/［动作］→ 灰；［心理］→ 与叙述同色；［对白］→ 黑色；
 ［旁白］→ 淡灰斜体；台词与译文都不加括号。）
-⚠️ 注意上面示范里 **全用角色全称**（岳霖玉 / 金成帝），没有任何"她/他"——
-   旁白与叙述块里**一旦出现悬空的"他/她"就算违规**，必须改成角色全称。
+⚠️ 注意上面示范：**旁白只写了环境**（灯 / 绿光 / 雨声），**没有一个角色名、没有人物动作**；
+   而人物动作（"她站在门槛内…""他停在转角…"）都**归在该角色自己的［叙述］/［动作］块里**，
+   块内用「她/他」是允许的（归属行已说清是谁）。
 
 【推荐节奏 · 先叙述后开口】
     每个角色开口**之前**，建议先用一个 ［叙述］/［动作］ 块写他当下的动作或
@@ -1269,8 +1322,9 @@ ${lastSpeakerNote}
 8. 严禁输出章节标题、Markdown 标题（#）、序号列表、舞台说明、作者点评或总结。
    严禁跳出角色当作者。
 9. 严格贴合每个角色的视角、语气、身份和性格，说话方式要有辨识度。
-10. **旁白/叙述/动作块内禁止悬空代词**：不得出现"他/她/他们"，一律写角色全称
-   （对白块不受此限）。拿不准指代是否清楚时，写全称永远是对的。
+10. **旁白只写景、不写人**：［旁白］里不得出现任何角色名、角色动作或心理；
+   人物内容一律归到该角色自己的 ［叙述］/［动作］/［心理］ 块。
+   （角色块内用「他/她」是允许的，归属行已经说清是谁。）
 11. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。${statusBlock}`;
 
       // ── 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成 ──
@@ -2408,7 +2462,11 @@ ${lastSpeakerNote}
                 // 这里按「开关即语义」归一化，避免读到旧态后界面自相矛盾。
                 const on = Boolean(t?.enabled) && (t?.realtime ?? true);
                 setTimeEnabledDraft(on);
-                setTimeAnchorDraft(t?.anchor ?? "");
+                // 库里存的是 ISO（2015-03-29T15:54），输入框要显示成
+                // 用户当初填的可读格式（2015-03-29 15:54），否则回填会带个 T。
+                setTimeAnchorDraft(
+                  t?.anchor ? t.anchor.replace("T", " ").slice(0, 16) : ""
+                );
                 setShowTimeSheet(true);
               } else if (id === "statusPanel") {
                 const sp = currentScript.statusPanel;
@@ -2540,15 +2598,31 @@ ${lastSpeakerNote}
                 {!timeEnabledDraft && (
                   <div className="space-y-2">
                     <div className="text-[10.5px] text-black/45 leading-relaxed">
-                      已关闭「感知现实时间」→ 剧情时间架空。设定一个起点：时间会从
-                      这个点起，随现实自然流逝。保存即生效。
+                      已关闭「感知现实时间」→ 剧情时间架空。填写一个起点，时间会从
+                      这个点起随现实自然流逝。保存即生效。
                     </div>
+                    {/* W1（第二版 · 用户实机复验后返工）：
+                        原生 datetime-local 控件在移动端点起来很麻烦（用户："使用不方便，
+                        改直接输入"）。改为**手动文本输入**，并明确格式，AI 好识别。
+                        解析时容忍常见分隔符（- / . 年月日 空格 时:分）。 */}
                     <input
-                      type="datetime-local"
+                      type="text"
+                      inputMode="numeric"
                       value={timeAnchorDraft}
                       onChange={(e) => setTimeAnchorDraft(e.target.value)}
-                      className="w-full bg-black/[0.03] border border-black/[0.07] rounded-[12px] px-3 py-3 text-[13px] text-[#111111] outline-none focus:border-black/25"
+                      placeholder="2015-03-29 15:54"
+                      spellCheck={false}
+                      className="w-full bg-black/[0.03] border border-black/[0.07] rounded-[12px] px-3 py-3 font-mono text-[13px] text-[#111111] placeholder:text-black/25 outline-none focus:border-black/25"
                     />
+                    <div className="text-[10px] text-black/35 leading-relaxed">
+                      格式：<span className="font-mono">YYYY-MM-DD HH:mm</span>
+                      （例 <span className="font-mono">2015-03-29 15:54</span>），24 小时制。
+                    </div>
+                    {timeAnchorDraft.trim() && !isValidTimeAnchor(timeAnchorDraft) && (
+                      <div className="text-[10px] text-[#c0392b] leading-relaxed">
+                        格式无法识别，请按 <span className="font-mono">YYYY-MM-DD HH:mm</span> 填写。
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2567,6 +2641,17 @@ ${lastSpeakerNote}
                 <button
                   type="button"
                   onClick={() => {
+                    // W1：架空模式下起点必填且格式必须可识别（否则时间感知形同虚设）
+                    const anchor =
+                      timeEnabledDraft || !timeAnchorDraft.trim()
+                        ? undefined
+                        : normalizeTimeAnchor(timeAnchorDraft);
+                    if (!timeEnabledDraft && timeAnchorDraft.trim() && !anchor) {
+                      setToast(
+                        "架空起点格式不对，请按 YYYY-MM-DD HH:mm 填写（例 2015-03-29 15:54）"
+                      );
+                      return;
+                    }
                     const updated: EnsembleScript = {
                       ...currentScript,
                       timeAwareness: {
@@ -2576,9 +2661,7 @@ ${lastSpeakerNote}
                         //   OFF → 架空时间（realtime=false，用 anchor）
                         enabled: timeEnabledDraft,
                         realtime: timeEnabledDraft,
-                        anchor: timeEnabledDraft
-                          ? undefined
-                          : timeAnchorDraft || undefined,
+                        anchor: anchor ?? undefined,
                       },
                     };
                     setCurrentScript(updated);
