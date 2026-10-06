@@ -157,6 +157,19 @@ const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
 const GAP_NARR = 26; // 旁白上下（换场呼吸点）
 const GAP_BLOCK = 26; // 角色块之间（换人）
 
+// ── 每轮输出长度 / token 护栏（D10 定稿 2026-10-06）──
+// UI 与真实请求必须共用这一套公式，否则「面板写 600 字、实际被 900 token 掐断」。
+// 1 字 ≈ 1.6 token；护栏再乘 3 倍余量（thinking 模型的思维链也计入 maxOutputTokens，
+// 余量太紧会让模型草草收笔，历史 bug 的根因就是这里）。
+const CHARS_MIN = 50;
+const CHARS_MAX = 5000; // 用户要求：4000 → 5000
+const CHARS_TO_TOKENS = 1.6;
+const TOKEN_HEADROOM = 3;
+const CHARS_TO_TOKENS_LABEL = "1 字 ≈ 1.6 token，护栏再留 3 倍余量";
+function charsToMaxTokens(chars: number): number {
+  return Math.max(4096, Math.ceil(chars * CHARS_TO_TOKENS * TOKEN_HEADROOM));
+}
+
 /**
  * 正文排版组件（长文可读性版）。
  *
@@ -198,7 +211,10 @@ function BodyText({
   // 括号规则（用户定稿 2026-10-04 第5轮）：**无条件剥除**包裹整行的 （），
   // 包括双语译文行。韩语对白的下一行直接写中文，不再用括号包裹。
   return (
-    <div className="tracking-[0.01em]" style={headStyle}>
+    <div
+      className={`frame-body frame-${kind} tracking-[0.01em]`}
+      style={headStyle}
+    >
       {paras.map((p, i) => {
         const shown = /^[（(][\s\S]*[）)]$/.test(p)
           ? p.replace(/^[（(]\s*/, "").replace(/\s*[）)]$/, "")
@@ -297,7 +313,7 @@ function EnsembleFrameStream({
   let prevWasSameSpeaker = false;
 
   return (
-    <div>
+    <div className="ensemble-frames" data-frame-count={frames.length}>
       {frames.map((f, i) => {
         // ── 旁白帧 ──
         // 2026-10 定稿：旁白由模型显式打暗号「［旁白］」触发（解析器已 slice 掉暗号），
@@ -309,7 +325,9 @@ function EnsembleFrameStream({
           return (
             <div
               key={i}
-              className={`whitespace-pre-wrap ${i === 0 ? "mt-0 mb-6" : "my-6"}`}
+              className={`frame-narration whitespace-pre-wrap ${
+                i === 0 ? "mt-0 mb-6" : "my-6"
+              }`}
               style={{
                 ...narrStyle(),
                 // 下浅虚线：一条 1px 的极浅虚线，作为旁白的「换场」标记
@@ -398,7 +416,7 @@ function EnsembleFrameStream({
                 </div>
                 {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
                 <div
-                  className="font-semibold tracking-wide"
+                  className="frame-name font-semibold tracking-wide"
                   style={{
                     fontSize: tpx(T_NAME),
                     color: C_NAME,
@@ -970,7 +988,7 @@ ${script.background.trim()}
       const charsPerTurn = Math.max(60, script.charsPerTurn ?? 800);
       const totalChars = charsPerTurn;
       const effectiveMaxTokens =
-        script.maxTokensPerTurn ?? Math.max(4096, Math.ceil(totalChars * 1.6 * 3));
+        script.maxTokensPerTurn ?? charsToMaxTokens(totalChars);
 
       // 上一轮的主说话人：默认只在「被别人搭话」时出现，避免同一人连着霸场。
       const lastSpeakerNote = lastTurn
@@ -1898,26 +1916,10 @@ ${lastSpeakerNote}
                面板的返回统一交给工作区左上角的小返回键（见下方 workspaceBackBtn），
                两者职责分离，不再出现「点了返回却弹出功能面板」的错乱。 */
             onBack={(e?: any) => handleBack(e)}
-            right={
-              <button
-                type="button"
-                aria-label="剧本设置"
-                title="剧本设置"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setCharsDraft(currentScript.charsPerTurn ?? 600);
-                  setActorsDraft(currentScript.actorsPerTurn ?? 2);
-                  setShowSettingsSheet(true);
-                }}
-                className="w-11 h-11 grid place-items-center rounded-full hover:bg-black/5 text-black/50 active:scale-90 transition"
-                style={{ WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}
-              >
-                <SlidersHorizontal size={19} strokeWidth={1.9} />
-              </button>
-            }
+            /* 顶栏右侧不再放「剧本设置」——它与底部 + 号「功能」面板里的
+               同一条目重复（B14）。全应用只保留一个入口：+ 号 → 功能 → 剧本设置。 */
           />
+
 
           {/* 3.1：顶栏「取消生成」与「← 返回剧本」按键已删除。
               关闭/返回由 MiniSheet 自身顶栏箭头负责，不在工作区顶部重复。 */}
@@ -2255,16 +2257,44 @@ ${lastSpeakerNote}
               {/* CSS 编辑区 */}
               <div className="bg-white rounded-[16px] p-3.5 space-y-2">
                 <div className="text-[10px] leading-relaxed text-black/45">
-                  下方 CSS 会注入到群像正文的渲染容器，选择器请以{" "}
-                  <span className="font-mono text-black/70 font-semibold">.ensemble-frames</span>{" "}
-                  开头。改完点「应用」生效。
+                  下方 CSS 只作用于本剧本，选择器请以{" "}
+                  <span className="font-mono text-black/70 font-semibold">
+                    .ensemble-frames
+                  </span>{" "}
+                  开头（正文容器）。改完点「应用」生效。
+                </div>
+                {/* 可用类名速查：点一下即插入，降低手写选择器的门槛 */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    [".ensemble-frames", "正文容器"],
+                    [".frame-dialogue", "对白"],
+                    [".frame-act", "叙述/动作/心理"],
+                    [".frame-narration", "旁白"],
+                    [".frame-name", "角色名"],
+                  ].map(([sel, label]) => (
+                    <button
+                      key={sel}
+                      type="button"
+                      onClick={() =>
+                        setCssDraft((v) =>
+                          `${v ? v.replace(/\s*$/, "\n\n") : ""}${sel} {\n  \n}`
+                        )
+                      }
+                      className="px-2 py-1 rounded-full bg-black/[0.05] active:scale-95 transition-transform"
+                      style={{ fontSize: "9.5px" }}
+                      title={`插入 ${label}`}
+                    >
+                      <span className="font-mono text-black/60">{sel}</span>
+                      <span className="text-black/30 ml-1">{label}</span>
+                    </button>
+                  ))}
                 </div>
                 <textarea
                   value={cssDraft}
                   onChange={(e) => setCssDraft(e.target.value)}
                   rows={8}
                   spellCheck={false}
-                  placeholder={`/* ========== 群像正文 · 自定义样式 ==========\n   选择器请以 .ensemble-frames 开头，改完点「应用」生效\n\n   .ensemble-frames { }\n   .ensemble-frames .frame-name { }\n*/`}
+                  placeholder={`/* ========== 群像正文 · 自定义样式 ==========\n   选择器请以 .ensemble-frames 开头，改完点「应用」生效\n\n   .ensemble-frames .frame-dialogue { color: #111; }\n   .ensemble-frames .frame-narration { font-size: 13.5px; }\n*/`}
                   className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[10.5px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
                 />
               </div>
@@ -2304,9 +2334,9 @@ ${lastSpeakerNote}
 
           {/* ═══════════ 子弹窗 2.5：剧本设置（每轮输出长度） ═══════════ */}
           {showSettingsSheet && (() => {
-            // 与 triggerAiTurn 里的换算保持同一套公式，UI 上直接展示真实生效值，
-            // 避免"面板上写 600 字、实际被 900 token 掐断"这种不一致。
-            const effectiveTokens = Math.max(1024, Math.ceil(charsDraft * 1.6 * 1.4));
+            // 与 triggerAiTurn 共用同一套换算（charsToMaxTokens），
+            // 保证面板上写的就是真实发出去的护栏值。
+            const effectiveTokens = charsToMaxTokens(charsDraft);
             const estMinutes = Math.round((charsDraft / 400) * 10) / 10;
             return (
               <MiniSheet
@@ -2339,7 +2369,9 @@ ${lastSpeakerNote}
                   <div className="flex items-center gap-2.5">
                     <button
                       type="button"
-                      onClick={() => setCharsDraft((v) => Math.max(50, v - 50))}
+                      onClick={() =>
+                        setCharsDraft((v) => Math.max(CHARS_MIN, v - 50))
+                      }
                       className="w-11 h-11 rounded-[13px] bg-black/[0.05] grid place-items-center text-[#111111] text-[20px] font-medium active:scale-95 transition-transform shrink-0"
                     >
                       −
@@ -2348,8 +2380,8 @@ ${lastSpeakerNote}
                       <input
                         type="number"
                         inputMode="numeric"
-                        min={50}
-                        max={4000}
+                        min={CHARS_MIN}
+                        max={CHARS_MAX}
                         step={50}
                         value={charsDraft}
                         onChange={(e) => {
@@ -2363,7 +2395,10 @@ ${lastSpeakerNote}
                         onBlur={() => {
                           // 失焦时收敛到合法区间，避免空值/越界写库
                           setCharsDraft((v) =>
-                            Math.min(4000, Math.max(50, Math.round(v) || 600))
+                            Math.min(
+                              CHARS_MAX,
+                              Math.max(CHARS_MIN, Math.round(v) || 600)
+                            )
                           );
                         }}
                         className="w-full bg-transparent text-center text-[17px] font-bold text-[#111111] tabular-nums outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -2372,7 +2407,9 @@ ${lastSpeakerNote}
                     </div>
                     <button
                       type="button"
-                      onClick={() => setCharsDraft((v) => Math.min(4000, v + 50))}
+                      onClick={() =>
+                        setCharsDraft((v) => Math.min(CHARS_MAX, v + 50))
+                      }
                       className="w-11 h-11 rounded-[13px] bg-black/[0.05] grid place-items-center text-[#111111] text-[20px] font-medium active:scale-95 transition-transform shrink-0"
                     >
                       ＋
@@ -2380,7 +2417,7 @@ ${lastSpeakerNote}
                   </div>
 
                   <div className="text-[9.5px] text-black/30 font-mono text-center">
-                    范围 50 – 4000 字
+                    范围 {CHARS_MIN} – {CHARS_MAX} 字
                   </div>
 
                   {/* 3.2：短/中/长/超长预设已删除。直接用 ±50 按钮或手动输入。 */}
@@ -2390,8 +2427,10 @@ ${lastSpeakerNote}
                 <div className="bg-white rounded-[16px] p-3.5">
                   <div className="text-[10.5px] leading-relaxed text-black/45">
                     保存后，模型请求的 token 上限会自动放宽到{" "}
-                    <span className="font-mono text-black/70">{effectiveTokens}</span>
-                    （1 字 ≈ 1.6 token，再留 40% 余量），
+                    <span className="font-mono text-black/70">
+                      {effectiveTokens}
+                    </span>
+                    （{CHARS_TO_TOKENS_LABEL}），
                     确保「字数目标」先于「token 上限」到达，不会写出半截。
                     {estMinutes >= 6 ? (
                       <span className="block mt-1.5 text-black/35">
