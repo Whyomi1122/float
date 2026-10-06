@@ -134,6 +134,20 @@ const T_NAME = 12.5; // 角色名（第5轮：11.5 → 12.5，锚点更清晰）
 const C_NAME = "#5a5a5e"; // 角色名：加深（原 #8a8a8e 太浅，认不出人）
 const T_NARR = 13; // 旁白：比正文小 1px
 const C_NARR = "#b4b4b8"; // 旁白：更淡的灰（1005 反馈：与正文灰对调）
+// 旁白「真实生效」的视觉权重（1005 二次反馈修正）：
+//   曾出现「常量已改成 #b4b4b8，实机仍比正文深」——最可能是被剧本级 customCss
+//   覆盖（注入的 <style> 全文档生效且权重更高）。此处把旁白样式改为行内
+//   style 直接输出，行内优先级最高，任何外部 CSS 都无法再盖掉它。
+function narrStyle(): React.CSSProperties {
+  return {
+    fontSize: tpx(T_NARR),
+    color: C_NARR,
+    fontWeight: 400,
+    lineHeight: 1.9,
+    opacity: 1,
+    fontStyle: "italic",
+  };
+}
 /** 头像尺寸（定稿 35px，此前 78px 过大被用户吐槽「像生图来了」） */
 const AVATAR_PX = 35;
 // 段距（长文排版定稿）：
@@ -171,15 +185,20 @@ function BodyText({
     kind === "dialogue" ? C_DIALOG : kind === "inner" ? C_INNER : C_ACT;
   const size =
     kind === "dialogue" ? T_DIALOG : kind === "inner" ? T_INNER : T_ACT;
+  // 行内直出（而非只靠 class）：防止剧本级 customCss 用更高权重覆盖配色/字号
+  const headStyle: React.CSSProperties = {
+    color,
+    fontSize: tpx(size),
+    fontWeight: 400,
+    lineHeight: 1.75,
+    opacity: 1,
+  };
   // 段内段距：对白/心理宽松些，叙述紧凑些（成组感）
   const inner = kind === "act" ? GAP_ACT + 5 : GAP_DIALOG + 5;
   // 括号规则（用户定稿 2026-10-04 第5轮）：**无条件剥除**包裹整行的 （），
   // 包括双语译文行。韩语对白的下一行直接写中文，不再用括号包裹。
   return (
-    <div
-      className="tracking-[0.01em]"
-      style={{ fontSize: tpx(size), color, lineHeight: 1.9 }}
-    >
+    <div className="tracking-[0.01em]" style={headStyle}>
       {paras.map((p, i) => {
         const shown = /^[（(][\s\S]*[）)]$/.test(p)
           ? p.replace(/^[（(]\s*/, "").replace(/\s*[）)]$/, "")
@@ -188,7 +207,7 @@ function BodyText({
           <div
             key={i}
             className="whitespace-pre-wrap"
-            style={{ marginTop: i === 0 ? 0 : inner }}
+            style={{ ...headStyle, marginTop: i === 0 ? 0 : inner }}
           >
             {shown}
           </div>
@@ -290,13 +309,9 @@ function EnsembleFrameStream({
           return (
             <div
               key={i}
-              className={`whitespace-pre-wrap italic ${
-                i === 0 ? "mt-0 mb-6" : "my-6"
-              }`}
+              className={`whitespace-pre-wrap ${i === 0 ? "mt-0 mb-6" : "my-6"}`}
               style={{
-                fontSize: tpx(T_NARR),
-                color: C_NARR,
-                lineHeight: 1.9,
+                ...narrStyle(),
                 // 下浅虚线：一条 1px 的极浅虚线，作为旁白的「换场」标记
                 paddingBottom: narrator ? 10 : undefined,
                 borderBottom: narrator
@@ -384,7 +399,12 @@ function EnsembleFrameStream({
                 {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
                 <div
                   className="font-semibold tracking-wide"
-                  style={{ fontSize: tpx(T_NAME), color: C_NAME }}
+                  style={{
+                    fontSize: tpx(T_NAME),
+                    color: C_NAME,
+                    fontWeight: 600,
+                    opacity: 1,
+                  }}
                 >
                   {f.speaker}
                 </div>
