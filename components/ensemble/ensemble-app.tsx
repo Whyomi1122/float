@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -173,11 +173,20 @@ function narrStyle(): React.CSSProperties {
 /** 头像尺寸（定稿 35px，此前 78px 过大被用户吐槽「像生图来了」） */
 const AVATAR_PX = 35;
 // 段距（长文排版定稿）：
-const GAP_DIALOG = 11; // 对白段之间
+// 1006 反馈（第6轮）：对白段距 11 → 10（收紧）；旁白间距 26 → 14（不再大喘气）。
+const GAP_DIALOG = 10; // 对白段之间（1006：11 → 10）
 const GAP_ACT = 7; // 叙述/动作段之间（更紧，成组）
 const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
-const GAP_NARR = 26; // 旁白上下（换场呼吸点）
-const GAP_BLOCK = 26; // 角色块之间（换人）
+const GAP_NARR = 14; // 旁白上下（1006：26 → 14，原间距过大）
+const GAP_BLOCK = 20; // 角色块之间（换人）（1006：26 → 20，随整体收紧）
+
+// ── 帧级左右内缩（1006 第6轮定稿）──
+// 用户口径：① 所有帧整体左右内缩（原来铺得太宽）② 左右必须**严格对称**，
+// 不能左缩右不缩（否则整块看着歪）。③ 正文比头像再多缩一档，形成二级层次。
+// 实现：帧流外层 .ensemble-frames 左右各 FRAME_INSET；正文/头像行再各 FRAME_TEXT_INSET。
+// 关键：**同时写 paddingLeft 与 paddingRight**，任何一侧都不能漏，否则又不对称。
+const FRAME_INSET = 16; // 整块左右内缩
+const FRAME_TEXT_INSET = 9; // 正文/头像行再内缩（合计左右各 25px）
 
 // ── 每轮输出长度 / token 护栏（用户口径 2026-10-06 四次调整后定稿）──
 // 设计要点：**提示词管「别写太多」，maxTokens 闸门管「别写太长」**，两者叠加。
@@ -266,9 +275,14 @@ function BodyText({
     fontWeight: 400,
     lineHeight: 1.75,
     opacity: 1,
+    // 帧级内缩（1006 第6轮）：正文比头像再多缩一档；
+    // 左右**同时**给，保证严格对称（右端不再顶边）。
+    paddingLeft: tpx(FRAME_TEXT_INSET),
+    paddingRight: tpx(FRAME_TEXT_INSET),
   };
   // 段内段距：对白/心理宽松些，叙述紧凑些（成组感）
-  const inner = kind === "act" ? GAP_ACT + 5 : GAP_DIALOG + 5;
+  // 1006：对白 +5 → +2（收紧，但仍略大于正文段距）
+  const inner = kind === "act" ? GAP_ACT + 3 : GAP_DIALOG + 0;
   // 括号规则（用户定稿 2026-10-04 第5轮）：**无条件剥除**包裹整行的 （），
   // 包括双语译文行。韩语对白的下一行直接写中文，不再用括号包裹。
   return (
@@ -377,28 +391,38 @@ function EnsembleFrameStream({
   let prevWasSameSpeaker = false;
 
   return (
-    <div className="ensemble-frames" data-frame-count={frames.length}>
+    <div
+      className="ensemble-frames"
+      data-frame-count={frames.length}
+      // 帧流外层：左右**严格对称**内缩（1006 第6轮）。
+      // 关键：同时写 left 与 right，且不依赖父级 padding —— 父级一旦单边不同，
+      // 光靠 left 就会出现「左缩右不缩」的歪斜（这正是上一版的 bug）。
+      style={{
+        paddingLeft: tpx(FRAME_INSET),
+        paddingRight: tpx(FRAME_INSET),
+      }}
+    >
       {frames.map((f, i) => {
         // ── 旁白帧 ──
         // 2026-10 定稿：旁白由模型显式打暗号「［旁白］」触发（解析器已 slice 掉暗号），
-        // 不再是靠圆括号猜出来的。呈现为斜体灰 + 下浅虚线，与角色块拉开 24px。
+        // 不再是靠圆括号猜出来的。
+        // 1006 第6轮：**删掉下浅虚线**（用户：「旁白下方虚线删掉」），只保留间距。
+        // 同时旁白也跟着整体内缩，与头像/正文共用同一条左基准 + 严格对称。
         if (f.kind === "narration") {
-          const narrator = !f.speaker;
           prevWasNarration = true;
           prevWasSameSpeaker = false;
           return (
             <div
               key={i}
-              className={`frame-narration whitespace-pre-wrap ${
-                i === 0 ? "mt-0 mb-6" : "my-6"
-              }`}
+              className="frame-narration whitespace-pre-wrap"
               style={{
                 ...narrStyle(),
-                // 下浅虚线：一条 1px 的极浅虚线，作为旁白的「换场」标记
-                paddingBottom: narrator ? 10 : undefined,
-                borderBottom: narrator
-                  ? "1px dashed rgba(0,0,0,0.08)"
-                  : undefined,
+                // 旁白间距统一走 GAP_NARR（1006：26 → 14，原间距过大）。
+                // 首帧不带上方间距，避免紧贴卡片顶边。
+                marginTop: i === 0 ? 0 : tpx(GAP_NARR),
+                marginBottom: tpx(GAP_NARR),
+                paddingLeft: tpx(FRAME_TEXT_INSET),
+                paddingRight: tpx(FRAME_TEXT_INSET),
               }}
             >
               {f.text}
@@ -420,10 +444,10 @@ function EnsembleFrameStream({
         const showName = isSpeakerFrame && f.speaker !== lastSpeaker;
         if (isSpeakerFrame) lastSpeaker = f.speaker;
 
-        // 段距（长文排版定稿，第5轮）：
-        //   旁白之后     → 0（旁白自带 26px 下间距，不叠加）
-        //   换角色       → 26px（角色块之间留大呼吸）
-        //   同角色续帧   → 对白 11 / 动作 7 / 心理 7
+        // 段距（长文排版定稿，第6轮 1006）：
+        //   旁白之后     → 0（旁白自带 14px 下间距，不叠加）
+        //   换角色       → 20px（角色块之间留呼吸）
+        //   同角色续帧   → 对白 10 / 动作 7 / 心理 7
         const topMargin = prevWasNarration
           ? 0
           : showName
@@ -434,10 +458,34 @@ function EnsembleFrameStream({
         prevWasNarration = false;
         prevWasSameSpeaker = !showName;
 
-        // 心理帧：与叙述完全一致（1005 反馈），不出头像。
+        // 心理帧（1006 第6轮改版）：不再等同叙述，改为**独立静音块** ——
+        // 极浅底 + 左侧一根细线 + 内缩，**不带任何「心理」小标签**（用户明确要求删标签）。
+        // 与叙述仍是同一灰阶，层级只靠「块感」而非颜色，避免心理太跳。
+        //
+        // 几何（必须左右对称，否则整块歪）：
+        //   外层 .ensemble-frames   left/right 16
+        //   + .frame-inner 自己     margin left/right 9   → 块左沿落在正文基准线上
+        //   + 块内 BodyText         padding left/right 9（它自带）
+        //   块本身左右再各留 3px 内衬，让文字不贴到左细线上。
         if (f.kind === "inner") {
           return (
-            <div key={i} style={{ marginTop: showName ? GAP_BLOCK : GAP_INNER }}>
+            <div
+              key={i}
+              className="frame-inner"
+              style={{
+                marginTop: showName ? GAP_BLOCK : GAP_INNER,
+                marginLeft: tpx(FRAME_TEXT_INSET),
+                marginRight: tpx(FRAME_TEXT_INSET),
+                paddingTop: tpx(6),
+                paddingBottom: tpx(6),
+                // 左细线靠左内衬撑开：左右内衬都是 3px，块内文字距块边缘等宽。
+                paddingLeft: tpx(3),
+                paddingRight: tpx(3),
+                background: "rgba(0,0,0,0.022)",
+                borderLeft: "2px solid rgba(0,0,0,0.10)",
+                borderRadius: "0 7px 7px 0",
+              }}
+            >
               <BodyText raw={f.text} kind="act" />
             </div>
           );
@@ -456,7 +504,15 @@ function EnsembleFrameStream({
         return (
           <div key={i} style={{ marginTop: topMargin }}>
             {showName && (
-              <div className="flex items-center gap-2.5 mb-2.5">
+              <div
+                className="flex items-center gap-2.5 mb-2.5"
+                // 头像行与正文共用同一条左基准（1006 第6轮口径 A）：
+                // 给它和 BodyText 完全一样的左右内缩，头像左沿 = 正文左沿。
+                style={{
+                  paddingLeft: tpx(FRAME_TEXT_INSET),
+                  paddingRight: tpx(FRAME_TEXT_INSET),
+                }}
+              >
                 {/* 方角 35px 虚线框头像（定稿：此前 78px 过大）
                     · 启用状态面板时，点头像 → 打开该角色的状态卡（用户定稿 10-06）。 */}
                 <button
