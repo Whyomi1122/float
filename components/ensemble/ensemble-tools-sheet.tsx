@@ -4,7 +4,6 @@ import React from "react";
 import {
   Code2,
   Layers,
-  MessageSquareText,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -25,7 +24,6 @@ function fs(px: number): string {
 }
 
 export type EnsembleToolId =
-  | "narration"
   | "customCss"
   | "model";
 
@@ -43,9 +41,9 @@ export interface EnsembleToolItem {
 }
 
 /** 面板条目定义。顺序与目标截图一致。
- *  1006 反馈 R3：「剧本设置」已从本面板移除，改挂到工作区顶栏右上角。 */
+ *  1006 反馈 R3：「剧本设置」已从本面板移除，改挂到工作区顶栏右上角。
+ *  1006 反馈④：「场景设定」已删除，功能并入剧本设置页的开场白。 */
 export const ENSEMBLE_TOOLS: EnsembleToolItem[] = [
-  { id: "narration", label: "场景设定", labelEn: "SCENE", Icon: MessageSquareText, enabled: true },
   { id: "customCss", label: "自定义 CSS", labelEn: "CUSTOM STYLE", Icon: Code2, enabled: true },
   { id: "model", label: "模型切换", labelEn: "API · SESSION", Icon: Layers, enabled: true },
 ];

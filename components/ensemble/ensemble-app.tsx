@@ -748,8 +748,6 @@ export function EnsembleApp({
   const [titleInput, setTitleInput] = useState("");
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [showNarrationModal, setShowNarrationModal] = useState(false);
-  const [narrationSettingText, setNarrationSettingText] = useState("");
   /** 正在生成中：用于显示「取消生成」（真机中断的唯一途径是卸载本组件） */
   const [isComposing, setIsComposing] = useState(false);
 
@@ -848,7 +846,6 @@ export function EnsembleApp({
 
   useEffect(() => {
     if (currentScript) {
-      setNarrationSettingText(currentScript.background || "");
       // 载入剧本时先解析一次模型名，保证 MODEL 行即使未生成也有值
       setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
     }
@@ -867,7 +864,9 @@ export function EnsembleApp({
   const openSettingsPage = () => {
     const s = currentScript;
     if (!s) return;
-    setOpeningDraft(s.openingMessage ?? "");
+    // 1006 反馈④：原「场景设定」子弹窗已删除，内容并入开场白。
+    // 老剧本只有 background 没 openingMessage → 做一次性迁移，内容不丢。
+    setOpeningDraft(s.openingMessage?.trim() ? s.openingMessage : (s.background ?? ""));
     setCharsDraft(s.charsPerTurn ?? 600);
     setContextDraft(s.contextLimit ?? 10);
     setPovDraft(s.narrativePov ?? "third");
@@ -1418,7 +1417,6 @@ ${lastSpeakerNote}
     setModelPickerApiId(null);
     setModelListError(null);
     setShowToolsSheet(false);
-    setShowNarrationModal(false);
     // 离开 CSS 面板时丢弃未应用的预览草稿（已保存的 customCss 不受影响）
     setCssDraft(currentScript?.customCss || "");
   };
@@ -1450,7 +1448,6 @@ ${lastSpeakerNote}
       return;
     }
     if (
-      showNarrationModal ||
       showCssSheet ||
       showSettingsSheet ||
       showModelSheet
@@ -1461,7 +1458,6 @@ ${lastSpeakerNote}
         return;
       }
       // 其余子弹窗：只关掉自己，保持在功能面板上（背景继续模糊，不重新弹出）
-      setShowNarrationModal(false);
       setShowModelSheet(false);
       setModelPickerApiId(null);
       setModelListError(null);
@@ -2236,51 +2232,9 @@ ${lastSpeakerNote}
             </div>
           </div>
 
-          {/* 场景设定（MiniSheet：顶栏「← 返回」只关本层，回到功能面板） */}
-          {showNarrationModal && (
-            <MiniSheet
-              title="场景设定"
-              subtitle="SCENE"
-              onClose={() => {
-                setShowNarrationModal(false);
-                setShowToolsSheet(true);
-              }}
-            >
-              <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
-                <div className="text-[10.5px] leading-relaxed text-black/45">
-                  设定当前剧本的宏观环境、旁白氛围或隐藏剧情要求，AI 会严格遵从。
-                </div>
-                <textarea
-                  value={narrationSettingText}
-                  onChange={(e) => setNarrationSettingText(e.target.value)}
-                  placeholder="例如：深夜首尔街头下着淅淅沥沥的冷雨，角色们刚结束高强度的工作，彼此心情沉重但都克制着情绪..."
-                  rows={7}
-                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[12px] text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
-                />
-              </div>
-
-              {/* 底部只留「保存设定」这一功能键；「返回」由顶栏负责 */}
-              <button
-                type="button"
-                onClick={() => {
-                  const updated = {
-                    ...currentScript,
-                    background: narrationSettingText.trim(),
-                  };
-                  setCurrentScript(updated);
-                  saveOrUpdateEnsembleScript(updated);
-                  setScripts(loadEnsembleScripts());
-                  // 保存 = 功能键完成 → 关掉本层，停在功能面板
-                  setShowNarrationModal(false);
-                  setShowToolsSheet(true);
-                  setToast("场景设定已保存");
-                }}
-                className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
-              >
-                保存设定
-              </button>
-            </MiniSheet>
-          )}
+          {/* 场景设定（1006 反馈④）：已删除本子弹窗，功能并入
+              剧本设置页（顶栏右上角）的「开场白」。旧字段 background
+              在 openSettingsPage 里做一次性迁移，内容不会丢。 */}
 
           {/* ═══════════ 功能面板（+ 号） ═══════════ */}
           <EnsembleToolsSheet
@@ -2295,10 +2249,7 @@ ${lastSpeakerNote}
             }
             onPick={(id) => {
               setShowToolsSheet(false);
-              if (id === "narration") {
-                setNarrationSettingText(currentScript.background || "");
-                setShowNarrationModal(true);
-              } else if (id === "customCss") {
+              if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
                 setShowCssSheet(true);
               } else if (id === "model") {
@@ -2429,15 +2380,19 @@ ${lastSpeakerNote}
             );
             return (
               <div className="absolute inset-0 z-[56] bg-[#f2f2f4] flex flex-col">
-                {/* 顶栏：‹ Settings / ENSEMBLE · CONFIGURATION */}
-                <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSettingsSheet(false);
-                      setShowToolsSheet(false);
-                    }}
-                    className="w-9 h-9 grid place-items-center rounded-full hover:bg-black/5 text-black/60 active:scale-90 transition"
+                {/* 顶栏：毛玻璃磨砂条 + ‹ Settings / ENSEMBLE · CONFIGURATION
+                    1006 反馈③：原先顶部贴边太紧、与工作区衔接突兀。
+                    修法：补一条与工作区同款的毛玻璃顶栏（sticky），
+                    下移到与工作区顶栏一致的视觉基线，做出「从工作区平推入」的观感。 */}
+                <div className="sticky top-0 z-10 shrink-0 bg-[#f2f2f4]/85 backdrop-blur-xl border-b border-black/[0.06]">
+                  <div className="flex items-center gap-2.5 px-4 pt-3 pb-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSettingsSheet(false);
+                        setShowToolsSheet(false);
+                      }}
+                      className="w-9 h-9 -ml-1 grid place-items-center rounded-full hover:bg-black/5 text-black/60 active:scale-90 transition"
                     aria-label="返回"
                   >
                     <ChevronLeft size={22} strokeWidth={1.8} />
@@ -2453,9 +2408,10 @@ ${lastSpeakerNote}
                       ENSEMBLE · CONFIGURATION
                     </div>
                   </div>
+                  </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+                <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 space-y-4">
                   {/* 01 OPENING */}
                   <div>
                     {sectionHead(<MessageSquare size={13} strokeWidth={2} />, "OPENING", "01")}
@@ -2535,10 +2491,10 @@ ${lastSpeakerNote}
                           ＋
                         </button>
                       </div>
-                      <div className="text-[9.5px] leading-relaxed text-black/40">
-                        目标字数（非硬上限）。token 护栏按「实际允许 {CHARS_GUARD} 字/轮」放宽到{" "}
-                        <span className="font-mono text-black/60">{effectiveTokens}</span>
-                        ，保证话能说完不被切断。
+                      <div className="text-[10px] leading-relaxed text-black/40">
+                        想让 AI 写多长。它是个「目标值」，不是硬限制——AI 可能多写一点，但
+                        <span className="text-black/60">不会写到一半被切断</span>，
+                        最多写到约 {CHARS_GUARD} 字左右。
                       </div>
                     </div>
                   </div>
