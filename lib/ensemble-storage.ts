@@ -36,6 +36,12 @@ export type EnsembleTurn = {
   /** 生成这一幕所用的模型名（取自全局 API 配置），用于元信息 MODEL 行 */
   model?: string;
   rawText?: string;
+  /**
+   * 状态面板数据（JSON 字符串，形如 EnsembleStatusEntry[]）。
+   * 由「［状态］」第六暗号从模型回复里剥离后落库，用于点头像查看角色卡。
+   * ⚠️ 存字符串而非对象：与 kv-db 的 string 契约一致，避免嵌套结构被 kv 吞掉。
+   */
+  statusData?: string;
 };
 
 export type EnsembleScript = {

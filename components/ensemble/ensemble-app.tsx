@@ -51,7 +51,26 @@ import {
 import {
   parseEnsembleReply,
   type EnsembleFrame,
+  type EnsembleStatusEntry,
 } from "@/lib/ensemble-parser";
+import {
+  resolveStoryTime,
+  buildTimeAwarenessBlock,
+  buildStatusContractBlock,
+} from "@/lib/ensemble-time";
+import {
+  EnsembleStatusCardLayer,
+  DEFAULT_STATUS_TEMPLATE,
+  DEFAULT_STATUS_FIELDS,
+} from "@/components/ensemble/ensemble-status-card";
+import {
+  StatusFieldEditor,
+  StatusTemplateEditor,
+  StatusToggleRow,
+  StatusSectionHead,
+  StatusFieldActions,
+  type StatusField,
+} from "@/components/ensemble/ensemble-status-sheet";
 
 // ══════════════════════════════════════════════════════════
 // API 绑定桥（Ensemble ↔ 全局设置里的 API 配置）
@@ -316,9 +335,12 @@ function framesOfTurn(
 function EnsembleFrameStream({
   frames,
   cast,
+  onAvatarClick,
 }: {
   frames: EnsembleFrame[];
   cast: EnsembleCastMember[];
+  /** 点头像 → 打开该幕的状态卡（未启用状态面板时由上层忽略） */
+  onAvatarClick?: (speaker: string) => void;
 }) {
   let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
   // 跟踪上一帧是否为旁白，用于给旁白加「上下各 ≥ 一整行」的大段距。
@@ -407,10 +429,24 @@ function EnsembleFrameStream({
           <div key={i} style={{ marginTop: topMargin }}>
             {showName && (
               <div className="flex items-center gap-2.5 mb-2.5">
-                {/* 方角 35px 虚线框头像（定稿：此前 78px 过大） */}
-                <div
-                  className="rounded-[8px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0"
+                {/* 方角 35px 虚线框头像（定稿：此前 78px 过大）
+                    · 启用状态面板时，点头像 → 打开该角色的状态卡（用户定稿 10-06）。 */}
+                <button
+                  type="button"
+                  onClick={
+                    onAvatarClick && f.speaker
+                      ? (e) => {
+                          e.stopPropagation();
+                          onAvatarClick(f.speaker as string);
+                        }
+                      : undefined
+                  }
+                  disabled={!onAvatarClick}
+                  className={`rounded-[8px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0 ${
+                    onAvatarClick ? "active:scale-95 transition-transform cursor-pointer" : ""
+                  }`}
                   style={{ width: tpx(AVATAR_PX), height: tpx(AVATAR_PX) }}
+                  title={onAvatarClick ? "查看状态" : undefined}
                 >
                   {member?.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -427,7 +463,7 @@ function EnsembleFrameStream({
                       {(f.speaker ?? "?").slice(0, 1)}
                     </span>
                   )}
-                </div>
+                </button>
                 {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
                 <div
                   className="frame-name font-semibold tracking-wide"
@@ -764,9 +800,23 @@ export function EnsembleApp({
   const [showToolsSheet, setShowToolsSheet] = useState(false);
   // showPaletteSheet 已删除（卡片配色已移除）
   const [showCssSheet, setShowCssSheet] = useState(false);
-  const [showModelSheet, setShowModelSheet] = useState(false);
-  /** 剧本设置（输出长度）子弹窗 */
+  const [showModelSheet, setShowModelSheet] = useState(false);  /** 剧本设置（输出长度）子弹窗 */
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  // ── 状态面板 / 时间感知（2026-10-06）──
+  const [showStatusSheet, setShowStatusSheet] = useState(false);
+  const [showTimeSheet, setShowTimeSheet] = useState(false);
+  /** 状态面板草稿（点保存才落库） */
+  const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
+  const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
+  const [statusTemplateDraft, setStatusTemplateDraft] = useState("");
+  /** 时间感知草稿 */
+  const [timeEnabledDraft, setTimeEnabledDraft] = useState(false);
+  const [timeRealtimeDraft, setTimeRealtimeDraft] = useState(true);
+  const [timeAnchorDraft, setTimeAnchorDraft] = useState("");
+  /** 当前正在查看状态卡的角色 id（null = 未打开） */
+  const [statusCardTurnId, setStatusCardTurnId] = useState<string | null>(null);
+  /** 当前要优先展示的角色 id（点头像时指定；未指定则按数据顺序） */
+  const [statusCardMemberId, setStatusCardMemberId] = useState<string | null>(null);
   // ── Settings 全页草稿（图1 · 1006）──
   const [openingDraft, setOpeningDraft] = useState("");
   const [contextDraft, setContextDraft] = useState(10);
@@ -1069,6 +1119,22 @@ ${script.openingMessage.trim()}
 `
         : "";
 
+      // ── 时间感知（2026-10-06）：两种模式都注入，改完下一轮即生效 ──
+      //     set 时刻读取（而非组件挂载时），保证「设置好下一轮 AI 就会读到」。
+      const storyTime = resolveStoryTime(script.timeAwareness);
+      const timeBlock = buildTimeAwarenessBlock(storyTime);
+
+      // ── 状态面板（2026-10-06）：把用户字段表拼成输出契约 ──
+      const statusFields = script.statusPanel?.enabled
+        ? script.statusPanel.fields ?? []
+        : [];
+      const statusBlock = statusFields.length
+        ? buildStatusContractBlock(
+            statusFields,
+            script.cast.map((c) => c.name)
+          )
+        : "";
+
       const systemPrompt = `你是一位擅长群像叙事的小说作者，正在续写互动剧本《${script.title}》。
 
 🚨 输出格式铁律（违反则整幕作废，必须重写）：
@@ -1078,7 +1144,7 @@ ${script.openingMessage.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}
-${sceneBlock}${openingBlock}${povBlock}${memoryBlock}${outputLenRule}
+${sceneBlock}${openingBlock}${povBlock}${memoryBlock}${timeBlock}${outputLenRule}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 
@@ -1170,7 +1236,7 @@ ${lastSpeakerNote}
 8. 严禁输出章节标题、Markdown 标题（#）、序号列表、舞台说明、作者点评或总结。
    严禁跳出角色当作者。
 9. 严格贴合每个角色的视角、语气、身份和性格，说话方式要有辨识度。
-10. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。`;
+10. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。${statusBlock}`;
 
       // ── 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成 ──
       const contextTurns = opts?.rerollTurnId
@@ -1304,6 +1370,11 @@ ${lastSpeakerNote}
         timestamp: baseIso,
         tokens: Math.ceil(replyContent.length * 1.3),
         model: apiConfig.defaultModel || apiConfig.name || undefined,
+        // 状态数据落库（第六暗号剥离产物）：供点头像查看角色卡。
+        // 只有启用状态面板且真的解析出条目才存，避免存空数组。
+        statusData: parsed.statusData.length
+          ? JSON.stringify(parsed.statusData)
+          : undefined,
       };
 
       let updated = appendEnsembleTurn(script.id, nextTurn) ?? script;
@@ -2154,6 +2225,18 @@ ${lastSpeakerNote}
                         castWithPersona(currentScript.cast, activePersona)
                       )}
                       cast={castWithPersona(currentScript.cast, activePersona)}
+                      // 启用状态面板且该幕有状态数据时，头像可点 → 弹角色卡
+                      onAvatarClick={
+                        currentScript.statusPanel?.enabled && turn.statusData
+                          ? (speaker) => {
+                              const m = currentScript.cast.find(
+                                (c) => c.name === speaker
+                              );
+                              setStatusCardMemberId(m?.id ?? null);
+                              setStatusCardTurnId(turn.id);
+                            }
+                          : undefined
+                      }
                     />
                   )}
 
@@ -2270,9 +2353,10 @@ ${lastSpeakerNote}
             onClose={() => setShowToolsSheet(false)}
             activeIds={
               [
-                currentScript.background?.trim() ? "narration" : null,
                 currentScript.customCss?.trim() ? "customCss" : null,
                 currentScript.apiConfigIdOverride ? "model" : null,
+                currentScript.timeAwareness?.enabled ? "timeAwareness" : null,
+                currentScript.statusPanel?.enabled ? "statusPanel" : null,
               ].filter(Boolean) as EnsembleToolId[]
             }
             onPick={(id) => {
@@ -2282,13 +2366,27 @@ ${lastSpeakerNote}
                 setShowCssSheet(true);
               } else if (id === "model") {
                 openModelSheet();
+              } else if (id === "timeAwareness") {
+                const t = currentScript.timeAwareness;
+                setTimeEnabledDraft(t?.enabled ?? false);
+                setTimeRealtimeDraft(t?.realtime ?? true);
+                setTimeAnchorDraft(t?.anchor ?? "");
+                setShowTimeSheet(true);
+              } else if (id === "statusPanel") {
+                const sp = currentScript.statusPanel;
+                setStatusEnabledDraft(sp?.enabled ?? false);
+                setStatusFieldsDraft(
+                  sp?.fields?.length ? sp.fields : DEFAULT_STATUS_FIELDS
+                );
+                setStatusTemplateDraft(sp?.template || DEFAULT_STATUS_TEMPLATE);
+                setShowStatusSheet(true);
               }
             }}
           />
 
           {/* 3.3：卡片配色弹窗已删除 */}
 
-          {/* ═══════════ 子弹窗 2：自定义 CSS ═══════════ */}
+          {/* ═══════════ 子弹窗 1：自定义 CSS（命名空间以本项目 .ensemble-frames 为准） ═══════════ */}
           {showCssSheet && (
             <MiniSheet
               title="自定义 CSS"
@@ -2378,7 +2476,264 @@ ${lastSpeakerNote}
             </MiniSheet>
           )}
 
-          {/* ═══════════ Settings 全页（图1 · 1006 · 5 编号分区） ═══════════ */}
+          {/* ═══════════ 子弹窗 3：时间感知（图3 · 1006） ═══════════ */}
+          {showTimeSheet && (
+            <MiniSheet
+              title="时间感知"
+              subtitle="TIME AWARENESS"
+              onClose={() => {
+                setShowTimeSheet(false);
+                setShowToolsSheet(true);
+              }}
+            >
+              <div className="bg-white rounded-[16px] p-4 space-y-4">
+                <StatusToggleRow
+                  label="感知现实时间"
+                  hint="让 AI 知道此刻的真实年月日与钟点"
+                  checked={timeEnabledDraft}
+                  onChange={setTimeEnabledDraft}
+                />
+
+                {/* 关闭「感知现实时间」→ 开放架空起点 */}
+                <div
+                  className={`space-y-2 transition-opacity ${
+                    timeEnabledDraft && !timeRealtimeDraft ? "" : "opacity-45"
+                  }`}
+                >
+                  <div className="text-[10.5px] text-black/45 leading-relaxed">
+                    关闭「感知现实时间」后，设定一个架空起点：时间会从这个点起，
+                    随现实自然流逝。
+                  </div>
+                  <input
+                    type="datetime-local"
+                    value={timeAnchorDraft}
+                    disabled={!timeEnabledDraft || timeRealtimeDraft}
+                    onChange={(e) => setTimeAnchorDraft(e.target.value)}
+                    className="w-full bg-black/[0.03] border border-black/[0.07] rounded-[12px] px-3 py-3 text-[13px] text-[#111111] outline-none focus:border-black/25 disabled:cursor-not-allowed"
+                  />
+                  <button
+                    type="button"
+                    disabled={!timeEnabledDraft}
+                    onClick={() => setTimeRealtimeDraft(false)}
+                    className={`w-full py-2.5 rounded-[12px] text-[12px] font-medium transition-colors ${
+                      !timeEnabledDraft
+                        ? "bg-black/[0.04] text-black/25"
+                        : timeRealtimeDraft
+                        ? "bg-black/[0.05] text-black/60"
+                        : "bg-[#111111] text-white"
+                    }`}
+                  >
+                    {timeRealtimeDraft ? "改用架空起点" : "已使用架空起点"}
+                  </button>
+                  {!timeRealtimeDraft && (
+                    <button
+                      type="button"
+                      onClick={() => setTimeRealtimeDraft(true)}
+                      className="w-full py-1.5 text-[11px] text-black/40"
+                    >
+                      改回跟随现实时间
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTimeSheet(false);
+                    setShowToolsSheet(true);
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated: EnsembleScript = {
+                      ...currentScript,
+                      timeAwareness: {
+                        enabled: timeEnabledDraft,
+                        realtime: timeRealtimeDraft,
+                        anchor: timeAnchorDraft || undefined,
+                      },
+                    };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    setShowTimeSheet(false);
+                    setShowToolsSheet(true);
+                    setToast("时间感知已保存 · 下一轮生效");
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                >
+                  保存
+                </button>
+              </div>
+            </MiniSheet>
+          )}
+
+          {/* ═══════════ 子弹窗 4：状态面板（图 · 1006） ═══════════ */}
+          {showStatusSheet && (
+            <MiniSheet
+              title="状态面板"
+              subtitle="STATUS · FULLY CUSTOM"
+              onClose={() => {
+                setShowStatusSheet(false);
+                setShowToolsSheet(true);
+              }}
+            >
+              {/* 启用开关 */}
+              <div className="bg-white rounded-[16px] p-4">
+                <StatusToggleRow
+                  label="启用状态面板"
+                  hint="开启后 AI 按字段表为每个角色生成数据，点头像查看"
+                  checked={statusEnabledDraft}
+                  onChange={setStatusEnabledDraft}
+                />
+              </div>
+
+              {/* ① 字段 / DATA */}
+              <div className="bg-white rounded-[16px] p-4">
+                <StatusSectionHead
+                  num="①"
+                  label="字段 / DATA"
+                  labelEn="FIELDS"
+                  right={
+                    <span className="text-[10px] text-black/30">
+                      你定数据 · AI 照填
+                    </span>
+                  }
+                />
+                <div className="text-[10.5px] text-black/45 leading-relaxed mb-3">
+                  key 给模板取值{"{​{key}}"} 用；说明是给 AI 看的话；字数是软上限（留空不限）。
+                  0-100 的数字字段可在模板里用{" "}
+                  <span className="font-mono text-black/60">{"{{key.bar}}"}</span>{" "}
+                  渲染进度条。
+                </div>
+                <StatusFieldEditor
+                  fields={statusFieldsDraft}
+                  onChange={setStatusFieldsDraft}
+                />
+                <div className="mt-3">
+                  <StatusFieldActions
+                    onAdd={() =>
+                      setStatusFieldsDraft((v) => [
+                        ...v,
+                        { key: "", desc: "", max: undefined },
+                      ])
+                    }
+                    onReset={() => setStatusFieldsDraft(DEFAULT_STATUS_FIELDS)}
+                  />
+                </div>
+              </div>
+
+              {/* ② 模板 / TEMPLATE */}
+              <div className="bg-white rounded-[16px] p-4">
+                <StatusSectionHead
+                  num="②"
+                  label="模板 / TEMPLATE"
+                  labelEn="HTML · CSS · JS"
+                  right={
+                    <button
+                      type="button"
+                      onClick={() => setStatusTemplateDraft(DEFAULT_STATUS_TEMPLATE)}
+                      className="text-[10.5px] text-black/45 active:scale-95 transition-transform"
+                    >
+                      恢复默认模板
+                    </button>
+                  }
+                />
+                <StatusTemplateEditor
+                  fields={statusFieldsDraft}
+                  template={statusTemplateDraft}
+                  onChange={setStatusTemplateDraft}
+                />
+              </div>
+
+              {/* 底部按钮 */}
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowStatusSheet(false);
+                    setShowToolsSheet(true);
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                >
+                  关闭
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated: EnsembleScript = {
+                      ...currentScript,
+                      statusPanel: {
+                        enabled: statusEnabledDraft,
+                        fields: statusFieldsDraft.filter((f) => f.key.trim()),
+                        template: statusTemplateDraft,
+                        engine: "html",
+                      },
+                    };
+                    setCurrentScript(updated);
+                    saveOrUpdateEnsembleScript(updated);
+                    setScripts(loadEnsembleScripts());
+                    setShowStatusSheet(false);
+                    setShowToolsSheet(true);
+                    setToast("状态面板已保存 · 下一轮生效");
+                  }}
+                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                >
+                  保存
+                </button>
+              </div>
+            </MiniSheet>
+          )}
+
+          {/* ═══════════ 状态卡展示层（点头像 → 单角色卡片） ═══════════ */}
+          {(() => {
+            if (!statusCardTurnId) return null;
+            const turn = currentScript.turns.find((t) => t.id === statusCardTurnId);
+            if (!turn) return null;
+            const entries: EnsembleStatusEntry[] = (() => {
+              try {
+                return turn.statusData ? JSON.parse(turn.statusData) : [];
+              } catch {
+                return [];
+              }
+            })();
+            if (!entries.length) return null;
+            // 出场角色 = 状态数据里能对上演员表的人（保序）
+            const members = entries
+              .map((e) =>
+                currentScript.cast.find(
+                  (c) => c.id === e.memberId || c.name === e.name
+                )
+              )
+              .filter((c): c is EnsembleCastMember => Boolean(c));
+            if (!members.length) return null;
+            // 状态卡时间：严格取本轮剧情时间
+            const storyTime = resolveStoryTime(currentScript.timeAwareness);
+            // 若用户点头像指定了某个角色，把它排到最前
+            const ordered = statusCardMemberId
+              ? [
+                  ...members.filter((m) => m.id === statusCardMemberId),
+                  ...members.filter((m) => m.id !== statusCardMemberId),
+                ]
+              : members;
+            return (
+              <EnsembleStatusCardLayer
+                members={ordered}
+                entries={entries}
+                storyTime={storyTime}
+                template={currentScript.statusPanel?.template}
+                onClose={() => setStatusCardTurnId(null)}
+              />
+            );
+          })()}
+
+
           {showSettingsSheet && (() => {
             // 与 triggerAiTurn 共用同一套换算（charsToMaxTokens），
             // 保证面板上写的就是真实发出去的护栏值。

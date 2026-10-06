@@ -39,9 +39,30 @@ export type EnsembleParsedReply = {
   multiSpeaker: boolean;
   /** 原始文本（未经清洗，便于调试/落库 rawText） */
   rawText: string;
+  /**
+   * 状态面板数据（第六暗号 ［状态］）。
+   * 每个出场角色一条，key 由用户的「字段表」动态决定。
+   * 未启用状态面板 / 模型没写 → 空数组。
+   */
+  statusData: EnsembleStatusEntry[];
+  /**
+   * 状态面板数据所在整段被剥离后的正文（用于落库 content）。
+   * 未命中状态块时与原文本一致。
+   */
+  cleanText: string;
 };
 
-export const ENSEMBLE_PARSER_VERSION = 2;
+/** 状态面板：单个角色的一条数据（key 动态，值一律字符串） */
+export type EnsembleStatusEntry = {
+  /** 角色显示名（模型回填，须能对上演员表） */
+  name: string;
+  /** 命中的演员表 id（认不出则不填） */
+  memberId?: string;
+  /** 字段 key → 值，key 来自剧本 statusPanel.fields */
+  values: Record<string, string>;
+};
+
+export const ENSEMBLE_PARSER_VERSION = 3;
 
 /**
  * 旁白协议暗号：行首 `[旁白]` / `【旁白】` + 可选冒号。
@@ -77,6 +98,117 @@ const ACTION_TOKEN = /^\s*[\[［【]\s*(?:叙述|动作)\s*[\]］】]\s*[:：]?\
  *     由本暗号一次性声明类型，绝不与叙述块混淆。
  */
 const DIALOGUE_TOKEN = /^\s*[\[［【]\s*对白\s*[\]］】]\s*[:：]?\s*/;
+
+/**
+ * 状态面板协议暗号：行首 `[状态]` / `【状态】` + 可选冒号。
+ *
+ * 设计（2026-10-06 定稿）：
+ *   · 模型在**整幕末尾**附一段 ［状态］ 块，形如：
+ *       ［状态］
+ *       - 角色: 金成帝
+ *         loc_cn: 襄阳县南面海滨别庄礁石滩
+ *         thought: 这破雨下个没完。
+ *       - 角色: 皮
+ *         ...
+ *   · 本函数把该段**整段剥离**，正文里绝不出现，也不占 N 字护栏。
+ *   · 每个出场角色一条；key 由用户字段表动态决定，解析器不写死任何 key
+ *     （除 `角色` 这个归属键本身）。
+ *   · 时间字段（time）**不由模型写** —— 由前端按时间感知设置注入模板。
+ */
+const STATUS_TOKEN = /^\s*[\[［【]\s*状态\s*[\]］】]\s*[:：]?\s*$/;
+
+/** 状态块里的「角色名」归属行：`- 角色: 金成帝` / `- 角色：金成帝` / `角色: 金成帝` */
+const STATUS_OWNER_LINE = /^\s*[-*•]?\s*(?:角色|角色名|name)\s*[:：]\s*(.+?)\s*$/i;
+/** 状态块里的字段行：`loc_cn: xxx`（key 允许中英文、下划线、数字） */
+const STATUS_FIELD_LINE = /^\s*[-*•]?\s*([A-Za-z_][A-Za-z0-9_]*|[^\s:：]{1,12})\s*[:：]\s*(.*)$/;
+
+/**
+ * 从「已剥离 think 块」的文本里，抽出状态块并返回 { statusText, cleanText, entries }。
+ *
+ * 规则：
+ *   1. 找到第一处 `［状态］` 独占行 → 从该行起，到文本末尾（或到下一个
+ *      `［旁白］/角色名：` 等正文暗号之前）都算状态块。
+ *   2. 状态块整体从 cleanText 中删除（连同前后多余空行），保证正文干净。
+ *   3. 逐个解析 `- 角色: X` 后紧跟的 key: value 行。
+ *
+ * ⚠️ 容错：模型偶尔会写成 `［状态］:` 或漏掉前导 `-`，都认。
+ *    也允许状态块**出现在中间**（取最后一段，正文照常保留其余部分）。
+ */
+export function extractStatusBlock(
+  text: string,
+  allCast: EnsembleCastMember[] = []
+): { cleanText: string; entries: EnsembleStatusEntry[] } {
+  const lines = text.split("\n");
+  let start = -1;
+  let end = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (STATUS_TOKEN.test(lines[i])) {
+      start = i;
+      break;
+    }
+  }
+  // 没写状态块 → 原样返回，绝不误删正文
+  if (start === -1) return { cleanText: text, entries: [] };
+
+  // 状态块向后延伸到「下一个明确的正文暗号」为止（防止模型把正文写在状态块后面）
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (
+      NARRATION_TOKEN.test(l) ||
+      INNER_TOKEN.test(l) ||
+      ACTION_TOKEN.test(l) ||
+      DIALOGUE_TOKEN.test(l)
+    ) {
+      end = i;
+      break;
+    }
+  }
+
+  const statusLines = lines.slice(start + 1, end);
+  const kept = [...lines.slice(0, start), ...lines.slice(end)];
+  // 收尾清理：去掉剥离后产生的连续空行
+  const cleanText = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  // ── 解析条目 ──
+  const entries: EnsembleStatusEntry[] = [];
+  let cur: EnsembleStatusEntry | null = null;
+
+  for (const raw of statusLines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    // 归属行
+    const ownerM = line.match(STATUS_OWNER_LINE);
+    if (ownerM) {
+      const name = ownerM[1].trim();
+      if (name) {
+        const member = findCastMember(name, allCast, allCast);
+        cur = {
+          name: member?.name || name,
+          memberId: member?.id,
+          values: {},
+        };
+        entries.push(cur);
+        continue;
+      }
+    }
+    if (!cur) continue;
+
+    // 字段行
+    const fieldM = line.match(STATUS_FIELD_LINE);
+    if (fieldM) {
+      const key = fieldM[1].trim();
+      const val = fieldM[2].trim();
+      // 「角色」键已经作为归属消费，跳过
+      if (/^(角色|角色名|name)$/i.test(key)) continue;
+      if (val) cur.values[key] = val;
+    }
+  }
+
+  return { cleanText, entries };
+}
+
 
 /**
  * 归属声明行：`角色名：` 独占一行（行内除名字与全角冒号外没有别的内容）。
@@ -201,10 +333,20 @@ export function parseEnsembleReply(
   allCast: EnsembleCastMember[] = actors
 ): EnsembleParsedReply {
   const rawText = text ?? "";
-  const body = stripReasoningAndExtract(rawText);
+  const cleaned = stripReasoningAndExtract(rawText);
+
+  // ── 第六暗号：先剥状态块（整段摘除，绝不进正文、不占字数护栏）──
+  const { cleanText, entries: statusData } = extractStatusBlock(cleaned, allCast);
+  const body = cleanText;
 
   if (!body) {
-    return { frames: [], multiSpeaker: false, rawText };
+    return {
+      frames: [],
+      multiSpeaker: false,
+      rawText,
+      statusData,
+      cleanText: body,
+    };
   }
 
   const lines = body.split(/\r?\n/);
@@ -457,6 +599,8 @@ export function parseEnsembleReply(
     frames,
     multiSpeaker: speakersSeen.size > 1,
     rawText,
+    statusData,
+    cleanText,
   };
 }
 
