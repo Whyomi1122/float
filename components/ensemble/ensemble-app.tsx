@@ -170,8 +170,11 @@ const GAP_BLOCK = 26; // 角色块之间（换人）
 const CHARS_MIN = 50;
 const CHARS_MAX = 5000; // 目标值上限
 const CHARS_TO_TOKENS = 1.6;
-// 护栏 token = M 对应的 token，再乘余量系数（thinking 模型的思维链也占 maxOutputTokens）
-const TOKEN_HEADROOM = 3;
+// 护栏 token = M 对应的 token，再乘余量系数。
+// 1006 三次调整：用户认为 3 倍余量太大（N=2000 → 14400 token 过夸张），
+// 调为 1 倍 —— 即护栏 token 直接对应 M 字，不再额外放大。
+// 仍有 M 本身带来的余量（M = N + max(400, N×0.5)），够用于收尾。
+const TOKEN_HEADROOM = 1;
 
 /** 用户公式：由目标字数 N 求实际允许的字数上限 M。 */
 function targetCharsToMaxChars(n: number): number {
