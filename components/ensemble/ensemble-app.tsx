@@ -160,19 +160,23 @@ const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
 const GAP_NARR = 26; // 旁白上下（换场呼吸点）
 const GAP_BLOCK = 26; // 角色块之间（换人）
 
-// ── 每轮输出长度 / token 护栏（用户口径 2026-10-06 三次调整后定稿）──
-// 用户口径：N（界面设的每轮字数）就是**实际允许写的字数上限**，M = N。
-// 目的：护栏不虚高（此前 3 倍余量导致 N=2000 → 14400 token，过于夸张）。
-// 注：systemPrompt 里仍按「目标值」表述，让模型优先保证语义完整、
-//     接近上限时提前收尾，而不是写到正好 N 字硬停。
+// ── 每轮输出长度 / token 护栏（用户口径 2026-10-06 四次调整后定稿）──
+// 设计要点：**提示词管「别写太多」，maxTokens 闸门管「别写太长」**，两者叠加。
+//   - 提示词里的 N  → 模型自觉「写 N 字左右」（所以不会涨到 2000 字）
+//   - maxTokens     → 服务器强制闸门（所以不会无限长）
+// 因此护栏**不需要很大余量**，只需留一口气让模型把最后一句收完。
+// 若 M 严格 = N，模型想写 N+20 字就会被闸门劈成半句 —— 这才是真正的风险。
+// 用户定稿：M = N + 200（留一口气收尾，token 数字也不夸张）。
 const CHARS_MIN = 50;
 const CHARS_MAX = 5000; // 目标值上限
 const CHARS_TO_TOKENS = 1.6;
 const TOKEN_HEADROOM = 1;
+/** 收尾余量：给模型留出把最后一句写完的额度，不参与「目标字数」提示。 */
+const CHARS_TAIL_MARGIN = 200;
 
-/** 由目标字数 N 求实际允许的字数上限 M。用户定稿：M = N。 */
+/** 由目标字数 N 求实际允许的字数上限 M。用户定稿：M = N + 200。 */
 function targetCharsToMaxChars(n: number): number {
-  return Math.round(n);
+  return Math.round(n) + CHARS_TAIL_MARGIN;
 }
 
 /** 由目标字数 N 求请求用的 maxOutputTokens（1 字 ≈ 1.6 token）。 */
@@ -1033,14 +1037,14 @@ ${script.background.trim()}
         ? `\n【上一幕的说话人】${lastTurn.senderName}。除非剧情里有人明确对他开口、他必须回应，否则这一幕请让**别的角色**主导，不要又从头到尾都是他。`
         : "";
 
-      // ── 输出长度控制规则（用户定稿，1006 三次调整后：M = N）──
+      // ── 输出长度控制规则（用户定稿，1006 四次调整：M = N + 200）──
       const outputLenRule = `
 【输出长度控制规则】
-1. 每轮字数上限 N = ${charsPerTurn} 字，即本轮你最多写 N 字。
-2. 请尽量写够 N 字，把这一幕交代充分；不要草草结束。
-3. 必须在句子、段落完整处收尾，**禁止在句子中间、段落中间突然截断**。
-4. 如果预计写不完，请提前收敛剧情，优先保证收尾完整，而不是被硬切断。
-5. 禁止为了凑字数而啰嗦、重复、灌水。`;
+1. 每轮目标字数 N = ${charsPerTurn} 字，请**尽量写够**，不要草草结束。
+2. 系统的硬性 token 上限对应 ${maxChars} 字（比目标多 ${CHARS_TAIL_MARGIN} 字）。
+3. 必须在句子、段落完整处收尾，**严禁在句子中间、段落中间突然截断**。
+   若发现快要触顶，立即缩短后续内容、优先写完当前这句。
+4. 禁止为了凑字数而啰嗦、重复、灌水。`;
 
       // ── 04 NARRATIVE · 叙事人称（图1）──
       const povBlock =
@@ -2514,9 +2518,9 @@ ${lastSpeakerNote}
                         </div>
                       </div>
                       <div className="text-[10px] leading-relaxed text-black/40">
-                        想让 AI 每轮写多长。它会尽量写够，并在
+                        想让 AI 每轮写多长。它会尽量写够 {charsDraft} 字，并在
                         <span className="text-black/60">本句完整处收尾</span>，
-                        不会写到一半被切断。上限 {maxChars} 字。
+                        不会写到一半被切断。
                       </div>
                     </div>
                   </div>
