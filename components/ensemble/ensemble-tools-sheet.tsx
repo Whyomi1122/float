@@ -9,6 +9,7 @@ import {
   Activity,
   type LucideIcon,
 } from "lucide-react";
+import { TYPE } from "@/components/ensemble/ensemble-tokens";
 
 // ══════════════════════════════════════════════════════════
 // 群像「功能」面板（TOOLS）
@@ -21,9 +22,18 @@ import {
 // ══════════════════════════════════════════════════════════
 
 /** 字号基准值 → 固定 px 字符串（群像内部不随全局缩放变化） */
+/** 字号基准值 → 固定 px 字符串（群像内部不随全局缩放变化）
+ *  1007：全部收口到 ensemble-tokens 的 TYPE 档位（12/14/16/20/24/32），
+ *        禁止再出现 9 / 9.5 / 10 / 18 这类散值。 */
 function fs(px: number): string {
   return `${px}px`;
 }
+
+/** token 直通（语义 → px），供面板内引用，避免手写裸值 */
+const T_MICRO = TYPE.MICRO; // 12
+const T_SM = TYPE.SM; // 14
+const T_BASE = TYPE.BASE; // 16
+const T_H3 = TYPE.H3; // 20
 
 export type EnsembleToolId =
   | "customCss"
@@ -96,7 +106,7 @@ function ToolRow({
           className={`block tracking-[0.16em] font-medium mt-1 ${
             enabled ? "text-black/30" : "text-black/15"
           }`}
-          style={{ fontSize: fs(9) }}
+          style={{ fontSize: fs(T_MICRO) }}
         >
           {labelEn}
         </span>
@@ -150,13 +160,13 @@ export function EnsembleToolsSheet({
         <div className="px-1.5 mb-4">
           <div
             className="font-bold tracking-tight text-[#111111] leading-none"
-            style={{ fontSize: fs(18) }}
+            style={{ fontSize: fs(T_H3) }}
           >
             功能
           </div>
           <div
             className="tracking-[0.28em] font-medium text-black/30 mt-2"
-            style={{ fontSize: fs(9.5) }}
+            style={{ fontSize: fs(T_MICRO) }}
           >
             TOOLS
           </div>
@@ -178,7 +188,7 @@ export function EnsembleToolsSheet({
             避免同一个动作出现两个按钮（用户明确要求：返回择一即可）。 */}
         <div
           className="mt-4 mb-1 text-center text-black/25"
-          style={{ fontSize: fs(10) }}
+          style={{ fontSize: fs(T_MICRO) }}
         >
           点空白处或按返回键收起
         </div>
