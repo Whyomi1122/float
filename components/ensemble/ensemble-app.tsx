@@ -195,7 +195,7 @@ const GAP_BLOCK = 26; // 角色块之间（换人）（1007b：20 → 26，实�
 // 用户口径：左右必须严格对称；头像/正文/旁白共用一条左基准。
 // 8f9c6c4（16+9=25px）→「过大」；5da29c9（12px）→ 仍偏大；本轮定 10px。
 const FRAME_INSET = 10; // 整块左右内缩（10–12 区间取 10）
-const FRAME_TEXT_INSET = 0; // 不再二级再缩，避免把头像/正文又拧歪
+const FRAME_TEXT_INSET = 15; // 1007 用户口径：卡内 15px（帧内缩 = 正文距卡片左右边）
 
 // ── 输入框自动换行（1007 · 第三次反馈遗留项）──
 // 用户要求：输入框「上下滑动、一行塞不下自动换行」，且要能继续长到多行。
@@ -644,14 +644,14 @@ function MiniSheet({
           <div className="min-w-0">
             <div
               className="font-bold tracking-tight text-[#111111] leading-none"
-              style={{ fontSize: "20px" }}
+              style={{ fontSize: "18px" }}
             >
               {title}
             </div>
             {subtitle && (
               <div
                 className="tracking-[0.2em] font-medium text-black/30 mt-2"
-                style={{ fontSize: "12px" }}
+                style={{ fontSize: "11px" }}
               >
                 {subtitle}
               </div>
@@ -665,7 +665,7 @@ function MiniSheet({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={onBack}
                 className="shrink-0 px-2.5 py-1.5 rounded-full bg-black/[0.06] text-black/50 active:scale-95 transition-transform"
-                style={{ fontSize: "12px" }}
+                style={{ fontSize: "11px" }}
               >
                 ← {backLabel}
               </button>
@@ -675,7 +675,7 @@ function MiniSheet({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={onClose}
               className="shrink-0 px-2.5 py-1.5 rounded-full bg-white text-black/45 active:scale-95 transition-transform"
-              style={{ fontSize: "12px" }}
+              style={{ fontSize: "11px" }}
               title="返回"
             >
               {onBack ? "✕" : "← 返回"}
@@ -791,7 +791,7 @@ function TurnActionBar({
           >
             <ChevronLeft size={13} />
           </button>
-          <span className="text-[12px] font-mono tabular-nums">
+          <span className="text-[11px] font-mono tabular-nums">
             {index + 1}/{total}
           </span>
           <button
@@ -880,11 +880,11 @@ function EnsembleHeader({
           <span />
         )}
         <div className="flex flex-col items-center min-w-0">
-          <div className="text-[16px] font-semibold tracking-tight truncate max-w-full">
+          <div className="text-[15px] font-semibold tracking-tight truncate max-w-full">
             {title}
           </div>
           {subtitle ? (
-            <div className="text-[12px] text-black/40 font-mono truncate max-w-full">
+            <div className="text-[11px] text-black/40 font-mono truncate max-w-full">
               {subtitle}
             </div>
           ) : null}
@@ -1894,7 +1894,7 @@ ${lastSpeakerNote}
             <div className="flex flex-col items-center justify-center h-64 text-center text-black/40 space-y-3">
               <Users size={36} className="stroke-[1.5]" />
               <div className="text-sm">尚未创建用户面具</div>
-              <div className="text-[12px] text-black/30 px-8 leading-relaxed">
+              <div className="text-[11px] text-black/30 px-8 leading-relaxed">
                 请先到「设置 → 用户面具」中创建面具，并为角色绑定面具后即可在此选择。
               </div>
             </div>
@@ -1936,11 +1936,11 @@ ${lastSpeakerNote}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-sm truncate">{p.name}</div>
-                    <div className="text-[12px] text-black/45 line-clamp-1 mt-0.5">
+                    <div className="text-[11px] text-black/45 line-clamp-1 mt-0.5">
                       {p.occupation ? `${p.occupation} · ` : ""}
                       {p.bio || "暂无简介"}
                     </div>
-                    <div className="text-[12px] text-black/35 font-mono mt-1">
+                    <div className="text-[11px] text-black/35 font-mono mt-1">
                       {ownedChars.length} 位角色
                     </div>
                   </div>
@@ -2017,7 +2017,7 @@ ${lastSpeakerNote}
                     {s.title}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="text-[12px] text-black/40 font-mono">
+                    <div className="text-[11px] text-black/40 font-mono">
                       {s.cast.length} CAST
                     </div>
                     <button
@@ -2047,7 +2047,7 @@ ${lastSpeakerNote}
                     {s.cast.map((c) => (
                       <div
                         key={c.id}
-                        className="w-5 h-5 rounded-full border border-white bg-black/10 overflow-hidden flex items-center justify-center text-[12px]"
+                        className="w-5 h-5 rounded-full border border-white bg-black/10 overflow-hidden flex items-center justify-center text-[11px]"
                       >
                         {c.avatar ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -2062,7 +2062,7 @@ ${lastSpeakerNote}
                       </div>
                     ))}
                   </div>
-                  <div className="text-[12px] text-black/35 font-mono">
+                  <div className="text-[11px] text-black/35 font-mono">
                     {s.turns.length} 幕
                   </div>
                 </div>
@@ -2129,7 +2129,7 @@ ${lastSpeakerNote}
               选择参演角色 ({selectedCastIds.length})
             </label>
             {activePersona && (
-              <div className="text-[12px] text-black/40 mb-2 px-0.5">
+              <div className="text-[11px] text-black/40 mb-2 px-0.5">
                 仅显示绑定到面具「{activePersona.name}」的角色
               </div>
             )}
@@ -2265,7 +2265,7 @@ ${lastSpeakerNote}
                     if (e.key === "Enter") commitTitleRename();
                     if (e.key === "Escape") setEditingTitle(false);
                   }}
-                  className="text-[16px] font-semibold tracking-tight text-center bg-black/[0.05] rounded-lg px-2 py-0.5 outline-none w-full"
+                  className="text-[15px] font-semibold tracking-tight text-center bg-black/[0.05] rounded-lg px-2 py-0.5 outline-none w-full"
                 />
               ) : (
                 <button
@@ -2274,7 +2274,7 @@ ${lastSpeakerNote}
                     setTitleDraft(currentScript.title);
                     setEditingTitle(true);
                   }}
-                  className="text-[16px] font-semibold tracking-tight truncate max-w-full hover:opacity-70 transition-opacity"
+                  className="text-[15px] font-semibold tracking-tight truncate max-w-full hover:opacity-70 transition-opacity"
                   title="点击修改剧本名"
                 >
                   {currentScript.title}
@@ -2324,14 +2324,14 @@ ${lastSpeakerNote}
                 再叠加 .ensemble-frames 的 10px 帧内缩 = 正文左右各 26px，对称。 */}
           <div
             ref={scrollRef}
-            className="ensemble-workspace-scroll flex-1 overflow-y-auto px-4 py-4 space-y-[14px] min-h-0"
+            className="ensemble-workspace-scroll flex-1 overflow-y-auto px-[18px] py-4 space-y-[14px] min-h-0"
             style={{
               scrollbarWidth: "none",
               msOverflowStyle: "none",
             }}
           >
             {apiError && (
-              <div className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 leading-relaxed">
+              <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 leading-relaxed">
                 API 调用失败：{apiError}
               </div>
             )}
@@ -2368,7 +2368,7 @@ ${lastSpeakerNote}
                   //     最终 = 容器16 + 10 = 26px，与 AI 侧**完全对齐**。
                   //   垂直 padding 两者都用 p-5 的 20px，仅水平拆开。
                   className={`group bg-white rounded-[20px] py-4 ${
-                    isUser ? "px-2.5" : "px-0"
+                    isUser ? "px-[15px]" : "px-0"
                   } border border-black/[0.04] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
                 >
                   {/* 帧模型：一条 turn 承载整幕，卡内按帧连续渲染，角色名内联。
@@ -2377,7 +2377,7 @@ ${lastSpeakerNote}
                     <>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-[10px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[12px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
+                          <div className="w-8 h-8 rounded-[10px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
                             {castChar?.avatar ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
@@ -2413,20 +2413,20 @@ ${lastSpeakerNote}
                             value={editingTurnDraft}
                             onChange={(e) => setEditingTurnDraft(e.target.value)}
                             rows={4}
-                            className="w-full bg-black/[0.03] border border-black/10 rounded-xl p-2.5 text-[14px] leading-[1.85] outline-none focus:border-black/25 resize-none"
+                            className="w-full bg-black/[0.03] border border-black/10 rounded-xl p-2.5 text-[13px] leading-[1.85] outline-none focus:border-black/25 resize-none"
                           />
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
                               onClick={() => setEditingTurnId(null)}
-                              className="px-3 py-1 text-[12px] text-black/50 hover:bg-black/5 rounded-lg"
+                              className="px-3 py-1 text-[11px] text-black/50 hover:bg-black/5 rounded-lg"
                             >
                               取消
                             </button>
                             <button
                               type="button"
                               onClick={() => commitTurnEdit(turn.id)}
-                              className="px-3 py-1 text-[12px] bg-[#1a1a1a] text-white rounded-lg"
+                              className="px-3 py-1 text-[11px] bg-[#1a1a1a] text-white rounded-lg"
                             >
                               保存
                             </button>
@@ -2445,20 +2445,20 @@ ${lastSpeakerNote}
                         value={editingTurnDraft}
                         onChange={(e) => setEditingTurnDraft(e.target.value)}
                         rows={6}
-                        className="w-full bg-black/[0.03] border border-black/10 rounded-xl p-2.5 text-[14px] leading-[1.85] outline-none focus:border-black/25 resize-none"
+                        className="w-full bg-black/[0.03] border border-black/10 rounded-xl p-2.5 text-[13px] leading-[1.85] outline-none focus:border-black/25 resize-none"
                       />
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => setEditingTurnId(null)}
-                          className="px-3 py-1 text-[12px] text-black/50 hover:bg-black/5 rounded-lg"
+                          className="px-3 py-1 text-[11px] text-black/50 hover:bg-black/5 rounded-lg"
                         >
                           取消
                         </button>
                         <button
                           type="button"
                           onClick={() => commitTurnEdit(turn.id)}
-                          className="px-3 py-1 text-[12px] bg-[#1a1a1a] text-white rounded-lg"
+                          className="px-3 py-1 text-[11px] bg-[#1a1a1a] text-white rounded-lg"
                         >
                           保存
                         </button>
@@ -2488,7 +2488,7 @@ ${lastSpeakerNote}
 
                   {/* 元信息 + 操作：全部改为竖排列表，避免重 roll 后横排被挤压看不清 */}
                   <div className="pt-2.5 border-t border-black/[0.045] space-y-1.5">
-                    <div className="flex flex-col gap-1 text-[12px] text-black/35 font-mono tracking-tight leading-relaxed">
+                    <div className="flex flex-col gap-1 text-[11px] text-black/35 font-mono tracking-tight leading-relaxed">
                       <span className="block">
                         DATE {formatMinute(turn.timestamp)}
                       </span>
@@ -2592,7 +2592,7 @@ ${lastSpeakerNote}
                   type="button"
                   disabled={isGenerating}
                   onClick={() => triggerAiTurn(currentScript)}
-                  className="px-3 h-8 bg-[#1a1a1a] text-white rounded-xl text-[12px] font-semibold disabled:opacity-40 transition-opacity shrink-0 active:scale-95"
+                  className="px-3 h-8 bg-[#1a1a1a] text-white rounded-xl text-[11px] font-semibold disabled:opacity-40 transition-opacity shrink-0 active:scale-95"
                   title="让 AI 演下一轮"
                 >
                   {isGenerating ? "演绎中" : "下一轮"}
@@ -2665,7 +2665,7 @@ ${lastSpeakerNote}
             >
               {/* CSS 编辑区 */}
               <div className="bg-white rounded-[16px] p-3.5 space-y-2">
-                <div className="text-[12px] leading-relaxed text-black/45">
+                <div className="text-[11px] leading-relaxed text-black/45">
                   下方 CSS 只作用于本剧本，选择器请以{" "}
                   <span className="font-mono text-black/70 font-semibold">
                     .ensemble-frames
@@ -2690,7 +2690,7 @@ ${lastSpeakerNote}
                         )
                       }
                       className="px-2 py-1 rounded-full bg-black/[0.05] active:scale-95 transition-transform"
-                      style={{ fontSize: "12px" }}
+                      style={{ fontSize: "11px" }}
                       title={`插入 ${label}`}
                     >
                       <span className="font-mono text-black/60">{sel}</span>
@@ -2704,7 +2704,7 @@ ${lastSpeakerNote}
                   rows={8}
                   spellCheck={false}
                   placeholder={`/* ========== 群像正文 · 自定义样式 ==========\n   选择器请以 .ensemble-frames 开头，改完点「应用」生效\n\n   .ensemble-frames .frame-dialogue { color: #111; }\n   .ensemble-frames .frame-narration { font-size: 13.5px; }\n*/`}
-                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[12px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
+                  className="w-full bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[11px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-none leading-relaxed"
                 />
               </div>
 
@@ -2717,7 +2717,7 @@ ${lastSpeakerNote}
                     setShowCssSheet(false);
                     setShowToolsSheet(true);
                   }}
-                  className="flex-1 py-3 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                 >
                   关闭
                 </button>
@@ -2733,7 +2733,7 @@ ${lastSpeakerNote}
                     setShowToolsSheet(true);
                     setToast("自定义 CSS 已生效");
                   }}
-                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   应用
                 </button>
@@ -2766,7 +2766,7 @@ ${lastSpeakerNote}
                     才切换模式。现直接由开关 ON/OFF 决定 realtime。 */}
                 {!timeEnabledDraft && (
                   <div className="space-y-2">
-                    <div className="text-[12px] text-black/45 leading-relaxed">
+                    <div className="text-[11px] text-black/45 leading-relaxed">
                       已关闭「感知现实时间」→ 剧情时间架空。填写一个起点，时间会从
                       这个点起随现实自然流逝。保存即生效。
                     </div>
@@ -2781,14 +2781,14 @@ ${lastSpeakerNote}
                       onChange={(e) => setTimeAnchorDraft(e.target.value)}
                       placeholder="2015-03-29 15:54"
                       spellCheck={false}
-                      className="w-full bg-black/[0.03] border border-black/[0.07] rounded-[12px] px-3 py-3 font-mono text-[14px] text-[#111111] placeholder:text-black/25 outline-none focus:border-black/25"
+                      className="w-full bg-black/[0.03] border border-black/[0.07] rounded-[12px] px-3 py-3 font-mono text-[13px] text-[#111111] placeholder:text-black/25 outline-none focus:border-black/25"
                     />
-                    <div className="text-[12px] text-black/35 leading-relaxed">
+                    <div className="text-[11px] text-black/35 leading-relaxed">
                       格式：<span className="font-mono">YYYY-MM-DD HH:mm</span>
                       （例 <span className="font-mono">2015-03-29 15:54</span>），24 小时制。
                     </div>
                     {timeAnchorDraft.trim() && !isValidTimeAnchor(timeAnchorDraft) && (
-                      <div className="text-[12px] text-[#c0392b] leading-relaxed">
+                      <div className="text-[11px] text-[#c0392b] leading-relaxed">
                         格式无法识别，请按 <span className="font-mono">YYYY-MM-DD HH:mm</span> 填写。
                       </div>
                     )}
@@ -2803,7 +2803,7 @@ ${lastSpeakerNote}
                     setShowTimeSheet(false);
                     setShowToolsSheet(true);
                   }}
-                  className="flex-1 py-3 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                 >
                   取消
                 </button>
@@ -2840,7 +2840,7 @@ ${lastSpeakerNote}
                     setShowToolsSheet(true);
                     setToast("时间感知已保存 · 下一轮生效");
                   }}
-                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   保存
                 </button>
@@ -2875,12 +2875,12 @@ ${lastSpeakerNote}
                   label="字段 / DATA"
                   labelEn="FIELDS"
                   right={
-                    <span className="text-[12px] text-black/30">
+                    <span className="text-[11px] text-black/30">
                       你定数据 · AI 照填
                     </span>
                   }
                 />
-                <div className="text-[12px] text-black/45 leading-relaxed mb-3">
+                <div className="text-[11px] text-black/45 leading-relaxed mb-3">
                   key 给模板取值{"{​{key}}"} 用；说明是给 AI 看的话；字数是软上限（留空不限）。
                   0-100 的数字字段可在模板里用{" "}
                   <span className="font-mono text-black/60">{"{{key.bar}}"}</span>{" "}
@@ -2933,14 +2933,14 @@ ${lastSpeakerNote}
                       <button
                         type="button"
                         onClick={() => setStatusTemplateDraft(DEFAULT_STATUS_TEMPLATE)}
-                        className="text-[12px] text-black/45 active:scale-95 transition-transform"
+                        className="text-[11px] text-black/45 active:scale-95 transition-transform"
                       >
                         默认模板
                       </button>
                     </div>
                   }
                 />
-                <div className="text-[12px] text-black/45 leading-relaxed mb-3">
+                <div className="text-[11px] text-black/45 leading-relaxed mb-3">
                   把搓好的状态栏模板整段贴进来，点「从模板生成字段」自动反解
                   <span className="font-mono text-black/60"> {"{{字段}}"} </span>
                   或
@@ -2961,7 +2961,7 @@ ${lastSpeakerNote}
                   label="预览 / LIVE"
                   labelEn="SANDBOX"
                   right={
-                    <span className="text-[12px] text-black/30">沙箱 · 示例数据</span>
+                    <span className="text-[11px] text-black/30">沙箱 · 示例数据</span>
                   }
                 />
                 <StatusLivePreview
@@ -2978,7 +2978,7 @@ ${lastSpeakerNote}
                     setShowStatusSheet(false);
                     setShowToolsSheet(true);
                   }}
-                  className="flex-1 py-3 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                 >
                   关闭
                 </button>
@@ -3001,7 +3001,7 @@ ${lastSpeakerNote}
                     setShowToolsSheet(true);
                     setToast("状态面板已保存 · 下一轮生效");
                   }}
-                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   保存
                 </button>
@@ -3059,7 +3059,7 @@ ${lastSpeakerNote}
             // 用户公式 M = N + max(400, N × 0.5)：给用户看的「实际最多多少字」
             const maxChars = targetCharsToMaxChars(charsDraft);
             const numBadge = (n: string) => (
-              <span className="font-mono text-[12px] text-black/20 tracking-widest">
+              <span className="font-mono text-[11px] text-black/20 tracking-widest">
                 {n}
               </span>
             );
@@ -3074,7 +3074,7 @@ ${lastSpeakerNote}
                 </span>
                 <span
                   className="tracking-[0.22em] font-semibold text-black/45 flex-1"
-                  style={{ fontSize: "12px" }}
+                  style={{ fontSize: "11px" }}
                 >
                   {label}
                 </span>
@@ -3116,12 +3116,12 @@ ${lastSpeakerNote}
                     <ChevronLeft size={22} strokeWidth={1.8} />
                   </button>
                   <div className="min-w-0">
-                    <div className="text-[20px] font-bold tracking-tight text-[#111111] leading-none">
+                    <div className="text-[18px] font-bold tracking-tight text-[#111111] leading-none">
                       Settings
                     </div>
                     <div
                       className="tracking-[0.22em] font-medium text-black/25 mt-1.5"
-                      style={{ fontSize: "12px" }}
+                      style={{ fontSize: "11px" }}
                     >
                       ENSEMBLE · CONFIGURATION
                     </div>
@@ -3135,17 +3135,17 @@ ${lastSpeakerNote}
                     {sectionHead(<MessageSquare size={13} strokeWidth={2} />, "OPENING", "01")}
                     <div className="bg-white rounded-[16px] p-4">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-[14px] font-semibold text-[#111111]">
+                        <span className="text-[13px] font-semibold text-[#111111]">
                           Opening Message / 开场白
                         </span>
                         <span
                           className="tracking-[0.18em] font-medium text-black/25 px-1.5 py-0.5 rounded bg-black/[0.04]"
-                          style={{ fontSize: "12px" }}
+                          style={{ fontSize: "11px" }}
                         >
                           EDITABLE
                         </span>
                       </div>
-                      <div className="text-[12px] text-black/35 mt-1 mb-2.5">
+                      <div className="text-[11px] text-black/35 mt-1 mb-2.5">
                         铺垫群像的第一幕场景
                       </div>
                       <textarea
@@ -3153,7 +3153,7 @@ ${lastSpeakerNote}
                         onChange={(e) => setOpeningDraft(e.target.value)}
                         rows={5}
                         placeholder="开场白写在这里，AI 会基于它展开第一幕…"
-                        className="w-full bg-black/[0.03] border border-black/8 rounded-xl p-3 text-[14px] leading-[1.85] text-[#1f1f1f] placeholder:text-black/25 outline-none focus:border-black/25 resize-none"
+                        className="w-full bg-black/[0.03] border border-black/8 rounded-xl p-3 text-[13px] leading-[1.85] text-[#1f1f1f] placeholder:text-black/25 outline-none focus:border-black/25 resize-none"
                       />
                     </div>
                   </div>
@@ -3163,10 +3163,10 @@ ${lastSpeakerNote}
                     {sectionHead(<Wrench size={13} strokeWidth={2} />, "GENERATION", "02")}
                     <div className="bg-white rounded-[16px] p-4 space-y-3">
                       <div>
-                        <div className="text-[14px] font-semibold text-[#111111]">
+                        <div className="text-[13px] font-semibold text-[#111111]">
                           每轮字数 / Reply Length
                         </div>
-                        <div className="text-[12px] text-black/35 mt-1">
+                        <div className="text-[11px] text-black/35 mt-1">
                           AI 每次回复的目标字数
                         </div>
                       </div>
@@ -3200,12 +3200,12 @@ ${lastSpeakerNote}
                               setCharsDraft(safe);
                               setCharsInput(String(safe));
                             }}
-                            className="w-full bg-transparent text-center text-[16px] font-bold text-[#111111] tabular-nums outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className="w-full bg-transparent text-center text-[15px] font-bold text-[#111111] tabular-nums outline-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
-                          <span className="text-[12px] text-black/40 shrink-0">字</span>
+                          <span className="text-[11px] text-black/40 shrink-0">字</span>
                         </div>
                       </div>
-                      <div className="text-[12px] leading-relaxed text-black/40">
+                      <div className="text-[11px] leading-relaxed text-black/40">
                         想让 AI 每轮写多长。它会尽量写够 {charsDraft} 字，并在
                         <span className="text-black/60">本句完整处收尾</span>，
                         不会写到一半被切断。
@@ -3217,10 +3217,10 @@ ${lastSpeakerNote}
                   <div>
                     {sectionHead(<Clock size={13} strokeWidth={2} />, "CONTEXT", "03")}
                     <div className="bg-white rounded-[16px] p-4">
-                      <div className="text-[14px] font-semibold text-[#111111]">
+                      <div className="text-[13px] font-semibold text-[#111111]">
                         Context Limit / 记忆轮数
                       </div>
-                      <div className="text-[12px] text-black/35 mt-1 mb-2.5">
+                      <div className="text-[11px] text-black/35 mt-1 mb-2.5">
                         每次请求发送最近多少轮对话给 AI
                       </div>
                       <div className="flex items-center gap-3">
@@ -3233,9 +3233,9 @@ ${lastSpeakerNote}
                           onChange={(e) => setContextDraft(Number(e.target.value))}
                           className="flex-1 accent-[#111111]"
                         />
-                        <span className="text-[16px] font-bold text-[#111111] tabular-nums shrink-0">
+                        <span className="text-[15px] font-bold text-[#111111] tabular-nums shrink-0">
                           {contextDraft}
-                          <span className="text-[12px] font-medium text-black/40 ml-0.5">轮</span>
+                          <span className="text-[11px] font-medium text-black/40 ml-0.5">轮</span>
                         </span>
                       </div>
                     </div>
@@ -3246,7 +3246,7 @@ ${lastSpeakerNote}
                     {sectionHead(<Eye size={13} strokeWidth={2} />, "NARRATIVE", "04")}
                     <div className="bg-white rounded-[16px] p-4 space-y-2">
                       <div>
-                        <div className="text-[14px] font-semibold text-[#111111]">
+                        <div className="text-[13px] font-semibold text-[#111111]">
                           Narrative POV / 叙事人称
                         </div>
                       </div>
@@ -3275,13 +3275,13 @@ ${lastSpeakerNote}
                               {on && <span className="w-2 h-2 rounded-full bg-[#111111]" />}
                             </span>
                             <span className="min-w-0">
-                              <span className="block text-[14px] font-medium text-[#111111]">
+                              <span className="block text-[13px] font-medium text-[#111111]">
                                 {label}
                                 {val === "third" && (
                                   <span className="text-black/35 font-normal"> · 群像推荐</span>
                                 )}
                               </span>
-                              <span className="block text-[12px] text-black/35 mt-0.5">{desc}</span>
+                              <span className="block text-[11px] text-black/35 mt-0.5">{desc}</span>
                             </span>
                           </button>
                         );
@@ -3294,10 +3294,10 @@ ${lastSpeakerNote}
                     {sectionHead(<Layers size={13} strokeWidth={2} />, "MEMORY LINK", "05")}
                     <div className="bg-white rounded-[16px] p-4 space-y-2">
                       <div>
-                        <div className="text-[14px] font-semibold text-[#111111]">
+                        <div className="text-[13px] font-semibold text-[#111111]">
                           Online Sync / 线上互通
                         </div>
-                        <div className="text-[12px] text-black/35 mt-1">
+                        <div className="text-[11px] text-black/35 mt-1">
                           开启后记忆双向流通：角色在剧里「想起」你与线上聊天的记忆，剧里发生的事他们回到单聊也记得（需启用记忆库）
                         </div>
                       </div>
@@ -3325,10 +3325,10 @@ ${lastSpeakerNote}
                               {on && <span className="w-2 h-2 rounded-full bg-[#111111]" />}
                             </span>
                             <span className="min-w-0">
-                              <span className="block text-[14px] font-medium text-[#111111]">
+                              <span className="block text-[13px] font-medium text-[#111111]">
                                 {label}
                               </span>
-                              <span className="block text-[12px] text-black/35 mt-0.5">{desc}</span>
+                              <span className="block text-[11px] text-black/35 mt-0.5">{desc}</span>
                             </span>
                           </button>
                         );
@@ -3354,7 +3354,7 @@ ${lastSpeakerNote}
                       setScripts(loadEnsembleScripts());
                       setToast("已保存");
                     }}
-                    className="w-full py-3.5 rounded-[14px] bg-[#111111] text-white text-[14px] font-semibold tracking-[0.16em] inline-flex items-center justify-center gap-2 active:scale-[0.985] transition-transform"
+                    className="w-full py-3.5 rounded-[14px] bg-[#111111] text-white text-[13px] font-semibold tracking-[0.16em] inline-flex items-center justify-center gap-2 active:scale-[0.985] transition-transform"
                   >
                     <Check size={15} strokeWidth={2.4} />
                     SAVE DATA
@@ -3374,7 +3374,7 @@ ${lastSpeakerNote}
                       setScripts(loadEnsembleScripts());
                       setToast("记录已清空");
                     }}
-                    className="w-full py-3.5 rounded-[14px] bg-white text-[#d9534f] text-[14px] font-medium inline-flex items-center justify-center gap-2 active:scale-[0.985] transition-transform"
+                    className="w-full py-3.5 rounded-[14px] bg-white text-[#d9534f] text-[13px] font-medium inline-flex items-center justify-center gap-2 active:scale-[0.985] transition-transform"
                   >
                     <Eraser size={14} strokeWidth={2} />
                     清空记录 · CLEAR LOG
@@ -3469,17 +3469,17 @@ ${lastSpeakerNote}
                             <div className="min-w-0 flex items-center gap-1.5">
                               {/* 1007 二次：API 站名 14 → 13px（用户「再小一些」）。
                                   行高收到 leading-tight，卡片随之变矮。 */}
-                              <span className="text-[14px] font-semibold tracking-tight text-[#111111] truncate leading-tight">
+                              <span className="text-[13px] font-semibold tracking-tight text-[#111111] truncate leading-tight">
                                 {cfg.name || "未命名配置"}
                               </span>
                               {apiSelected && (
-                                <span className="shrink-0 px-1.5 py-[2px] rounded-[5px] bg-[#111111] text-white text-[12px] font-semibold leading-none">
+                                <span className="shrink-0 px-1.5 py-[2px] rounded-[5px] bg-[#111111] text-white text-[11px] font-semibold leading-none">
                                   当前
                                 </span>
                               )}
                             </div>
                             <span className="shrink-0 flex items-center gap-1 px-1.5 py-[3px] rounded-[6px] border border-black/[0.15]">
-                              <span className="text-[12px] font-semibold tracking-[0.1em] text-black/60">
+                              <span className="text-[11px] font-semibold tracking-[0.1em] text-black/60">
                                 MODEL
                               </span>
                               <ChevronDown
@@ -3491,7 +3491,7 @@ ${lastSpeakerNote}
                               />
                             </span>
                           </div>
-                          <div className="mt-0.5 font-mono text-[12px] text-black/45 truncate leading-tight">
+                          <div className="mt-0.5 font-mono text-[11px] text-black/45 truncate leading-tight">
                             {currentModel}
                           </div>
                         </button>
@@ -3504,19 +3504,19 @@ ${lastSpeakerNote}
                         {expanded && (
                           <div className="border-t border-dashed border-black/[0.12] max-h-[228px] overflow-y-auto overscroll-contain">
                             {isLoadingModels && (
-                              <div className="px-4 py-3.5 text-[12px] text-black/40">
+                              <div className="px-4 py-3.5 text-[11px] text-black/40">
                                 正在拉取该接口的模型列表…
                               </div>
                             )}
                             {!isLoadingModels && modelListError && (
                               <div className="px-4 py-3.5 space-y-2.5">
-                                <div className="text-[12px] text-[#b42318] leading-relaxed">
+                                <div className="text-[11px] text-[#b42318] leading-relaxed">
                                   {modelListError}
                                 </div>
                                 <button
                                   type="button"
                                   onClick={() => openModelPickerForApi(cfg)}
-                                  className="px-3 py-1.5 rounded-[8px] bg-black/[0.05] text-[12px] font-medium text-black/60 active:scale-95 transition-transform"
+                                  className="px-3 py-1.5 rounded-[8px] bg-black/[0.05] text-[11px] font-medium text-black/60 active:scale-95 transition-transform"
                                 >
                                   重试
                                 </button>
@@ -3525,7 +3525,7 @@ ${lastSpeakerNote}
                             {!isLoadingModels &&
                               !modelListError &&
                               modelNameList.length === 0 && (
-                                <div className="px-4 py-3.5 text-[12px] text-black/40">
+                                <div className="px-4 py-3.5 text-[11px] text-black/40">
                                   该接口未返回模型
                                 </div>
                               )}
@@ -3540,15 +3540,12 @@ ${lastSpeakerNote}
                                     key={name}
                                     type="button"
                                     onClick={() => pickModelForApi(cfg.id, name)}
-                                    className="w-full flex items-center gap-2 px-3.5 py-[9px] text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
+                                    className="w-full flex items-center gap-2 px-3.5 py-[7px] text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
                                   >
-                                    {/* 1007 三次：用户「单行省略不对，要**全部显示完**」。
-                                        故放弃 truncate（会省略号截断），改回可折行；
-                                        同时字号压到 11px + leading-tight，让绝大多数
-                                        模型名（如 [anti量]gemini-3.7-flash-high）**一行放得下**，
-                                        放不下的也**完整折行显示**，绝不截断。 */}
+                                    {/* 1007 三次+：用户「现在改到 8-9px」→ 取 9px；
+                                        保持 break-all 完整折行（不省略）。 */}
                                     <span
-                                      className={`flex-1 min-w-0 block font-mono text-[12px] leading-tight break-all ${
+                                      className={`flex-1 min-w-0 block font-mono text-[9px] leading-tight break-all ${
                                         selected
                                           ? "font-semibold text-[#111111]"
                                           : "text-black/55"
@@ -3574,7 +3571,7 @@ ${lastSpeakerNote}
 
                   if (apiConfigList.length === 0) {
                     return (
-                      <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
+                      <div className="bg-white rounded-[16px] p-5 text-center text-[11px] text-black/40">
                         尚未配置 API，请到「设置 → API 配置」添加
                       </div>
                     );
@@ -3606,7 +3603,7 @@ ${lastSpeakerNote}
                       setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
                       setToast("已恢复跟随全局默认");
                     }}
-                    className="w-full py-3 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                    className="w-full py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                   >
                     跟随全局默认
                   </button>
@@ -3621,7 +3618,7 @@ ${lastSpeakerNote}
                     setModelListError(null);
                     setShowToolsSheet(true);
                   }}
-                  className="w-full py-3 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="w-full py-3 rounded-[16px] bg-[#111111] text-[13px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   完成
                 </button>
@@ -3631,7 +3628,7 @@ ${lastSpeakerNote}
 
           {/* ═══════════ 轻提示 ═══════════ */}
           {toast && (
-            <div className="absolute left-1/2 -translate-x-1/2 bottom-24 z-[70] px-4 py-2 rounded-full bg-[#111111] text-white text-[12px] font-medium shadow-lg pointer-events-none">
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-24 z-[70] px-4 py-2 rounded-full bg-[#111111] text-white text-[11px] font-medium shadow-lg pointer-events-none">
               {toast}
             </div>
           )}

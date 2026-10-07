@@ -98,7 +98,7 @@ function ToolRow({
           className={`block font-semibold tracking-tight leading-tight ${
             enabled ? "text-[#111111]" : "text-black/30"
           }`}
-          style={{ fontSize: fs(14) }}
+          style={{ fontSize: fs(T_SM) }}
         >
           {label}
         </span>
