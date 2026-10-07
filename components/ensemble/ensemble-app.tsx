@@ -2316,7 +2316,7 @@ ${lastSpeakerNote}
                 再叠加 .ensemble-frames 的 10px 帧内缩 = 正文左右各 26px，对称。 */}
           <div
             ref={scrollRef}
-            className="ensemble-workspace-scroll flex-1 overflow-y-auto px-1.5 py-4 space-y-[14px] min-h-0"
+            className="ensemble-workspace-scroll flex-1 overflow-y-auto px-4 py-4 space-y-[14px] min-h-0"
             style={{
               scrollbarWidth: "none",
               msOverflowStyle: "none",
@@ -3531,16 +3531,17 @@ ${lastSpeakerNote}
                                     onClick={() => pickModelForApi(cfg.id, name)}
                                     className="w-full flex items-center gap-2 px-3.5 py-[9px] text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
                                   >
-                                    {/* 1007 二次：模型名要求「一行显示完」——
-                                        原 break-all 会折行（xxgeminixx 断两行），改 truncate
-                                        单行省略；字号 13 → 12px，行高 ≈ 38px。 */}
+                                    {/* 1007 三次：用户「单行省略不对，要**全部显示完**」。
+                                        故放弃 truncate（会省略号截断），改回可折行；
+                                        同时字号压到 11px + leading-tight，让绝大多数
+                                        模型名（如 [anti量]gemini-3.7-flash-high）**一行放得下**，
+                                        放不下的也**完整折行显示**，绝不截断。 */}
                                     <span
-                                      className={`flex-1 min-w-0 block font-mono text-[12px] leading-tight truncate ${
+                                      className={`flex-1 min-w-0 block font-mono text-[11px] leading-tight break-all ${
                                         selected
                                           ? "font-semibold text-[#111111]"
                                           : "text-black/55"
                                       }`}
-                                      title={name}
                                     >
                                       {name}
                                     </span>
