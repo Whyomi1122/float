@@ -551,7 +551,7 @@ function EnsembleFrameStream({
               key={i}
               className="frame-inner"
               style={{
-                marginTop: showName ? GAP_BLOCK : GAP_INNER,
+                marginTop: tpx(topMargin),
                 marginLeft: tpx(FRAME_TEXT_INSET),
                 marginRight: tpx(FRAME_TEXT_INSET),
                 paddingTop: tpx(7),
@@ -568,16 +568,17 @@ function EnsembleFrameStream({
           );
         }
 
-        // 叙述/动作帧（用户定稿 2026-10-04 第5轮）：叙述性文字统一淡灰 #b4b4b8。
+        // 叙述/动作帧（用户定稿 2026-10-04 第5轮）：叙述性文字统一淡灰。
         // 1007 修正：**要出头像行**（归属正确），但一段内同一角色连续帧共用
         //   同一行头 —— 由 showName 保证「一行出一个」。
+        // 1007 二次修正（换人分界更丑）：这里原来手写 `showName ? 0 : GAP_ACT`，
+        //   → 换人时头像**零间距**贴住上一段，分界糊成一团。
+        //   改为统一用 topMargin（换人 = GAP_BLOCK 20px，同角色续帧 = GAP_ACT 7px）。
         if (f.kind === "action") {
           return (
-            <div key={i} className="frame-action">
+            <div key={i} className="frame-action" style={{ marginTop: tpx(topMargin) }}>
               {showName && renderBlockHead(f.speaker)}
-              <div style={{ marginTop: showName ? tpx(0) : tpx(GAP_ACT) }}>
-                <BodyText raw={f.text} kind="act" />
-              </div>
+              <BodyText raw={f.text} kind="act" />
             </div>
           );
         }
@@ -2306,17 +2307,17 @@ ${lastSpeakerNote}
           {/* 3.1：顶栏「取消生成」与「← 返回剧本」按键已删除。
               关闭/返回由 MiniSheet 自身顶栏箭头负责，不在工作区顶部重复。
 
-              1007 修「右内缩比左大 12–15px」：
-                根因 = 本容器是 overflow-y-auto，滚动条在右侧**占位**（实测 12–15px），
-                于是「左 16 + 右 16 + 滚动条宽」→ 视觉上右内缩明显更大。
-                修法：scrollbar-gutter: stable both-edges 让浏览器在左右**各预留**
-                同宽 gutter，滚动条出现/消失都不再破坏对称；同时隐藏滚动条视觉
-                （保留滚动能力）。不用 padding 硬补 —— 补丁值会随设备滚动条宽度漂移。 */}
+              1007 第二轮修正（上一轮用 scrollbar-gutter: both-edges 改错了）：
+                both-edges 的语义是「**左右两侧都预留** gutter」，等于凭空在左右
+                各加一条 ~15px 的空隙 → 实机反而比之前 10px 更宽、更丑。
+                正确做法：**不给任何 gutter**，滚动条本身完全隐藏
+                （scrollbar-width:none + ::-webkit-scrollbar 已在全局样式里隐藏），
+                于是左右 padding 就是纯粹的 px-4(16px)，两侧严格相等。
+                再叠加 .ensemble-frames 的 10px 帧内缩 = 正文左右各 26px，对称。 */}
           <div
             ref={scrollRef}
-            className="ensemble-workspace-scroll flex-1 overflow-y-auto px-4 py-5 space-y-[18px] min-h-0"
+            className="ensemble-workspace-scroll flex-1 overflow-y-auto px-1.5 py-4 space-y-[14px] min-h-0"
             style={{
-              scrollbarGutter: "stable both-edges",
               scrollbarWidth: "none",
               msOverflowStyle: "none",
             }}
@@ -2358,9 +2359,9 @@ ${lastSpeakerNote}
                   //   · 用户卡片：无帧内缩，故直接给 10px（用户要求「用户卡片也是左右10px」），
                   //     最终 = 容器16 + 10 = 26px，与 AI 侧**完全对齐**。
                   //   垂直 padding 两者都用 p-5 的 20px，仅水平拆开。
-                  className={`group bg-white rounded-[20px] py-5 ${
+                  className={`group bg-white rounded-[20px] py-4 ${
                     isUser ? "px-2.5" : "px-0"
-                  } border border-black/[0.04] space-y-3.5 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
+                  } border border-black/[0.04] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
                 >
                   {/* 帧模型：一条 turn 承载整幕，卡内按帧连续渲染，角色名内联。
                       用户投稿（自己写的一幕）不切帧，按原样三色渲染。 */}
@@ -3451,25 +3452,27 @@ ${lastSpeakerNote}
                         <button
                           type="button"
                           onClick={() => toggleModelExpand(cfg)}
-                          className="w-full text-left px-4 pt-3.5 pb-3.5 active:bg-black/[0.02] transition-colors"
+                          className="w-full text-left px-3.5 pt-3 pb-3 active:bg-black/[0.02] transition-colors"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex items-center gap-2">
-                              <span className="text-[14px] font-semibold tracking-tight text-[#111111] truncate">
+                          <div className="flex items-start justify-between gap-2.5">
+                            <div className="min-w-0 flex items-center gap-1.5">
+                              {/* 1007 二次：API 站名 14 → 13px（用户「再小一些」）。
+                                  行高收到 leading-tight，卡片随之变矮。 */}
+                              <span className="text-[13px] font-semibold tracking-tight text-[#111111] truncate leading-tight">
                                 {cfg.name || "未命名配置"}
                               </span>
                               {apiSelected && (
-                                <span className="shrink-0 px-1.5 py-[2px] rounded-[5px] bg-[#111111] text-white text-[9.5px] font-semibold leading-none">
+                                <span className="shrink-0 px-1.5 py-[2px] rounded-[5px] bg-[#111111] text-white text-[9px] font-semibold leading-none">
                                   当前
                                 </span>
                               )}
                             </div>
-                            <span className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-[7px] border border-black/[0.15]">
-                              <span className="text-[9.5px] font-semibold tracking-[0.12em] text-black/60">
+                            <span className="shrink-0 flex items-center gap-1 px-1.5 py-[3px] rounded-[6px] border border-black/[0.15]">
+                              <span className="text-[9px] font-semibold tracking-[0.1em] text-black/60">
                                 MODEL
                               </span>
                               <ChevronDown
-                                size={11}
+                                size={10}
                                 strokeWidth={2.5}
                                 className={`text-black/40 transition-transform ${
                                   expanded ? "rotate-180" : ""
@@ -3477,7 +3480,7 @@ ${lastSpeakerNote}
                               />
                             </span>
                           </div>
-                          <div className="mt-1 font-mono text-[11px] text-black/45 truncate">
+                          <div className="mt-0.5 font-mono text-[10.5px] text-black/45 truncate leading-tight">
                             {currentModel}
                           </div>
                         </button>
@@ -3526,20 +3529,24 @@ ${lastSpeakerNote}
                                     key={name}
                                     type="button"
                                     onClick={() => pickModelForApi(cfg.id, name)}
-                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
+                                    className="w-full flex items-center gap-2 px-3.5 py-[9px] text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
                                   >
+                                    {/* 1007 二次：模型名要求「一行显示完」——
+                                        原 break-all 会折行（xxgeminixx 断两行），改 truncate
+                                        单行省略；字号 13 → 12px，行高 ≈ 38px。 */}
                                     <span
-                                      className={`flex-1 min-w-0 block font-mono text-[13px] leading-snug break-all ${
+                                      className={`flex-1 min-w-0 block font-mono text-[12px] leading-tight truncate ${
                                         selected
                                           ? "font-semibold text-[#111111]"
                                           : "text-black/55"
                                       }`}
+                                      title={name}
                                     >
                                       {name}
                                     </span>
                                     {selected && (
                                       <Check
-                                        size={14}
+                                        size={13}
                                         strokeWidth={2.4}
                                         className="text-[#111111] shrink-0"
                                       />
