@@ -181,7 +181,7 @@ const GAP_DIALOG = 10; // 对白段之间（1006：11 → 10）
 const GAP_ACT = 7; // 叙述/动作段之间（更紧，成组）
 const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
 const GAP_NARR = 14; // 旁白上下（1006：26 → 14，原间距过大）
-const GAP_BLOCK = 20; // 角色块之间（换人）（1006：26 → 20，随整体收紧）
+const GAP_BLOCK = 26; // 角色块之间（换人）（1007b：20 → 26，实机换人分界不够醒目）
 
 // ── 帧级左右内缩（1006 第6轮 · 实机三次定稿）──
 // 用户口径：左右必须严格对称；头像/正文/旁白共用一条左基准。
@@ -621,6 +621,7 @@ function MiniSheet({
     // 1007 弹窗化（用户口径：不是底部 sheet，是**单独一个居中浮窗**）：
     //   蒙层铺满 → 内容层居中（items-center/justify-center）→ 四边留边
     //   → 圆角四角 + 最大宽高受限 → 点蒙层关闭。
+    // 1007b：入场改 softRise（缩放 + 上浮 + 模糊收敛），去掉「从底部弹起」感。
     <div
       className="absolute inset-0 z-[55] flex items-center justify-center p-4"
       onClick={onClose}
@@ -628,13 +629,13 @@ function MiniSheet({
       <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-6 pb-6 w-full max-w-[420px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
+        className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-5 pb-5 w-full max-w-[420px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
       >
-        <div className="px-1.5 mb-4 flex items-start justify-between gap-3">
+        <div className="px-1.5 mb-3.5 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div
               className="font-bold tracking-tight text-[#111111] leading-none"
-              style={{ fontSize: "20px" }}
+              style={{ fontSize: "18px" }}
             >
               {title}
             </div>
@@ -2203,6 +2204,20 @@ ${lastSpeakerNote}
           height: 0;
           display: none;
         }
+        /* 1007b：居中浮窗的统一入场 —— 缩放 + 上浮 8px + 模糊收敛。
+           替代原有的「底部 sheet 上滑」，去掉从底部弹起的感觉。 */
+        @keyframes softRise {
+          from {
+            opacity: 0;
+            transform: translateY(8px) scale(0.96);
+            filter: blur(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0);
+          }
+        }
       `}</style>
       {currentScript?.customCss?.trim() ? (
         <style
@@ -2693,7 +2708,7 @@ ${lastSpeakerNote}
                     setShowCssSheet(false);
                     setShowToolsSheet(true);
                   }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-white text-[13.5px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                 >
                   关闭
                 </button>
@@ -2709,7 +2724,7 @@ ${lastSpeakerNote}
                     setShowToolsSheet(true);
                     setToast("自定义 CSS 已生效");
                   }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13.5px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   应用
                 </button>
@@ -2779,7 +2794,7 @@ ${lastSpeakerNote}
                     setShowTimeSheet(false);
                     setShowToolsSheet(true);
                   }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-white text-[13.5px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                 >
                   取消
                 </button>
@@ -2816,7 +2831,7 @@ ${lastSpeakerNote}
                     setShowToolsSheet(true);
                     setToast("时间感知已保存 · 下一轮生效");
                   }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13.5px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   保存
                 </button>
@@ -2954,7 +2969,7 @@ ${lastSpeakerNote}
                     setShowStatusSheet(false);
                     setShowToolsSheet(true);
                   }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-white text-[13.5px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                 >
                   关闭
                 </button>
@@ -2977,7 +2992,7 @@ ${lastSpeakerNote}
                     setShowToolsSheet(true);
                     setToast("状态面板已保存 · 下一轮生效");
                   }}
-                  className="flex-1 py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13.5px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   保存
                 </button>
@@ -3057,12 +3072,13 @@ ${lastSpeakerNote}
                 {numBadge(num)}
               </div>
             );
-            // 1007「功能页面弹窗化」：设置页由**整屏页**改为**底部弹窗**，
-            // 与「功能」面板/各子弹窗同一套观感（圆角上提 + 背景模糊 + 点空白关闭）。
-            // 内容与排版原样保留，只换外壳；高度给到 92%，滚动空间基本不变。
+            // 1007b「设置页弹窗化（居中浮窗）」：
+            //   用户口径 —— 与功能面板/各子弹窗**同一套居中浮窗**观感，
+            //   不再是「从底部升起」的 sheet，也不保留 sheet 的整屏页残留。
+            //   内容与排版原样保留，只换外壳。
             return (
               <div
-                className="absolute inset-0 z-[56] flex flex-col justify-end"
+                className="absolute inset-0 z-[56] flex items-center justify-center p-4"
                 onClick={() => {
                   setShowSettingsSheet(false);
                   setShowToolsSheet(false);
@@ -3071,13 +3087,13 @@ ${lastSpeakerNote}
                 <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="relative bg-[#f2f2f4] rounded-t-[26px] max-h-[92%] flex flex-col overflow-hidden"
+                  className="relative bg-[#f2f2f4] rounded-[22px] w-full max-w-[440px] max-h-[82%] flex flex-col overflow-hidden shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
                 >
                 {/* 顶栏：毛玻璃磨砂条 + ‹ Settings / ENSEMBLE · CONFIGURATION
                     1006 反馈③：原先顶部贴边太紧、与工作区衔接突兀。
                     修法：补一条与工作区同款的毛玻璃顶栏（sticky），
                     下移到与工作区顶栏一致的视觉基线，做出「从工作区平推入」的观感。 */}
-                <div className="sticky top-0 z-10 shrink-0 bg-[#f2f2f4]/85 backdrop-blur-xl border-b border-black/[0.06]">
+                <div className="sticky top-0 z-10 shrink-0 bg-[#f2f2f4]/85 backdrop-blur-xl border-b border-black/[0.06] rounded-t-[22px]">
                   <div className="flex items-center gap-2.5 px-4 pt-3 pb-3">
                     <button
                       type="button"
@@ -3091,7 +3107,7 @@ ${lastSpeakerNote}
                     <ChevronLeft size={22} strokeWidth={1.8} />
                   </button>
                   <div className="min-w-0">
-                    <div className="text-[21px] font-bold tracking-tight text-[#111111] leading-none">
+                    <div className="text-[18px] font-bold tracking-tight text-[#111111] leading-none">
                       Settings
                     </div>
                     <div
@@ -3439,21 +3455,21 @@ ${lastSpeakerNote}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex items-center gap-2">
-                              <span className="text-[16.5px] font-semibold tracking-tight text-[#111111] truncate">
+                              <span className="text-[14px] font-semibold tracking-tight text-[#111111] truncate">
                                 {cfg.name || "未命名配置"}
                               </span>
                               {apiSelected && (
-                                <span className="shrink-0 px-1.5 py-[3px] rounded-[5px] bg-[#111111] text-white text-[10px] font-semibold leading-none">
+                                <span className="shrink-0 px-1.5 py-[2px] rounded-[5px] bg-[#111111] text-white text-[9.5px] font-semibold leading-none">
                                   当前
                                 </span>
                               )}
                             </div>
-                            <span className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-[8px] border border-black/[0.15]">
-                              <span className="text-[10px] font-semibold tracking-[0.12em] text-black/60">
+                            <span className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-[7px] border border-black/[0.15]">
+                              <span className="text-[9.5px] font-semibold tracking-[0.12em] text-black/60">
                                 MODEL
                               </span>
                               <ChevronDown
-                                size={12}
+                                size={11}
                                 strokeWidth={2.5}
                                 className={`text-black/40 transition-transform ${
                                   expanded ? "rotate-180" : ""
@@ -3461,18 +3477,18 @@ ${lastSpeakerNote}
                               />
                             </span>
                           </div>
-                          <div className="mt-1.5 font-mono text-[11.5px] text-black/45 truncate">
+                          <div className="mt-1 font-mono text-[11px] text-black/45 truncate">
                             {currentModel}
                           </div>
                         </button>
 
                         {/* 内联模型列表：加载中 / 出错 / 空 / 列表
                             1007 用户口径：列表「6 行内滑动，现在太多行了不好找」。
-                            做法：容器限高 = 6 行（行高 44px = py-3×2 + 行文 14px×1.25）
-                            → 约 264px，超出后容器内滚动，卡片不再被撑长。
-                            同时模型列表字号统一 14px（仅群像 app 内生效）。 */}
+                            1007b 复验：14px「还是很大」→ 收到 13px，行高 38px。
+                            容器限高 = 6 行（6 × 38 = 228px），超出后容器内滚动，
+                            卡片不再被撑长。 */}
                         {expanded && (
-                          <div className="border-t border-dashed border-black/[0.12] max-h-[264px] overflow-y-auto overscroll-contain">
+                          <div className="border-t border-dashed border-black/[0.12] max-h-[228px] overflow-y-auto overscroll-contain">
                             {isLoadingModels && (
                               <div className="px-4 py-3.5 text-[11.5px] text-black/40">
                                 正在拉取该接口的模型列表…
@@ -3510,10 +3526,10 @@ ${lastSpeakerNote}
                                     key={name}
                                     type="button"
                                     onClick={() => pickModelForApi(cfg.id, name)}
-                                    className="w-full flex items-center gap-3 px-4 py-3 text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
                                   >
                                     <span
-                                      className={`flex-1 min-w-0 block font-mono text-[14px] leading-snug break-all ${
+                                      className={`flex-1 min-w-0 block font-mono text-[13px] leading-snug break-all ${
                                         selected
                                           ? "font-semibold text-[#111111]"
                                           : "text-black/55"
@@ -3523,7 +3539,7 @@ ${lastSpeakerNote}
                                     </span>
                                     {selected && (
                                       <Check
-                                        size={15}
+                                        size={14}
                                         strokeWidth={2.4}
                                         className="text-[#111111] shrink-0"
                                       />
@@ -3571,7 +3587,7 @@ ${lastSpeakerNote}
                       setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
                       setToast("已恢复跟随全局默认");
                     }}
-                    className="w-full py-3.5 rounded-[16px] bg-white text-[14px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                    className="w-full py-3 rounded-[16px] bg-white text-[13.5px] font-medium text-black/55 active:scale-[0.985] transition-transform"
                   >
                     跟随全局默认
                   </button>
@@ -3586,7 +3602,7 @@ ${lastSpeakerNote}
                     setModelListError(null);
                     setShowToolsSheet(true);
                   }}
-                  className="w-full py-3.5 rounded-[16px] bg-[#111111] text-[14px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  className="w-full py-3 rounded-[16px] bg-[#111111] text-[13.5px] font-semibold text-white active:scale-[0.985] transition-transform"
                 >
                   完成
                 </button>

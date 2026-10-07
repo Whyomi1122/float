@@ -67,19 +67,20 @@ function ToolRow({
       type="button"
       disabled={!enabled}
       onClick={() => enabled && onClick(item.id)}
-      className={`w-full flex items-center gap-3.5 px-3.5 py-3.5 rounded-[16px] text-left transition-all duration-200 ${
+      className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-[16px] text-left transition-all duration-200 ${
         enabled
           ? "bg-white active:scale-[0.985] shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:shadow-[0_2px_10px_rgba(0,0,0,0.06)]"
           : "bg-white/55"
       }`}
     >
-      {/* 深黑方角图标 */}
+      {/* 深黑方角图标：1007b 由 44px 收到 40px（字大撑高大按键），
+          图标与其容器同步收一档，避免「图标空、文字小」的失衡。 */}
       <span
-        className={`w-11 h-11 rounded-[13px] shrink-0 grid place-items-center ${
+        className={`w-10 h-10 rounded-[12px] shrink-0 grid place-items-center ${
           enabled ? "bg-[#111111]" : "bg-black/20"
         }`}
       >
-        <Icon size={19} strokeWidth={1.9} className="text-white" />
+        <Icon size={18} strokeWidth={1.9} className="text-white" />
       </span>
 
       <span className="flex-1 min-w-0">
@@ -87,7 +88,7 @@ function ToolRow({
           className={`block font-semibold tracking-tight leading-tight ${
             enabled ? "text-[#111111]" : "text-black/30"
           }`}
-          style={{ fontSize: fs(15) }}
+          style={{ fontSize: fs(14) }}
         >
           {label}
         </span>
@@ -95,7 +96,7 @@ function ToolRow({
           className={`block tracking-[0.16em] font-medium mt-1 ${
             enabled ? "text-black/30" : "text-black/15"
           }`}
-          style={{ fontSize: fs(9.5) }}
+          style={{ fontSize: fs(9) }}
         >
           {labelEn}
         </span>
@@ -105,7 +106,7 @@ function ToolRow({
         <span className="w-1.5 h-1.5 rounded-full bg-[#111111] shrink-0 mr-1" />
       )}
       <ChevronRight
-        size={18}
+        size={17}
         strokeWidth={1.9}
         className={enabled ? "text-black/25 shrink-0" : "text-black/10 shrink-0"}
       />
@@ -143,26 +144,27 @@ export function EnsembleToolsSheet({
       {/* 面板本体：居中浮窗 */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-6 pb-4 w-full max-w-[440px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[sheetUp_260ms_cubic-bezier(0.22,1,0.36,1)]"
+        className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-6 pb-4 w-full max-w-[440px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
       >
         {/* 标题区 */}
-        <div className="px-1.5 mb-5">
+        <div className="px-1.5 mb-4">
           <div
             className="font-bold tracking-tight text-[#111111] leading-none"
-            style={{ fontSize: fs(26) }}
+            style={{ fontSize: fs(18) }}
           >
             功能
           </div>
           <div
             className="tracking-[0.28em] font-medium text-black/30 mt-2"
-            style={{ fontSize: fs(10) }}
+            style={{ fontSize: fs(9.5) }}
           >
             TOOLS
           </div>
         </div>
 
-        {/* 条目列表 */}
-        <div className="space-y-2.5">
+        {/* 条目列表：1007b 收紧条目间距（2.5 → 2），让面板更紧凑。
+            字号问题（字大撑按键）在各 ToolRow 内部处理。 */}
+        <div className="space-y-2">
           {ENSEMBLE_TOOLS.map((item) => (
             <ToolRow
               key={item.id}
@@ -181,7 +183,11 @@ export function EnsembleToolsSheet({
           点空白处或按返回键收起
         </div>
 
-        {/* 动画关键帧（就近声明，避免污染全局样式表） */}
+        {/* 动画关键帧（就近声明，避免污染全局样式表）
+            1007b：用户「不要从底部弹起的感觉，要舒适一些」。
+            把 sheetUp（translateY(100%) 上滑，sheet 语汇）换成 softRise ——
+            居中浮窗的自然语言：从 96% 缩放 + 上浮 8px + 轻微模糊收敛，
+            指数缓出，一次克制的入场。 */}
         <style jsx>{`
           @keyframes fadeIn {
             from {
@@ -191,12 +197,16 @@ export function EnsembleToolsSheet({
               opacity: 1;
             }
           }
-          @keyframes sheetUp {
+          @keyframes softRise {
             from {
-              transform: translateY(100%);
+              opacity: 0;
+              transform: translateY(8px) scale(0.96);
+              filter: blur(6px);
             }
             to {
-              transform: translateY(0);
+              opacity: 1;
+              transform: translateY(0) scale(1);
+              filter: blur(0);
             }
           }
         `}</style>
