@@ -16,7 +16,7 @@
 //     · {{key.bar}}  → 针对 0–100 数值字段，渲染一段进度条 HTML
 //   HTML/CSS/JS 全放开（engine="html"）：用户模板里的 <style> 原样保留。
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { EnsembleStatusEntry } from "@/lib/ensemble-parser";
 import type { EnsembleCastMember } from "@/lib/ensemble-storage";
 import type { ResolvedStoryTime } from "@/lib/ensemble-time";
@@ -82,6 +82,60 @@ export function renderStatusTemplate(
   });
   return out;
 }
+
+/**
+ * 从模板反解字段表（W5）。
+ * 同时认 {{key}} / {{key.bar}} 与 $1 $2 两类写法。
+ * - 内置量（loc_cn / time / char_* 等）不当作用户字段，避免把系统槽位塞进字段表
+ * - 同一 key 多次出现只保留一次；{{key.bar}} 与 {{key}} 合并为同一条
+ * - $1 $2 落成 field_1 / field_2，方便用户补「给 AI 的说明」
+ */
+const STATUS_BUILTIN_KEYS = new Set([
+  "loc_cn",
+  "loc_en",
+  "time",
+  "char_name_cn",
+  "char_name_en",
+  "char_initial",
+  "char_role",
+  "char_status",
+]);
+
+export function extractFieldsFromTemplate(template: string): { key: string; desc: string }[] {
+  const seen = new Set<string>();
+  const out: { key: string; desc: string }[] = [];
+
+  const push = (key: string) => {
+    const k = key.trim();
+    if (!k || seen.has(k) || STATUS_BUILTIN_KEYS.has(k)) return;
+    seen.add(k);
+    out.push({ key: k, desc: "" });
+  };
+
+  const mustache = template.matchAll(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s*\.bar)?\s*\}\}/g);
+  for (const m of mustache) push(m[1]);
+
+  const dollars = template.matchAll(/\$(\d+)/g);
+  for (const m of dollars) push(`field_${m[1]}`);
+
+  return out;
+}
+
+/** 预览区示例数据（W4）：固定沙箱，不读本幕真实状态 */
+export const STATUS_PREVIEW_SAMPLE_VALUES: Record<string, string> = {
+  loc_cn: "走廊尽头",
+  loc_en: "End of the hall",
+  loc: "走廊尽头",
+  thought: "这盒薄荷糖她居然还扣着。",
+  god_note: "雨声比人声更响。",
+  char_role: "观察者",
+  char_status: "湿着肩膀，没点那半截烟",
+};
+
+export const STATUS_PREVIEW_SAMPLE_MEMBER: EnsembleCastMember = {
+  id: "preview-sample",
+  name: "示例角色",
+};
 
 /** 内置量 → 从角色 + 本轮剧情时间 + 条目数据推导 */
 export function buildStatusBuiltin(
@@ -246,7 +300,7 @@ export function EnsembleStatusCardLayer({
                   e.stopPropagation();
                   setIdx(i);
                 }}
-                className={`w-11 h-11 rounded-full grid place-items-center text-[15px] font-semibold transition-all ${
+                className={`w-[35px] h-[35px] rounded-full grid place-items-center text-[13px] font-semibold transition-all ${
                   i === idx
                     ? "bg-[#111111] text-white scale-105"
                     : "bg-white/25 text-white/70"
@@ -286,6 +340,63 @@ export function EnsembleStatusCardLayer({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * W4 · ③ 预览 / LIVE
+ * 用当前模板 + 沙箱示例字段实渲染一张卡（本项目 .escard-* 口径，不用 iframe / rp-*）。
+ * 模板里的 <script> 会被剥掉：预览只看版式，不执行用户 JS。
+ */
+export function StatusLivePreview({
+  template,
+  fields,
+}: {
+  template: string;
+  fields: { key: string; desc?: string; max?: number }[];
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const html = useMemo(() => {
+    const values: Record<string, string> = { ...STATUS_PREVIEW_SAMPLE_VALUES };
+    for (const f of fields) {
+      const k = f.key.trim();
+      if (!k || values[k] !== undefined) continue;
+      values[k] = k.endsWith("en") ? "SAMPLE" : `示例 · ${k}`;
+    }
+    const raw = renderStatusTemplate(
+      template?.trim() ? template : DEFAULT_STATUS_TEMPLATE,
+      buildStatusBuiltin(
+        STATUS_PREVIEW_SAMPLE_MEMBER,
+        {
+          date: new Date(2026, 9, 7, 23, 14),
+          dateCn: "2026年10月7日 星期三",
+          dateEn: "Oct 7, 2026",
+          time24: "23:14",
+          time12: "11:14 PM",
+          virtual: true,
+          anchorLabel: "",
+        },
+        values
+      ) as unknown as Record<string, string>,
+      values
+    );
+    return raw.replace(/<script\b[\s\S]*?<\/script>/gi, "");
+  }, [template, fields]);
+
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+    el.innerHTML = html;
+    return () => {
+      el.innerHTML = "";
+    };
+  }, [html]);
+
+  return (
+    <div
+      ref={hostRef}
+      className="escard-preview-host pointer-events-none select-none"
+    />
   );
 }
 

@@ -62,6 +62,8 @@ import {
   EnsembleStatusCardLayer,
   DEFAULT_STATUS_TEMPLATE,
   DEFAULT_STATUS_FIELDS,
+  StatusLivePreview,
+  extractFieldsFromTemplate,
 } from "@/components/ensemble/ensemble-status-card";
 import {
   StatusFieldEditor,
@@ -69,6 +71,7 @@ import {
   StatusToggleRow,
   StatusSectionHead,
   StatusFieldActions,
+  StatusGenerateFromTemplateBtn,
   type StatusField,
 } from "@/components/ensemble/ensemble-status-sheet";
 
@@ -180,13 +183,11 @@ const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
 const GAP_NARR = 14; // 旁白上下（1006：26 → 14，原间距过大）
 const GAP_BLOCK = 20; // 角色块之间（换人）（1006：26 → 20，随整体收紧）
 
-// ── 帧级左右内缩（1006 第6轮定稿）──
-// 用户口径：① 所有帧整体左右内缩（原来铺得太宽）② 左右必须**严格对称**，
-// 不能左缩右不缩（否则整块看着歪）。③ 正文比头像再多缩一档，形成二级层次。
-// 实现：帧流外层 .ensemble-frames 左右各 FRAME_INSET；正文/头像行再各 FRAME_TEXT_INSET。
-// 关键：**同时写 paddingLeft 与 paddingRight**，任何一侧都不能漏，否则又不对称。
-const FRAME_INSET = 16; // 整块左右内缩
-const FRAME_TEXT_INSET = 9; // 正文/头像行再内缩（合计左右各 25px）
+// ── 帧级左右内缩（1006 第6轮 · 实机二次）──
+// 用户口径：左右必须严格对称；头像/正文/旁白共用一条左基准。
+// 实机 8f9c6c4（16+9=25px）反馈「缩进过大」，先试合计 12px。
+const FRAME_INSET = 12; // 整块左右内缩（10–12 区间先试 12）
+const FRAME_TEXT_INSET = 0; // 不再二级再缩，避免把头像/正文又拧歪
 
 // ── 每轮输出长度 / token 护栏（用户口径 2026-10-06 四次调整后定稿）──
 // 设计要点：**提示词管「别写太多」，maxTokens 闸门管「别写太长」**，两者叠加。
@@ -463,9 +464,8 @@ function EnsembleFrameStream({
         // 与叙述仍是同一灰阶，层级只靠「块感」而非颜色，避免心理太跳。
         //
         // 几何（必须左右对称，否则整块歪）：
-        //   外层 .ensemble-frames   left/right 16
-        //   + .frame-inner 自己     margin left/right 9   → 块左沿落在正文基准线上
-        //   + 块内 BodyText         padding left/right 9（它自带）
+        //   外层 .ensemble-frames   left/right FRAME_INSET
+        //   + .frame-inner 自己     margin left/right FRAME_TEXT_INSET
         //   块本身左右再各留 3px 内衬，让文字不贴到左细线上。
         if (f.kind === "inner") {
           return (
@@ -2797,19 +2797,63 @@ ${lastSpeakerNote}
                   label="模板 / TEMPLATE"
                   labelEn="HTML · CSS · JS"
                   right={
-                    <button
-                      type="button"
-                      onClick={() => setStatusTemplateDraft(DEFAULT_STATUS_TEMPLATE)}
-                      className="text-[10.5px] text-black/45 active:scale-95 transition-transform"
-                    >
-                      恢复默认模板
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <StatusGenerateFromTemplateBtn
+                        onClick={() => {
+                          const extracted = extractFieldsFromTemplate(statusTemplateDraft);
+                          if (extracted.length === 0) {
+                            setToast("模板里没有可识别的 {{字段}} / $1 $2");
+                            return;
+                          }
+                          const byKey = new Map(statusFieldsDraft.map((f) => [f.key.trim(), f]));
+                          setStatusFieldsDraft(
+                            extracted.map((f) => {
+                              const prev = byKey.get(f.key);
+                              return prev
+                                ? { ...prev, key: f.key }
+                                : { key: f.key, desc: "", max: undefined };
+                            })
+                          );
+                          setToast(`已从模板生成 ${extracted.length} 个字段 · 请补「给 AI 的说明」`);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setStatusTemplateDraft(DEFAULT_STATUS_TEMPLATE)}
+                        className="text-[10.5px] text-black/45 active:scale-95 transition-transform"
+                      >
+                        默认模板
+                      </button>
+                    </div>
                   }
                 />
+                <div className="text-[10.5px] text-black/45 leading-relaxed mb-3">
+                  把搓好的状态栏模板整段贴进来，点「从模板生成字段」自动反解
+                  <span className="font-mono text-black/60"> {"{{字段}}"} </span>
+                  或
+                  <span className="font-mono text-black/60"> $1 $2 </span>
+                  。只需补一句「给 AI 的说明」。
+                </div>
                 <StatusTemplateEditor
                   fields={statusFieldsDraft}
                   template={statusTemplateDraft}
                   onChange={setStatusTemplateDraft}
+                />
+              </div>
+
+              {/* ③ 预览 / LIVE —— 沙箱示例数据，按 float 口径实渲染 */}
+              <div className="bg-white rounded-[16px] p-4">
+                <StatusSectionHead
+                  num="③"
+                  label="预览 / LIVE"
+                  labelEn="SANDBOX"
+                  right={
+                    <span className="text-[10px] text-black/30">沙箱 · 示例数据</span>
+                  }
+                />
+                <StatusLivePreview
+                  template={statusTemplateDraft}
+                  fields={statusFieldsDraft}
                 />
               </div>
 

@@ -250,4 +250,21 @@ export function StatusFieldActions({
   );
 }
 
+/** 「从模板生成字段」—— 把用户刚贴的模板反解成字段表 */
+export function StatusGenerateFromTemplateBtn({
+  onClick,
+}: {
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="px-2.5 py-1 rounded-[7px] text-[11px] font-semibold text-[#c0392b] bg-[#c0392b]/[0.08] active:scale-95 transition-transform"
+    >
+      从模板生成字段
+    </button>
+  );
+}
+
 export default StatusFieldEditor;
