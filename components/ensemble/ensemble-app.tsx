@@ -183,11 +183,22 @@ const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
 const GAP_NARR = 14; // 旁白上下（1006：26 → 14，原间距过大）
 const GAP_BLOCK = 20; // 角色块之间（换人）（1006：26 → 20，随整体收紧）
 
-// ── 帧级左右内缩（1006 第6轮 · 实机二次）──
+// ── 帧级左右内缩（1006 第6轮 · 实机三次定稿）──
 // 用户口径：左右必须严格对称；头像/正文/旁白共用一条左基准。
-// 实机 8f9c6c4（16+9=25px）反馈「缩进过大」，先试合计 12px。
-const FRAME_INSET = 12; // 整块左右内缩（10–12 区间先试 12）
+// 8f9c6c4（16+9=25px）→「过大」；5da29c9（12px）→ 仍偏大；本轮定 10px。
+const FRAME_INSET = 10; // 整块左右内缩（10–12 区间取 10）
 const FRAME_TEXT_INSET = 0; // 不再二级再缩，避免把头像/正文又拧歪
+
+// ── 输入框自动换行（1007 · 第三次反馈遗留项）──
+// 用户要求：输入框「上下滑动、一行塞不下自动换行」，且要能继续长到多行。
+// 做法：textarea 起步 1 行，每次输入把高度贴合 scrollHeight（先 auto 再取），
+// 到 MAX 行高后不再长高，改为框内滚动。
+const COMPOSER_MAX_PX = 116; // ≈ 5 行（正文 12px × 1.6 行高 + 上下 padding）
+function autoGrowTextarea(el: HTMLTextAreaElement | null): void {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_PX)}px`;
+}
 
 // ── 每轮输出长度 / token 护栏（用户口径 2026-10-06 四次调整后定稿）──
 // 设计要点：**提示词管「别写太多」，maxTokens 闸门管「别写太长」**，两者叠加。
@@ -466,7 +477,12 @@ function EnsembleFrameStream({
         // 几何（必须左右对称，否则整块歪）：
         //   外层 .ensemble-frames   left/right FRAME_INSET
         //   + .frame-inner 自己     margin left/right FRAME_TEXT_INSET
-        //   块本身左右再各留 3px 内衬，让文字不贴到左细线上。
+        //   块内再留 INNER_PAD_L/R 内衬。
+        //
+        // 1007 实机：用户「心理块内的文字再右一些 / 居中试试」。
+        // 取「右移」——块是引文式（左侧一根细线），文字贴着细线太挤，
+        // 故左侧内衬明显大于右侧（左 18 / 右 10），文字整体右移、脱离细线。
+        // （若日后想要居中，把 textAlign 改成 center 即可，一行切换。）
         if (f.kind === "inner") {
           return (
             <div
@@ -476,11 +492,10 @@ function EnsembleFrameStream({
                 marginTop: showName ? GAP_BLOCK : GAP_INNER,
                 marginLeft: tpx(FRAME_TEXT_INSET),
                 marginRight: tpx(FRAME_TEXT_INSET),
-                paddingTop: tpx(6),
-                paddingBottom: tpx(6),
-                // 左细线靠左内衬撑开：左右内衬都是 3px，块内文字距块边缘等宽。
-                paddingLeft: tpx(3),
-                paddingRight: tpx(3),
+                paddingTop: tpx(7),
+                paddingBottom: tpx(7),
+                paddingLeft: tpx(18),
+                paddingRight: tpx(10),
                 background: "rgba(0,0,0,0.022)",
                 borderLeft: "2px solid rgba(0,0,0,0.10)",
                 borderRadius: "0 7px 7px 0",
@@ -965,6 +980,12 @@ export function EnsembleApp({
   } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** 输入框（textarea）：随内容自动增高，行数到上限后在框内滚动 */
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  // 发送后输入被清空 → 高度收回一行（否则会停在多行高度，看着像没清干净）
+  useEffect(() => {
+    if (!inputText) autoGrowTextarea(composerRef.current);
+  }, [inputText]);
 
   // ── 面具（用户身份）状态 ──────────────────────────────
   const [identities, setIdentities] = useState<UserIdentity[]>([]);
@@ -1676,7 +1697,7 @@ ${lastSpeakerNote}
 
   /**
    * 退一层：
-   * - 模型二级列表 → 模型一级列表（换 API）
+   * - 模型卡片若处于内联展开 → 先收起该卡片（1007：不再有独立二级弹窗）
    * - 其余子弹窗 → 「功能」面板（用户要求：子面板关闭后停在功能面板，模糊背景常驻）
    * - 「功能」面板 → 剧本界面
    */
@@ -1769,9 +1790,24 @@ ${lastSpeakerNote}
     saveOrUpdateEnsembleScript(updated);
     setScripts(loadEnsembleScripts());
     setLastModel(modelName);
-    setShowModelSheet(false);
+    // 1007：模型列表已改为**卡片内联展开**，选中后不再关整层弹窗，
+    // 只收起该卡片（用户可继续比别的 API），由底部「完成」统一退出。
     setModelPickerApiId(null);
+    setModelListError(null);
     setToast(`已切换为 ${modelName}`);
+  };
+
+  /**
+   * 卡片内联展开/收起（1007 图1）。
+   * 点同一张卡片 → 收起；点别的卡片 → 切到那张并拉它的模型列表。
+   */
+  const toggleModelExpand = (cfg: ApiConfig) => {
+    if (modelPickerApiId === cfg.id) {
+      setModelPickerApiId(null);
+      setModelListError(null);
+      return;
+    }
+    void openModelPickerForApi(cfg);
   };
 
   /** 提交某一幕的编辑 */
@@ -2450,18 +2486,30 @@ ${lastSpeakerNote}
               >
                 <Plus size={17} strokeWidth={2} />
               </button>
-              <input
-                type="text"
+              <textarea
+                ref={composerRef}
+                rows={1}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => {
+                  setInputText(e.target.value);
+                  autoGrowTextarea(e.currentTarget);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  // Enter = 发送；Shift+Enter = 换行（与主流聊天一致）。
+                  // ⚠️ isComposing：中文/日文输入法用回车**确认候选词**时必须放行，
+                  //    否则一选词就把半成品发出去了。
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    !e.nativeEvent.isComposing
+                  ) {
                     e.preventDefault();
                     handleSendTurn();
                   }
                 }}
                 placeholder={activePersona ? `以「${activePersona.name}」发言...` : "Write your line..."}
-                className="flex-1 min-w-0 bg-black/[0.03] border-none outline-none rounded-xl px-3 py-2 text-xs text-[#1a1a1a] placeholder:text-black/25"
+                className="flex-1 min-w-0 bg-black/[0.03] border-none outline-none rounded-xl px-3 py-2 text-xs text-[#1a1a1a] placeholder:text-black/25 resize-none leading-[1.6] overflow-y-auto"
+                style={{ maxHeight: `${COMPOSER_MAX_PX}px` }}
               />
               {/* 两段式发送键：
                   有输入 → 发送我的台词；无输入 → 让 AI 演下一轮 */}
@@ -2968,8 +3016,22 @@ ${lastSpeakerNote}
                 {numBadge(num)}
               </div>
             );
+            // 1007「功能页面弹窗化」：设置页由**整屏页**改为**底部弹窗**，
+            // 与「功能」面板/各子弹窗同一套观感（圆角上提 + 背景模糊 + 点空白关闭）。
+            // 内容与排版原样保留，只换外壳；高度给到 92%，滚动空间基本不变。
             return (
-              <div className="absolute inset-0 z-[56] bg-[#f2f2f4] flex flex-col">
+              <div
+                className="absolute inset-0 z-[56] flex flex-col justify-end"
+                onClick={() => {
+                  setShowSettingsSheet(false);
+                  setShowToolsSheet(false);
+                }}
+              >
+                <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="relative bg-[#f2f2f4] rounded-t-[26px] max-h-[92%] flex flex-col overflow-hidden"
+                >
                 {/* 顶栏：毛玻璃磨砂条 + ‹ Settings / ENSEMBLE · CONFIGURATION
                     1006 反馈③：原先顶部贴边太紧、与工作区衔接突兀。
                     修法：补一条与工作区同款的毛玻璃顶栏（sticky），
@@ -3252,94 +3314,14 @@ ${lastSpeakerNote}
                     清空记录 · CLEAR LOG
                   </button>
                 </div>
+                </div>
               </div>
             );
           })()}
 
           {/* ═══════════ 子弹窗 3：模型切换（两级：API → 该 API 下的具体模型） ═══════════ */}
           {showModelSheet && (() => {
-            const activeApi = modelPickerApiId
-              ? apiConfigList.find((c) => c.id === modelPickerApiId)
-              : undefined;
-
-            // ── 二级：某个 API 下的全部模型 ──
-            if (activeApi) {
-              return (
-                <MiniSheet
-                  title={activeApi.name || "未命名配置"}
-                  subtitle="MODELS · SESSION"
-                  onClose={() => {
-                    // 只关本层 → 回到模型一级列表
-                    setModelPickerApiId(null);
-                    setModelListError(null);
-                  }}
-                  onBack={() => {
-                    // 同层内的次级导航：同样回一级（与顶栏「← 返回」保持一致）
-                    setModelPickerApiId(null);
-                    setModelListError(null);
-                  }}
-                  backLabel="换 API"
-                >
-                  {isLoadingModels && (
-                    <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
-                      正在拉取该接口的模型列表…
-                    </div>
-                  )}
-
-                  {!isLoadingModels && modelListError && (
-                    <div className="bg-white rounded-[16px] p-5 space-y-3">
-                      <div className="text-[12px] text-[#b42318] leading-relaxed">
-                        {modelListError}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => openModelPickerForApi(activeApi)}
-                        className="w-full py-3 rounded-[14px] bg-black/[0.05] text-[13px] font-medium text-black/60 active:scale-[0.985] transition-transform"
-                      >
-                        重试
-                      </button>
-                    </div>
-                  )}
-
-                  {!isLoadingModels && !modelListError && modelNameList.length === 0 && (
-                    <div className="bg-white rounded-[16px] p-5 text-center text-[12px] text-black/40">
-                      该接口未返回模型
-                    </div>
-                  )}
-
-                  {!isLoadingModels &&
-                    !modelListError &&
-                    modelNameList.length > 0 && (
-                      // 固定 6 行高度（每行 h-[50px] + 行间距 gap-2），超出在内部滚动；
-                      // padding 给选中态/缩放留出余量，避免贴边裁切。
-                      <div className="max-h-[318px] overflow-y-auto overscroll-contain -mx-1 px-1 space-y-2">
-                        {modelNameList.map((name) => {
-                          const selected =
-                            currentScript.apiConfigIdOverride === activeApi.id &&
-                            currentScript.modelOverride === name;
-                          return (
-                            <button
-                              key={name}
-                              type="button"
-                              onClick={() => pickModelForApi(activeApi.id, name)}
-                              className="w-full h-[50px] flex items-center gap-3 px-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
-                            >
-                              <span className="flex-1 min-w-0 block text-[14px] font-medium text-[#111111] truncate leading-snug">
-                                {name}
-                              </span>
-                              {selected && (
-                                <Check size={18} className="text-[#111111] shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                </MiniSheet>
-              );
-            }
-
-            // ── 一级：可选 API 列表 ──
+// ── 一级：可选 API 列表 ──
             // 硅基流动属于「工具调用」范畴（记忆向量等），默认折叠。
             // 开关放在「返回」键旁边，尽量小 —— 不占列表位置、也不抢视觉。
             const hiddenApiCount = apiConfigList.filter(
@@ -3392,41 +3374,121 @@ ${lastSpeakerNote}
                     (cfg) => cfg.provider === "SiliconFlow"
                   );
 
+                  // 1007 图1 优化：API 卡片化 —— 去掉左侧深黑方块图标，
+                  // 改为「细边框卡片 + 名称 + MODEL▾」，当前项加黑边 + 「当前」小徽章；
+                  // 点 MODEL▾ 在**卡片内联展开**该 API 的模型列表（不再单开二级弹窗）。
                   const renderApiRow = (cfg: ApiConfig) => {
                     const apiSelected = currentScript.apiConfigIdOverride === cfg.id;
+                    const expanded = modelPickerApiId === cfg.id;
+                    const currentModel =
+                      apiSelected && currentScript.modelOverride
+                        ? currentScript.modelOverride
+                        : cfg.defaultModel || cfg.provider || "UNKNOWN";
                     return (
-                      <button
+                      <div
                         key={cfg.id}
-                        type="button"
-                        onClick={() => openModelPickerForApi(cfg)}
-                        className="w-full flex items-center gap-3.5 px-3.5 py-3.5 rounded-[16px] bg-white text-left active:scale-[0.985] transition-transform"
+                        className={`rounded-[14px] bg-white overflow-hidden border transition-colors ${
+                          apiSelected ? "border-[#111111]" : "border-black/[0.12]"
+                        }`}
                       >
-                        <span
-                          className={`w-11 h-11 rounded-[13px] shrink-0 grid place-items-center ${
-                            apiSelected ? "bg-[#111111]" : "bg-black/[0.08]"
-                          }`}
+                        <button
+                          type="button"
+                          onClick={() => toggleModelExpand(cfg)}
+                          className="w-full text-left px-4 pt-3.5 pb-3.5 active:bg-black/[0.02] transition-colors"
                         >
-                          <Layers
-                            size={19}
-                            strokeWidth={1.9}
-                            className={apiSelected ? "text-white" : "text-black/45"}
-                          />
-                        </span>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[15px] font-semibold tracking-tight text-[#111111] truncate">
-                            {cfg.name || "未命名配置"}
-                          </span>
-                          <span className="block text-[9.5px] tracking-[0.16em] font-medium text-black/30 mt-1 truncate">
-                            {apiSelected && currentScript.modelOverride
-                              ? currentScript.modelOverride
-                              : cfg.defaultModel || cfg.provider || "UNKNOWN"}
-                          </span>
-                        </span>
-                        <div className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-black/15 bg-white">
-                          <span className="text-[10px] font-semibold tracking-wider text-black/60">MODEL</span>
-                          <ChevronDown size={12} strokeWidth={2.5} className="text-black/40" />
-                        </div>
-                      </button>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex items-center gap-2">
+                              <span className="text-[16.5px] font-semibold tracking-tight text-[#111111] truncate">
+                                {cfg.name || "未命名配置"}
+                              </span>
+                              {apiSelected && (
+                                <span className="shrink-0 px-1.5 py-[3px] rounded-[5px] bg-[#111111] text-white text-[10px] font-semibold leading-none">
+                                  当前
+                                </span>
+                              )}
+                            </div>
+                            <span className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-[8px] border border-black/[0.15]">
+                              <span className="text-[10px] font-semibold tracking-[0.12em] text-black/60">
+                                MODEL
+                              </span>
+                              <ChevronDown
+                                size={12}
+                                strokeWidth={2.5}
+                                className={`text-black/40 transition-transform ${
+                                  expanded ? "rotate-180" : ""
+                                }`}
+                              />
+                            </span>
+                          </div>
+                          <div className="mt-1.5 font-mono text-[11.5px] text-black/45 truncate">
+                            {currentModel}
+                          </div>
+                        </button>
+
+                        {/* 内联模型列表：加载中 / 出错 / 空 / 列表 */}
+                        {expanded && (
+                          <div className="border-t border-dashed border-black/[0.12]">
+                            {isLoadingModels && (
+                              <div className="px-4 py-3.5 text-[11.5px] text-black/40">
+                                正在拉取该接口的模型列表…
+                              </div>
+                            )}
+                            {!isLoadingModels && modelListError && (
+                              <div className="px-4 py-3.5 space-y-2.5">
+                                <div className="text-[11.5px] text-[#b42318] leading-relaxed">
+                                  {modelListError}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openModelPickerForApi(cfg)}
+                                  className="px-3 py-1.5 rounded-[8px] bg-black/[0.05] text-[11.5px] font-medium text-black/60 active:scale-95 transition-transform"
+                                >
+                                  重试
+                                </button>
+                              </div>
+                            )}
+                            {!isLoadingModels &&
+                              !modelListError &&
+                              modelNameList.length === 0 && (
+                                <div className="px-4 py-3.5 text-[11.5px] text-black/40">
+                                  该接口未返回模型
+                                </div>
+                              )}
+                            {!isLoadingModels &&
+                              !modelListError &&
+                              modelNameList.map((name) => {
+                                const selected =
+                                  currentScript.apiConfigIdOverride === cfg.id &&
+                                  currentScript.modelOverride === name;
+                                return (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    onClick={() => pickModelForApi(cfg.id, name)}
+                                    className="w-full flex items-center gap-3 px-4 py-3 text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
+                                  >
+                                    <span
+                                      className={`flex-1 min-w-0 block font-mono text-[12px] leading-snug break-all ${
+                                        selected
+                                          ? "font-semibold text-[#111111]"
+                                          : "text-black/55"
+                                      }`}
+                                    >
+                                      {name}
+                                    </span>
+                                    {selected && (
+                                      <Check
+                                        size={15}
+                                        strokeWidth={2.4}
+                                        className="text-[#111111] shrink-0"
+                                      />
+                                    )}
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
                     );
                   };
 

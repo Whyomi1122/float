@@ -289,9 +289,12 @@ export function EnsembleStatusCardLayer({
       <div className="absolute inset-0 bg-black/55 backdrop-blur-[6px]" />
 
       <div className="relative flex-1 overflow-y-auto pt-14 pb-6 px-4">
-        {/* 多角色头像列（≥2 人才显示） */}
+        {/* 多角色「姓」块（≥2 人才显示）
+            1007 实机：用户「35px 头像还是太大，不要头像了，直接做成姓的块」。
+            → 不再渲染角色头像图（member.avatar），一律用**姓氏首字**做紧凑圆块；
+              尺寸收到 30px，选中态实心黑、未选中态半透明。 */}
         {members.length > 1 && (
-          <div className="flex items-center justify-center gap-3 mb-5">
+          <div className="flex items-center justify-center gap-2.5 mb-5">
             {members.map((m, i) => (
               <button
                 key={m.id}
@@ -300,23 +303,14 @@ export function EnsembleStatusCardLayer({
                   e.stopPropagation();
                   setIdx(i);
                 }}
-                className={`w-[35px] h-[35px] rounded-full grid place-items-center text-[13px] font-semibold transition-all ${
+                className={`w-[30px] h-[30px] rounded-full grid place-items-center text-[12px] font-semibold transition-all ${
                   i === idx
                     ? "bg-[#111111] text-white scale-105"
                     : "bg-white/25 text-white/70"
                 }`}
                 title={m.name}
               >
-                {m.avatar ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={m.avatar}
-                    alt={m.name}
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : (
-                  initialOf(m.name)
-                )}
+                {initialOf(m.name)}
               </button>
             ))}
           </div>
