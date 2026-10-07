@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 // components/ensemble/ensemble-status-sheet.tsx
 // 群像「状态面板」设置页（对齐用户提供的图：① 字段 / DATA ② 模板 / TEMPLATE）
@@ -150,7 +150,7 @@ export function StatusTemplateEditor({
         rows={12}
         spellCheck={false}
         placeholder={`HTML / CSS / JS 全放开。用 {{key}} 取字段值，用 {{key.bar}} 渲染进度条。\n\n<div class="escard-name">{{char_name_cn}}</div>`}
-        className="w-full bg-white border border-black/[0.07] rounded-[12px] p-3 font-mono text-[10.5px] leading-relaxed text-[#111111] placeholder:text-black/25 outline-none focus:border-black/25 resize-none"
+        className="w-full bg-white border border-black/[0.07] rounded-[12px] p-3 font-mono text-[10px] leading-relaxed text-[#111111] placeholder:text-black/25 outline-none focus:border-black/25 resize-none"
       />
     </div>
   );
@@ -171,9 +171,9 @@ export function StatusToggleRow({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <div className="text-[14px] font-semibold text-[#111111]">{label}</div>
+        <div className="text-[13px] font-semibold text-[#111111]">{label}</div>
         {hint && (
-          <div className="text-[10.5px] text-black/40 mt-1 leading-relaxed">{hint}</div>
+          <div className="text-[10px] text-black/40 mt-1 leading-relaxed">{hint}</div>
         )}
       </div>
       <button
@@ -210,8 +210,8 @@ export function StatusSectionHead({
   return (
     <div className="flex items-end justify-between gap-3 mb-3">
       <div className="flex items-baseline gap-2">
-        <span className="text-[15px] font-bold text-[#111111]">{num}</span>
-        <span className="text-[15px] font-bold text-[#111111]">{label}</span>
+        <span className="text-[13px] font-bold text-[#111111]">{num}</span>
+        <span className="text-[13px] font-bold text-[#111111]">{label}</span>
         <span className="text-[10px] tracking-[0.18em] font-medium text-black/30">
           {labelEn}
         </span>
@@ -234,15 +234,15 @@ export function StatusFieldActions({
       <button
         type="button"
         onClick={onAdd}
-        className="flex-1 py-3 rounded-[14px] bg-white text-[12.5px] font-medium text-black/60 active:scale-[0.985] transition-transform flex items-center justify-center gap-1.5"
+        className="flex-1 py-2.5 rounded-[14px] bg-white text-[11px] font-medium text-black/60 active:scale-[0.985] transition-transform flex items-center justify-center gap-1.5 whitespace-nowrap"
       >
-        <Plus size={13} strokeWidth={2.2} />
+        <Plus size={12} strokeWidth={2.2} />
         加字段
       </button>
       <button
         type="button"
         onClick={onReset}
-        className="flex-1 py-3 rounded-[14px] bg-white text-[12.5px] font-medium text-black/60 active:scale-[0.985] transition-transform"
+        className="flex-1 py-2.5 rounded-[14px] bg-white text-[11px] font-medium text-black/60 active:scale-[0.985] transition-transform whitespace-nowrap"
       >
         默认字段
       </button>
@@ -260,7 +260,7 @@ export function StatusGenerateFromTemplateBtn({
     <button
       type="button"
       onClick={onClick}
-      className="px-2.5 py-1 rounded-[7px] text-[11px] font-semibold text-[#c0392b] bg-[#c0392b]/[0.08] active:scale-95 transition-transform"
+      className="px-2.5 py-1 rounded-[7px] text-[11px] font-semibold text-[#c0392b] bg-[#c0392b]/[0.08] active:scale-95 transition-transform whitespace-nowrap shrink-0"
     >
       从模板生成字段
     </button>

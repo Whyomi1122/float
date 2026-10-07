@@ -467,12 +467,15 @@ function EnsembleFrameStream({
     <div
       className="ensemble-frames"
       data-frame-count={frames.length}
-      // 帧流外层：左右**严格对称**内缩（1006 第6轮）。
-      // 关键：同时写 left 与 right，且不依赖父级 padding —— 父级一旦单边不同，
-      // 光靠 left 就会出现「左缩右不缩」的歪斜（这正是上一版的 bug）。
+      // 帧流外层（1007 修正 · 去双重缩进）：
+      //   原来这里是 FRAME_INSET(10)，而每个子元素（头像行/旁白/正文/心理）
+      //   又各自带 FRAME_TEXT_INSET → **两层叠加 = 25px**，且和卡片外 padding
+      //   再叠，导致「越缩越窄、左右还看着不齐」。
+      //   现在：**外层一律 0**，缩进只由子元素的 FRAME_TEXT_INSET(=15) 统一控制。
+      //   → 旁白 / 对白 / 头像行 / 心理块 **共用同一条左右基准，严格对称**。
       style={{
-        paddingLeft: tpx(FRAME_INSET),
-        paddingRight: tpx(FRAME_INSET),
+        paddingLeft: 0,
+        paddingRight: 0,
       }}
     >
       {frames.map((f, i) => {
@@ -2367,8 +2370,8 @@ ${lastSpeakerNote}
                   //   · 用户卡片：无帧内缩，故直接给 10px（用户要求「用户卡片也是左右10px」），
                   //     最终 = 容器16 + 10 = 26px，与 AI 侧**完全对齐**。
                   //   垂直 padding 两者都用 p-5 的 20px，仅水平拆开。
-                  className={`group bg-white rounded-[20px] py-4 ${
-                    isUser ? "px-[15px]" : "px-0"
+                  className={`group bg-white rounded-[20px] pb-4 ${
+                    isUser ? "px-[15px] pt-4" : "px-0 pt-[30px]"
                   } border border-black/[0.04] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
                 >
                   {/* 帧模型：一条 turn 承载整幕，卡内按帧连续渲染，角色名内联。
@@ -2488,13 +2491,18 @@ ${lastSpeakerNote}
 
                   {/* 元信息 + 操作：全部改为竖排列表，避免重 roll 后横排被挤压看不清 */}
                   <div className="pt-2.5 border-t border-black/[0.045] space-y-1.5">
-                    <div className="flex flex-col gap-1 text-[11px] text-black/35 font-mono tracking-tight leading-relaxed">
+                    {/* 1007 用户口径：DATE / MODEL 元信息**右对齐**，字号压到 5px
+                        （极小的角标，不抢正文视线）。 */}
+                    <div
+                      className="flex flex-col items-end gap-1 text-black/35 font-mono tracking-tight leading-none"
+                      style={{ fontSize: "5px" }}
+                    >
                       <span className="block">
                         DATE {formatMinute(turn.timestamp)}
                       </span>
                       {(turn.model || lastModel) && (
                         <span
-                          className="block break-all"
+                          className="block break-all text-right"
                           title={turn.model || lastModel}
                         >
                           MODEL {turn.model || lastModel}
@@ -2905,42 +2913,18 @@ ${lastSpeakerNote}
 
               {/* ② 模板 / TEMPLATE */}
               <div className="bg-white rounded-[16px] p-4">
+                {/* 1007 用户口径：两个按键「从模板生成字段 / 默认模板」**从标题右侧
+                    移到代码框下方**（原来挤在头部右侧，小屏会折行、还顶到标题）。
+                    新顺序：标题 → 说明 → 代码框 → 两个按键。 */}
                 <StatusSectionHead
                   num="②"
                   label="模板 / TEMPLATE"
                   labelEn="HTML · CSS · JS"
-                  right={
-                    <div className="flex items-center gap-2">
-                      <StatusGenerateFromTemplateBtn
-                        onClick={() => {
-                          const extracted = extractFieldsFromTemplate(statusTemplateDraft);
-                          if (extracted.length === 0) {
-                            setToast("模板里没有可识别的 {{字段}} / $1 $2");
-                            return;
-                          }
-                          const byKey = new Map(statusFieldsDraft.map((f) => [f.key.trim(), f]));
-                          setStatusFieldsDraft(
-                            extracted.map((f) => {
-                              const prev = byKey.get(f.key);
-                              return prev
-                                ? { ...prev, key: f.key }
-                                : { key: f.key, desc: "", max: undefined };
-                            })
-                          );
-                          setToast(`已从模板生成 ${extracted.length} 个字段 · 请补「给 AI 的说明」`);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setStatusTemplateDraft(DEFAULT_STATUS_TEMPLATE)}
-                        className="text-[11px] text-black/45 active:scale-95 transition-transform"
-                      >
-                        默认模板
-                      </button>
-                    </div>
-                  }
                 />
-                <div className="text-[11px] text-black/45 leading-relaxed mb-3">
+                <div
+                  className="text-black/45 mb-2.5"
+                  style={{ fontSize: TYPE.MICRO, lineHeight: LEADING.SUB }}
+                >
                   把搓好的状态栏模板整段贴进来，点「从模板生成字段」自动反解
                   <span className="font-mono text-black/60"> {"{{字段}}"} </span>
                   或
@@ -2952,6 +2936,36 @@ ${lastSpeakerNote}
                   template={statusTemplateDraft}
                   onChange={setStatusTemplateDraft}
                 />
+                {/* 代码框**下方**的操作行（1007 重排） */}
+                <div className="flex items-center gap-2 mt-2.5">
+                  <StatusGenerateFromTemplateBtn
+                    onClick={() => {
+                      const extracted = extractFieldsFromTemplate(statusTemplateDraft);
+                      if (extracted.length === 0) {
+                        setToast("模板里没有可识别的 {{字段}} / $1 $2");
+                        return;
+                      }
+                      const byKey = new Map(statusFieldsDraft.map((f) => [f.key.trim(), f]));
+                      setStatusFieldsDraft(
+                        extracted.map((f) => {
+                          const prev = byKey.get(f.key);
+                          return prev
+                            ? { ...prev, key: f.key }
+                            : { key: f.key, desc: "", max: undefined };
+                        })
+                      );
+                      setToast(`已从模板生成 ${extracted.length} 个字段 · 请补「给 AI 的说明」`);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setStatusTemplateDraft(DEFAULT_STATUS_TEMPLATE)}
+                    className="px-2.5 py-1 rounded-[7px] text-black/55 bg-black/[0.05] font-medium active:scale-95 transition-transform shrink-0"
+                    style={{ fontSize: TYPE.MICRO }}
+                  >
+                    默认模板
+                  </button>
+                </div>
               </div>
 
               {/* ③ 预览 / LIVE —— 沙箱示例数据，按 float 口径实渲染 */}
@@ -3502,7 +3516,7 @@ ${lastSpeakerNote}
                             容器限高 = 6 行（6 × 38 = 228px），超出后容器内滚动，
                             卡片不再被撑长。 */}
                         {expanded && (
-                          <div className="border-t border-dashed border-black/[0.12] max-h-[228px] overflow-y-auto overscroll-contain">
+                          <div className="border-t border-dashed border-black/[0.12] max-h-[104px] overflow-y-auto overscroll-contain">
                             {isLoadingModels && (
                               <div className="px-4 py-3.5 text-[11px] text-black/40">
                                 正在拉取该接口的模型列表…
@@ -3545,7 +3559,7 @@ ${lastSpeakerNote}
                                     {/* 1007 三次+：用户「现在改到 8-9px」→ 取 9px；
                                         保持 break-all 完整折行（不省略）。 */}
                                     <span
-                                      className={`flex-1 min-w-0 block font-mono text-[9px] leading-tight break-all ${
+                                      className={`flex-1 min-w-0 block font-mono text-[10px] leading-tight break-all ${
                                         selected
                                           ? "font-semibold text-[#111111]"
                                           : "text-black/55"
