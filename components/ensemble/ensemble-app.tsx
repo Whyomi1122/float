@@ -402,6 +402,59 @@ function EnsembleFrameStream({
   // 同一角色的连续帧：第一帧给 16px，续帧给 16px（统一），换人才给 20px。
   let prevWasSameSpeaker = false;
 
+  /** 块头（头像 + 角色名）：一段内同一角色只出一次，由调用方的 showName 控制。
+      1007：抽出为函数，供 action / dialogue 两个分支共用 —— 动作/叙述现在也要带头像。 */
+  const renderBlockHead = (speaker?: string) => {
+    const m = speaker ? cast.find((c) => c.name === speaker) : undefined;
+    return (
+      <div
+        className="flex items-center gap-2.5 mb-2.5"
+        // 头像行与正文共用同一条左基准（1006 第6轮口径 A）：
+        // 给它和 BodyText 完全一样的左右内缩，头像左沿 = 正文左沿。
+        style={{
+          paddingLeft: tpx(FRAME_TEXT_INSET),
+          paddingRight: tpx(FRAME_TEXT_INSET),
+        }}
+      >
+        {/* 方角 35px 虚线框头像（定稿：此前 78px 过大）
+            · 启用状态面板时，点头像 → 打开该角色的状态卡（用户定稿 10-06）。 */}
+        <button
+          type="button"
+          onClick={
+            onAvatarClick && speaker
+              ? (e) => {
+                  e.stopPropagation();
+                  onAvatarClick(speaker);
+                }
+              : undefined
+          }
+          disabled={!onAvatarClick}
+          className={`rounded-[8px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0 ${
+            onAvatarClick ? "active:scale-95 transition-transform cursor-pointer" : ""
+          }`}
+          style={{ width: tpx(AVATAR_PX), height: tpx(AVATAR_PX) }}
+          title={onAvatarClick ? "查看状态" : undefined}
+        >
+          {m?.avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={m.avatar} alt={speaker} className="w-full h-full object-cover" />
+          ) : (
+            <span className="font-semibold text-black/35" style={{ fontSize: tpx(15) }}>
+              {(speaker ?? "?").slice(0, 1)}
+            </span>
+          )}
+        </button>
+        {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
+        <div
+          className="frame-name font-semibold tracking-wide"
+          style={{ fontSize: tpx(T_NAME), color: C_NAME, fontWeight: 600, opacity: 1 }}
+        >
+          {speaker}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       className="ensemble-frames"
@@ -423,6 +476,9 @@ function EnsembleFrameStream({
         if (f.kind === "narration") {
           prevWasNarration = true;
           prevWasSameSpeaker = false;
+          // 1007：旁白是「无归属」的分隔块。它出现后，紧接着的同角色帧
+          //   应重新出一行头像（否则「皮韩宇 → 旁白 → 皮韩宇」第二段无头）。
+          lastSpeaker = undefined;
           return (
             <div
               key={i}
@@ -445,16 +501,22 @@ function EnsembleFrameStream({
         const member =
           (f.speakerId && cast.find((c) => c.id === f.speakerId)) ||
           (f.speaker ? cast.find((c) => c.name === f.speaker) : undefined);
-        // ── 头像/名字的「块头」判定（2026-10-05 修 F1）──
-        // 现象：action / inner 帧虽带 speaker，但渲染时不出头像/名字（它属于
-        //   上一个开口的人）；若它抢先把 lastSpeaker 更新掉，紧跟其后的
-        //   dialogue 帧就变成「同一个人」→ 也不出头像 → 整块永久丢失头像名字。
-        // 修法：action / inner **不推进** lastSpeaker，让它们之后的第一个
-        //   dialogue 帧仍被识别为「该角色的首帧」→ 正常出头像 + 名字。
-        //   （模型习惯「先叙述后开口」，此修法正好命中。）
-        const isSpeakerFrame = f.kind === "dialogue";
-        const showName = isSpeakerFrame && f.speaker !== lastSpeaker;
-        if (isSpeakerFrame) lastSpeaker = f.speaker;
+        // ── 头像/名字的「块头」判定（2026-10-07 第二轮修 · 归属分组）──
+        // 实机问题（1007 图）：模型习惯「先动作/叙述，再对白」，
+        //   归属声明 `皮韩宇：` 已把整坨块断言给他，但旧逻辑只在 dialogue
+        //   帧出头像 → 动作/叙述**无头像**、灰字贴在旁白底下，
+        //   看起来像「并入了旁白」，归属完全丢失。
+        //
+        // 修法：只要帧带 speaker（action/inner/dialogue 都算），
+        //   且与该块「上一个出过头的角色」不同 → 出一次头像行；
+        //   同一角色连续多帧（含动作/叙述/心理/对白）**共用同一行头**，
+        //   中间没换人 / 没插旁白就不重复出（用户明确要求「一行出一个」）。
+        //
+        // ⚠️ 旁白帧在上面提前 return，并已把 lastSpeaker 置空（见 narration
+        //    分支），因此「皮韩宇 → 旁白 → 皮韩宇」会正确地再出一次头像。
+        const hasSpeaker = !!f.speaker && f.speaker !== "—";
+        const showName = hasSpeaker && f.speaker !== lastSpeaker;
+        if (hasSpeaker) lastSpeaker = f.speaker;
 
         // 段距（长文排版定稿，第6轮 1006）：
         //   旁白之后     → 0（旁白自带 14px 下间距，不叠加）
@@ -506,77 +568,23 @@ function EnsembleFrameStream({
           );
         }
 
-        // 叙述/动作帧（用户定稿 2026-10-04 第5轮）：叙述性文字统一淡灰 #b4b4b8，
-        // 不出头像/名字（它属于上一个开口的角色，只是换个颜色落笔）。
+        // 叙述/动作帧（用户定稿 2026-10-04 第5轮）：叙述性文字统一淡灰 #b4b4b8。
+        // 1007 修正：**要出头像行**（归属正确），但一段内同一角色连续帧共用
+        //   同一行头 —— 由 showName 保证「一行出一个」。
         if (f.kind === "action") {
           return (
-            <div key={i} style={{ marginTop: showName ? GAP_BLOCK : GAP_ACT }}>
-              <BodyText raw={f.text} kind="act" />
+            <div key={i} className="frame-action">
+              {showName && renderBlockHead(f.speaker)}
+              <div style={{ marginTop: showName ? tpx(0) : tpx(GAP_ACT) }}>
+                <BodyText raw={f.text} kind="act" />
+              </div>
             </div>
           );
         }
 
         return (
           <div key={i} style={{ marginTop: topMargin }}>
-            {showName && (
-              <div
-                className="flex items-center gap-2.5 mb-2.5"
-                // 头像行与正文共用同一条左基准（1006 第6轮口径 A）：
-                // 给它和 BodyText 完全一样的左右内缩，头像左沿 = 正文左沿。
-                style={{
-                  paddingLeft: tpx(FRAME_TEXT_INSET),
-                  paddingRight: tpx(FRAME_TEXT_INSET),
-                }}
-              >
-                {/* 方角 35px 虚线框头像（定稿：此前 78px 过大）
-                    · 启用状态面板时，点头像 → 打开该角色的状态卡（用户定稿 10-06）。 */}
-                <button
-                  type="button"
-                  onClick={
-                    onAvatarClick && f.speaker
-                      ? (e) => {
-                          e.stopPropagation();
-                          onAvatarClick(f.speaker as string);
-                        }
-                      : undefined
-                  }
-                  disabled={!onAvatarClick}
-                  className={`rounded-[8px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0 ${
-                    onAvatarClick ? "active:scale-95 transition-transform cursor-pointer" : ""
-                  }`}
-                  style={{ width: tpx(AVATAR_PX), height: tpx(AVATAR_PX) }}
-                  title={onAvatarClick ? "查看状态" : undefined}
-                >
-                  {member?.avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={member.avatar}
-                      alt={f.speaker}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span
-                      className="font-semibold text-black/35"
-                      style={{ fontSize: tpx(15) }}
-                    >
-                      {(f.speaker ?? "?").slice(0, 1)}
-                    </span>
-                  )}
-                </button>
-                {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
-                <div
-                  className="frame-name font-semibold tracking-wide"
-                  style={{
-                    fontSize: tpx(T_NAME),
-                    color: C_NAME,
-                    fontWeight: 600,
-                    opacity: 1,
-                  }}
-                >
-                  {f.speaker}
-                </div>
-              </div>
-            )}
+            {showName && renderBlockHead(f.speaker)}
             <BodyText raw={f.text} kind="dialogue" />
           </div>
         );
@@ -610,11 +618,17 @@ function MiniSheet({
   children: React.ReactNode;
 }) {
   return (
-    <div className="absolute inset-0 z-[55] flex flex-col justify-end" onClick={onClose}>
+    // 1007 弹窗化（用户口径：不是底部 sheet，是**单独一个居中浮窗**）：
+    //   蒙层铺满 → 内容层居中（items-center/justify-center）→ 四边留边
+    //   → 圆角四角 + 最大宽高受限 → 点蒙层关闭。
+    <div
+      className="absolute inset-0 z-[55] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative bg-[#f2f2f4] rounded-t-[26px] px-4 pt-6 pb-6 max-h-[88%] overflow-y-auto"
+        className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-6 pb-6 w-full max-w-[420px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
       >
         <div className="px-1.5 mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -2181,6 +2195,14 @@ ${lastSpeakerNote}
         .ensemble-scope .frame-user p {
           color: #1f1f1f !important;
         }
+        /* 1007：工作区滚动条隐藏视觉（保留滚动能力）。
+           配合 scrollbar-gutter: stable both-edges，左右 gutter 等宽，
+           彻底消除「右内缩比左大 12–15px」的滚动条占位差。 */
+        .ensemble-scope .ensemble-workspace-scroll::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+          display: none;
+        }
       `}</style>
       {currentScript?.customCss?.trim() ? (
         <style
@@ -2267,11 +2289,22 @@ ${lastSpeakerNote}
 
 
           {/* 3.1：顶栏「取消生成」与「← 返回剧本」按键已删除。
-              关闭/返回由 MiniSheet 自身顶栏箭头负责，不在工作区顶部重复。 */}
+              关闭/返回由 MiniSheet 自身顶栏箭头负责，不在工作区顶部重复。
 
+              1007 修「右内缩比左大 12–15px」：
+                根因 = 本容器是 overflow-y-auto，滚动条在右侧**占位**（实测 12–15px），
+                于是「左 16 + 右 16 + 滚动条宽」→ 视觉上右内缩明显更大。
+                修法：scrollbar-gutter: stable both-edges 让浏览器在左右**各预留**
+                同宽 gutter，滚动条出现/消失都不再破坏对称；同时隐藏滚动条视觉
+                （保留滚动能力）。不用 padding 硬补 —— 补丁值会随设备滚动条宽度漂移。 */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto px-4 py-5 space-y-[18px] min-h-0"
+            className="ensemble-workspace-scroll flex-1 overflow-y-auto px-4 py-5 space-y-[18px] min-h-0"
+            style={{
+              scrollbarGutter: "stable both-edges",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+            }}
           >
             {apiError && (
               <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 leading-relaxed">
@@ -2304,7 +2337,15 @@ ${lastSpeakerNote}
               return (
                 <div
                   key={turn.id}
-                  className="group bg-white rounded-[20px] p-5 border border-black/[0.04] space-y-3.5 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]"
+                  // 1007：卡片左右内缩对齐。
+                  //   · AI 帧卡片：内部 .ensemble-frames 自带 10px 内缩，
+                  //     故卡片本身水平 padding = 0，最终正文左基准 = 容器16 + 0 + 10 = 26px。
+                  //   · 用户卡片：无帧内缩，故直接给 10px（用户要求「用户卡片也是左右10px」），
+                  //     最终 = 容器16 + 10 = 26px，与 AI 侧**完全对齐**。
+                  //   垂直 padding 两者都用 p-5 的 20px，仅水平拆开。
+                  className={`group bg-white rounded-[20px] py-5 ${
+                    isUser ? "px-2.5" : "px-0"
+                  } border border-black/[0.04] space-y-3.5 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
                 >
                   {/* 帧模型：一条 turn 承载整幕，卡内按帧连续渲染，角色名内联。
                       用户投稿（自己写的一幕）不切帧，按原样三色渲染。 */}
@@ -3425,9 +3466,13 @@ ${lastSpeakerNote}
                           </div>
                         </button>
 
-                        {/* 内联模型列表：加载中 / 出错 / 空 / 列表 */}
+                        {/* 内联模型列表：加载中 / 出错 / 空 / 列表
+                            1007 用户口径：列表「6 行内滑动，现在太多行了不好找」。
+                            做法：容器限高 = 6 行（行高 44px = py-3×2 + 行文 14px×1.25）
+                            → 约 264px，超出后容器内滚动，卡片不再被撑长。
+                            同时模型列表字号统一 14px（仅群像 app 内生效）。 */}
                         {expanded && (
-                          <div className="border-t border-dashed border-black/[0.12]">
+                          <div className="border-t border-dashed border-black/[0.12] max-h-[264px] overflow-y-auto overscroll-contain">
                             {isLoadingModels && (
                               <div className="px-4 py-3.5 text-[11.5px] text-black/40">
                                 正在拉取该接口的模型列表…
@@ -3468,7 +3513,7 @@ ${lastSpeakerNote}
                                     className="w-full flex items-center gap-3 px-4 py-3 text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
                                   >
                                     <span
-                                      className={`flex-1 min-w-0 block font-mono text-[12px] leading-snug break-all ${
+                                      className={`flex-1 min-w-0 block font-mono text-[14px] leading-snug break-all ${
                                         selected
                                           ? "font-semibold text-[#111111]"
                                           : "text-black/55"

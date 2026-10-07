@@ -131,17 +131,19 @@ export function EnsembleToolsSheet({
 }) {
   if (!open) return null;
   return (
+    // 1007 弹窗化：与 MiniSheet 统一 —— 居中浮窗（四边留边、圆角四角），
+    // 不再是「从底部升起」的 sheet。
     <div
-      className="absolute inset-0 z-[54] flex flex-col justify-end"
+      className="absolute inset-0 z-[54] flex items-center justify-center p-4"
       onClick={onClose}
     >
       {/* 遮罩（模糊背景常驻：子弹窗关闭后本层保留，背景持续模糊，不再重播弹出动画） */}
       <div className="absolute inset-0 bg-black/45 backdrop-blur-[3px]" />
 
-      {/* 面板本体：从底部升起 */}
+      {/* 面板本体：居中浮窗 */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative bg-[#f2f2f4] rounded-t-[26px] px-4 pt-6 pb-4 max-h-[86%] overflow-y-auto animate-[sheetUp_260ms_cubic-bezier(0.22,1,0.36,1)]"
+        className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-6 pb-4 w-full max-w-[440px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[sheetUp_260ms_cubic-bezier(0.22,1,0.36,1)]"
       >
         {/* 标题区 */}
         <div className="px-1.5 mb-5">
