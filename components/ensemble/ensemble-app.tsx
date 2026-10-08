@@ -191,21 +191,23 @@ const AVATAR_PX = 35;
 const GAP_DIALOG = 10; // 对白段之间（文字内部段距，不动）
 const GAP_ACT = 7; // 叙述/动作段之间（文字内部段距，不动）
 const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
-const GAP_NARR = 22; // 旁白上下（1008：14 → 22，组件之间要呼吸）
-const GAP_BLOCK = 32; // 角色块之间（换人）（1008：26 → 32）
+const GAP_NARR = 30; // 旁白上下（1008c：22 → 30，继续拉，图2 呼吸感很强）
+const GAP_BLOCK = 38; // 角色块之间（换人）（1008c：32 → 38）
 
-// ── 帧级左右内缩（1006 第6轮 · 实机三次定稿）──
-// 用户口径：左右必须严格对称；头像/正文/旁白共用一条左基准。
-// 8f9c6c4（16+9=25px）→「过大」；5da29c9（12px）→ 仍偏大；本轮定 10px。
-const FRAME_INSET = 10; // 整块左右内缩（10–12 区间取 10）
-const FRAME_TEXT_INSET = 15; // 1007 用户口径：卡内 15px（帧内缩 = 正文距卡片左右边）
+// ── 帧级左右内缩（1008c · 按图2 实测反推）──
+// 图2（1080px 原图，≈3x）实测：卡片左 56 → 头像左 86 → 头像右 232 → 名字/正文左 262
+//   卡内衬 = (86-56)/3 ≈ 10px
+//   头像宽 = (232-86)/3 ≈ 49 → 项目用 35px
+//   头像↔名字 = (262-232)/3 ≈ 10px
+//   ⚠️ 名字左沿 == 正文左沿 == 旁白左沿（三者**完全齐平**，无额外缩进）
+const FRAME_INSET = 10;
+const FRAME_TEXT_INSET = 10; // 1008c：15 → 10（卡内衬，按图2 实测）
 
-// ── 「正文与角色名对齐」基准（1008 用户口径 · 抄 chill）──
-// 用户实机批注：「文字部分……要和名字对齐」。
-// chill 是「悬挂头像」布局：头像挂在左侧留白里，**角色名与所有正文共用同一条左基准**。
-//   = 卡内 15 + 头像 35 + 头像↔名字间距 10 = 60px
+// ── 「正文与角色名齐平」基准（1008 用户口径 · 抄图2）──
+// 图2 里「姜志焕」名字左沿 与 正文「他咽下最后一口面…」左沿 **完全对齐**（都是 262）。
+//   = 卡内 10 + 头像 35 + 头像↔名字间距 10 = 55px
 const AVATAR_GAP = 10; // 头像与角色名间距（对应 gap-2.5）
-const FRAME_BODY_INSET = FRAME_TEXT_INSET + AVATAR_PX + AVATAR_GAP; // = 60px
+const FRAME_BODY_INSET = FRAME_TEXT_INSET + AVATAR_PX + AVATAR_GAP; // = 55px
 
 
 // ── 输入框自动换行（1007 · 第三次反馈遗留项）──
@@ -433,7 +435,7 @@ function EnsembleFrameStream({
     const m = speaker ? cast.find((c) => c.name === speaker) : undefined;
     return (
       <div
-        className="flex items-center gap-2.5 mb-3.5"
+        className="flex items-center gap-2.5 mb-4"
         // 头像行与正文共用同一条左基准（1006 第6轮口径 A）：
         // 给它和 BodyText 完全一样的左右内缩，头像左沿 = 正文左沿。
         style={{
@@ -2383,7 +2385,7 @@ ${lastSpeakerNote}
                       1008 用户批注：「字色太深太大」「USR 和 SCN 都删掉」
                       → 去掉 USR/SCN 标签，只留 **时间 + 虚线 + 三位序号**，
                         颜色压到 black/20，字号再小一档（10px）。 */}
-                  <div className="flex items-center gap-2 px-[15px] pt-3 pb-1.5">
+                  <div className="flex items-center gap-2 px-[10px] pt-3 pb-1.5">
                     <span
                       className="shrink-0 font-mono text-black/20 tabular-nums"
                       style={{ fontSize: TYPE.MICRO }}
@@ -2415,7 +2417,7 @@ ${lastSpeakerNote}
                   {/* ── AI 幕顶栏（抄 chill）：▶ 黑方块 + NARRATION + 虚线 + Multi ──
                       1008 用户拍板：AI 幕统一挂 `NARRATION` 顶栏，用户投稿幕不挂。 */}
                   {!isUser && (
-                    <div className="flex items-center gap-2 px-[15px] pt-[18px] pb-2.5">
+                    <div className="flex items-center gap-2 px-[10px] pt-[20px] pb-4">
                       <span className="shrink-0 w-[22px] h-[22px] rounded-[5px] bg-[#111111] flex items-center justify-center">
                         <Play size={9} strokeWidth={0} className="fill-white text-white ml-[1px]" />
                       </span>
@@ -2446,7 +2448,7 @@ ${lastSpeakerNote}
                     <>
                       {/* 用户投稿卡头部（1008：卡片改 px-0 后，头部自己带 15px 卡内衬，
                           与 AI 卡的头像行共用同一条左基准）。 */}
-                      <div className="flex items-center justify-between px-[15px]">
+                      <div className="flex items-center justify-between px-[10px]">
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-[6px] bg-black/[0.04] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 border border-dotted border-black/[0.20] p-[2px]">
                             <div className="w-full h-full rounded-[3px] overflow-hidden flex items-center justify-center bg-black/[0.04]">
@@ -2506,8 +2508,8 @@ ${lastSpeakerNote}
                           </div>
                         </div>
                       ) : (
-                        <div className="frame-user">
-                          <BodyText raw={turn.content} />
+                        <div className="frame-user" style={{ textAlign: "center" }}>
+                          <BodyText raw={turn.content} inset={0} />
                         </div>
                       )}
                     </>
@@ -2565,7 +2567,7 @@ ${lastSpeakerNote}
                       · 下方再一道虚线 + 分页（‹ 1/1 ›）在左、操作图标在右
                       · 1008 用户批注：「**用户卡片不需要这三行**」（DATE/MODEL/TOKENS）
                         → 仅 AI 幕渲染元信息行，用户投稿幕只留分页 + 操作图标。 */}
-                  <div className="px-[15px]">
+                  <div className="px-[10px]">
                     {!isUser && (
                       <>
                         <div
