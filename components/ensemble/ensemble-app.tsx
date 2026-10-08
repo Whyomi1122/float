@@ -20,6 +20,7 @@ import {
   Clock,
   MessageSquare,
   Eraser,
+  Play,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -437,7 +438,7 @@ function EnsembleFrameStream({
               : undefined
           }
           disabled={!onAvatarClick}
-          className={`rounded-[8px] border border-dashed border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0 ${
+          className={`rounded-[8px] border border-dotted border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0 ${
             onAvatarClick ? "active:scale-95 transition-transform cursor-pointer" : ""
           }`}
           style={{ width: tpx(AVATAR_PX), height: tpx(AVATAR_PX) }}
@@ -544,18 +545,13 @@ function EnsembleFrameStream({
         prevWasSameSpeaker = !showName;
 
         // 心理帧（1006 第6轮改版）：不再等同叙述，改为**独立静音块** ——
-        // 极浅底 + 左侧一根细线 + 内缩，**不带任何「心理」小标签**（用户明确要求删标签）。
+        // 极浅底 + 左侧一根细线，**不带任何「心理」小标签**（用户明确要求删标签）。
         // 与叙述仍是同一灰阶，层级只靠「块感」而非颜色，避免心理太跳。
         //
-        // 几何（必须左右对称，否则整块歪）：
-        //   外层 .ensemble-frames   left/right FRAME_INSET
-        //   + .frame-inner 自己     margin left/right FRAME_TEXT_INSET
-        //   块内再留 INNER_PAD_L/R 内衬。
-        //
-        // 1007 实机：用户「心理块内的文字再右一些 / 居中试试」。
-        // 取「右移」——块是引文式（左侧一根细线），文字贴着细线太挤，
-        // 故左侧内衬明显大于右侧（左 18 / 右 10），文字整体右移、脱离细线。
-        // （若日后想要居中，把 textAlign 改成 center 即可，一行切换。）
+        // 1008 用户口径：**心理块自适应** ——
+        //   底色块**贴合文字宽度**（width: fit-content），短句不再拉成通栏长条；
+        //   长句到 max-width:100% 自动换行，左右内衬对称（12/12），
+        //   并与其它正文**共用同一条左右基准**（FRAME_TEXT_INSET）。
         if (f.kind === "inner") {
           return (
             <div
@@ -565,10 +561,13 @@ function EnsembleFrameStream({
                 marginTop: tpx(topMargin),
                 marginLeft: tpx(FRAME_TEXT_INSET),
                 marginRight: tpx(FRAME_TEXT_INSET),
+                // 自适应核心：宽度由内容决定，上限 100% 时自动折行
+                width: "fit-content",
+                maxWidth: "100%",
                 paddingTop: tpx(7),
                 paddingBottom: tpx(7),
-                paddingLeft: tpx(18),
-                paddingRight: tpx(10),
+                paddingLeft: tpx(12),
+                paddingRight: tpx(12),
                 background: "rgba(0,0,0,0.022)",
                 borderLeft: "2px solid rgba(0,0,0,0.10)",
                 borderRadius: "0 7px 7px 0",
@@ -2346,7 +2345,7 @@ ${lastSpeakerNote}
               </div>
             )}
 
-            {currentScript.turns.map((turn) => {
+            {currentScript.turns.map((turn, turnIndex) => {
               const isUser = turn.senderType === "user";
               const isNarrationTurn = turn.senderType === "narration";
               const isNarrator = isNarrationTurn || turn.senderId === "narration";
@@ -2362,25 +2361,81 @@ ${lastSpeakerNote}
               }
 
               return (
-                <div
-                  key={turn.id}
-                  // 1007：卡片左右内缩对齐。
-                  //   · AI 帧卡片：内部 .ensemble-frames 自带 10px 内缩，
-                  //     故卡片本身水平 padding = 0，最终正文左基准 = 容器16 + 0 + 10 = 26px。
-                  //   · 用户卡片：无帧内缩，故直接给 10px（用户要求「用户卡片也是左右10px」），
-                  //     最终 = 容器16 + 10 = 26px，与 AI 侧**完全对齐**。
-                  //   垂直 padding 两者都用 p-5 的 20px，仅水平拆开。
-                  className={`group bg-white rounded-[20px] pb-4 ${
-                    isUser ? "px-[15px] pt-4" : "px-0 pt-[30px]"
-                  } border border-black/[0.04] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
-                >
+                <div key={turn.id}>
+                  {/* ── 卡片间分隔标记（抄 chill 格式）─────────────────────
+                      左：本幕时间 · 右：`SCN`/`USR` + 虚线 + 三位序号。
+                      AI 幕 = SCN（scene），用户投稿幕 = USR。 */}
+                  <div className="flex items-center gap-2 px-[18px] pt-3 pb-1.5">
+                    <span
+                      className="shrink-0 font-mono text-black/30 tabular-nums"
+                      style={{ fontSize: TYPE.MICRO }}
+                    >
+                      {formatMinute(turn.timestamp).slice(-5)}
+                    </span>
+                    <span
+                      className="flex-1 h-px"
+                      style={{
+                        backgroundImage:
+                          "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                      }}
+                    />
+                    <span
+                      className="shrink-0 font-mono tracking-[0.18em] text-black/25"
+                      style={{ fontSize: TYPE.MICRO }}
+                    >
+                      {isUser ? "USR" : "SCN"}
+                    </span>
+                    <span
+                      className="shrink-0 font-mono text-black/25 tabular-nums"
+                      style={{ fontSize: TYPE.MICRO }}
+                    >
+                      {String(turnIndex).padStart(3, "0")}
+                    </span>
+                  </div>
+
+                  <div
+                    key={turn.id}
+                    // 1008 抄 chill 格式：卡片改 **dotted 虚线边框**（原 0.04 实线太隐形）。
+                    className={`group bg-white rounded-[14px] pb-3 ${
+                      isUser ? "px-[15px] pt-[15px]" : "px-0 pt-0"
+                    } border border-dotted border-black/[0.16] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
+                  >
+                  {/* ── AI 幕顶栏（抄 chill）：▶ 黑方块 + NARRATION + 虚线 + Multi ──
+                      1008 用户拍板：AI 幕统一挂 `NARRATION` 顶栏，用户投稿幕不挂。 */}
+                  {!isUser && (
+                    <div className="flex items-center gap-2 px-[15px] pt-[15px] pb-1">
+                      <span className="shrink-0 w-[22px] h-[22px] rounded-[5px] bg-[#111111] flex items-center justify-center">
+                        <Play size={9} strokeWidth={0} className="fill-white text-white ml-[1px]" />
+                      </span>
+                      <span
+                        className="shrink-0 font-medium tracking-[0.16em] text-black/45"
+                        style={{ fontSize: TYPE.MICRO }}
+                      >
+                        NARRATION
+                      </span>
+                      <span
+                        className="flex-1 h-px"
+                        style={{
+                          backgroundImage:
+                            "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                        }}
+                      />
+                      <span
+                        className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dotted border-black/[0.18] text-black/30 tracking-[0.08em]"
+                        style={{ fontSize: TYPE.MICRO }}
+                      >
+                        Multi
+                      </span>
+                    </div>
+                  )}
                   {/* 帧模型：一条 turn 承载整幕，卡内按帧连续渲染，角色名内联。
                       用户投稿（自己写的一幕）不切帧，按原样三色渲染。 */}
                   {isUser || turn.rawText === undefined ? (
                     <>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-[10px] bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 ring-1 ring-black/[0.04]">
+                          <div className="w-8 h-8 rounded-[6px] bg-black/[0.04] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 border border-dotted border-black/[0.20] p-[2px]">
+                            <div className="w-full h-full rounded-[3px] overflow-hidden flex items-center justify-center bg-black/[0.04]">
                             {castChar?.avatar ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
@@ -2402,8 +2457,9 @@ ${lastSpeakerNote}
                             ) : (
                               turn.senderName.slice(0, 1)
                             )}
+                            </div>
                           </div>
-                          <div className="font-semibold text-xs text-[#1a1a1a]">
+                          <div className="font-semibold text-[13px] text-[#1a1a1a]">
                             {turn.senderName}
                           </div>
                         </div>
@@ -2489,30 +2545,67 @@ ${lastSpeakerNote}
                     />
                   )}
 
-                  {/* 元信息 + 操作：全部改为竖排列表，避免重 roll 后横排被挤压看不清 */}
-                  <div className="pt-2.5 border-t border-black/[0.045] space-y-1.5">
-                    {/* 1007 用户口径：DATE / MODEL 元信息**右对齐**，字号压到 5px
-                        （极小的角标，不抢正文视线）。 */}
+                  {/* 元信息 + 操作（1008 抄 chill 格式）
+                      · 上方一道虚线分隔
+                      · 每行 **左标签 + 右值**（两端对齐，labels 淡、值等宽右对齐）
+                      · 下方再一道虚线 + 分页（‹ 1/1 ›）在左、操作图标在右 */}
+                  <div className="px-[15px]">
                     <div
-                      className="flex flex-col items-end gap-1 text-black/35 font-mono tracking-tight leading-none"
-                      style={{ fontSize: "5px" }}
+                      className="h-px mb-2"
+                      style={{
+                        backgroundImage:
+                          "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                      }}
+                    />
+                    <div
+                      className="flex flex-col gap-[3px] font-mono tracking-tight leading-none text-black/40"
+                      style={{ fontSize: TYPE.MICRO }}
                     >
-                      <span className="block">
-                        DATE {formatMinute(turn.timestamp)}
-                      </span>
-                      {(turn.model || lastModel) && (
-                        <span
-                          className="block break-all text-right"
-                          title={turn.model || lastModel}
-                        >
-                          MODEL {turn.model || lastModel}
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="shrink-0 text-black/28 tracking-[0.18em]">
+                          DATE
                         </span>
+                        <span className="tabular-nums truncate">
+                          {formatMinute(turn.timestamp)}
+                        </span>
+                      </div>
+                      {(turn.model || lastModel) && (
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="shrink-0 text-black/28 tracking-[0.18em]">
+                            MODEL
+                          </span>
+                          <span
+                            className="truncate"
+                            title={turn.model || lastModel}
+                          >
+                            {turn.model || lastModel}
+                          </span>
+                        </div>
                       )}
                       {turn.tokens !== undefined && (
-                        <span className="block">TOKENS {turn.tokens}</span>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="shrink-0 text-black/28 tracking-[0.18em]">
+                            TOKENS
+                          </span>
+                          <span className="tabular-nums">{turn.tokens}</span>
+                        </div>
                       )}
                     </div>
-                    <div className="flex justify-end pt-0.5">
+                    <div
+                      className="h-px mt-2"
+                      style={{
+                        backgroundImage:
+                          "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                      }}
+                    />
+                    <div className="flex items-center justify-between pt-1.5">
+                      <span
+                        className="font-mono text-black/30 tabular-nums"
+                        style={{ fontSize: TYPE.MICRO }}
+                      >
+                        ‹ {(rollIndexMap[turn.id] ?? 0) + 1}/
+                        {(rollsMap[turn.id]?.length ?? 1)} ›
+                      </span>
                       <TurnActionBar
                         turn={turn}
                         versions={rollsMap[turn.id]}
@@ -2530,6 +2623,7 @@ ${lastSpeakerNote}
                       />
                     </div>
                   </div>
+                </div>
                 </div>
               );
             })}
@@ -3556,14 +3650,16 @@ ${lastSpeakerNote}
                                     onClick={() => pickModelForApi(cfg.id, name)}
                                     className="w-full flex items-center gap-2 px-3.5 py-[7px] text-left border-t border-dashed border-black/[0.12] first:border-t-0 active:bg-black/[0.03] transition-colors"
                                   >
-                                    {/* 1007 三次+：用户「现在改到 8-9px」→ 取 9px；
-                                        保持 break-all 完整折行（不省略）。 */}
+                                    {/* 1008 抄 chill 图4：展开列表的模型名 **单行完整显示**
+                                        （whitespace-nowrap，不折行、不省略）；
+                                        行高 7px，限高 4 行（用户口径「严格到4行」）。 */}
                                     <span
-                                      className={`flex-1 min-w-0 block font-mono text-[10px] leading-tight break-all ${
+                                      className={`flex-1 min-w-0 block font-mono text-[10px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis ${
                                         selected
                                           ? "font-semibold text-[#111111]"
                                           : "text-black/55"
                                       }`}
+                                      title={name}
                                     >
                                       {name}
                                     </span>
