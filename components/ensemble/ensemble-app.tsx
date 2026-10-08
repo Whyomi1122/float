@@ -186,17 +186,27 @@ function narrStyle(): React.CSSProperties {
 const AVATAR_PX = 35;
 // 段距（长文排版定稿）：
 // 1006 反馈（第6轮）：对白段距 11 → 10（收紧）；旁白间距 26 → 14（不再大喘气）。
-const GAP_DIALOG = 10; // 对白段之间（1006：11 → 10）
-const GAP_ACT = 7; // 叙述/动作段之间（更紧，成组）
+// 1008 反馈（第8轮）：**AI 卡片整体太挤** → 只拉大「组件之间」的块距，
+//   「文字内部」的段距（对白/叙述）**保持不变**（用户明确：文字部分除外）。
+const GAP_DIALOG = 10; // 对白段之间（文字内部段距，不动）
+const GAP_ACT = 7; // 叙述/动作段之间（文字内部段距，不动）
 const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
-const GAP_NARR = 14; // 旁白上下（1006：26 → 14，原间距过大）
-const GAP_BLOCK = 26; // 角色块之间（换人）（1007b：20 → 26，实机换人分界不够醒目）
+const GAP_NARR = 22; // 旁白上下（1008：14 → 22，组件之间要呼吸）
+const GAP_BLOCK = 32; // 角色块之间（换人）（1008：26 → 32）
 
 // ── 帧级左右内缩（1006 第6轮 · 实机三次定稿）──
 // 用户口径：左右必须严格对称；头像/正文/旁白共用一条左基准。
 // 8f9c6c4（16+9=25px）→「过大」；5da29c9（12px）→ 仍偏大；本轮定 10px。
 const FRAME_INSET = 10; // 整块左右内缩（10–12 区间取 10）
 const FRAME_TEXT_INSET = 15; // 1007 用户口径：卡内 15px（帧内缩 = 正文距卡片左右边）
+
+// ── 「正文与角色名对齐」基准（1008 用户口径 · 抄 chill）──
+// 用户实机批注：「文字部分……要和名字对齐」。
+// chill 是「悬挂头像」布局：头像挂在左侧留白里，**角色名与所有正文共用同一条左基准**。
+//   = 卡内 15 + 头像 35 + 头像↔名字间距 10 = 60px
+const AVATAR_GAP = 10; // 头像与角色名间距（对应 gap-2.5）
+const FRAME_BODY_INSET = FRAME_TEXT_INSET + AVATAR_PX + AVATAR_GAP; // = 60px
+
 
 // ── 输入框自动换行（1007 · 第三次反馈遗留项）──
 // 用户要求：输入框「上下滑动、一行塞不下自动换行」，且要能继续长到多行。
@@ -276,9 +286,12 @@ function isValidTimeAnchor(raw: string): boolean {
 function BodyText({
   raw,
   kind = "act",
+  inset = FRAME_BODY_INSET,
 }: {
   raw: string;
   kind?: "dialogue" | "inner" | "act";
+  /** 左基准（px）。默认与角色名对齐（60）；嵌在心理块内时传 0（块自己已有内衬）。 */
+  inset?: number;
 }) {
   const paras = (raw ?? "")
     .split(/\n+/)
@@ -296,10 +309,13 @@ function BodyText({
     fontWeight: 400,
     lineHeight: 1.75,
     opacity: 1,
-    // 帧级内缩（1006 第6轮）：正文比头像再多缩一档；
-    // 左右**同时**给，保证严格对称（右端不再顶边）。
-    paddingLeft: tpx(FRAME_TEXT_INSET),
-    paddingRight: tpx(FRAME_TEXT_INSET),
+    // 帧级内缩（1008 用户口径 · 抄 chill）：
+    //   **正文左基准 = 角色名左基准**（FRAME_BODY_INSET = 60px），
+    //   头像挂在左侧留白里，正文右基准仍为 FRAME_TEXT_INSET（15px）。
+    //   → 用户实机批注「文字部分要和名字对齐」。
+    //   嵌在心理块内时由调用方传 inset=0（避免与块内衬叠加）。
+    paddingLeft: tpx(inset),
+    paddingRight: tpx(inset === 0 ? 0 : FRAME_TEXT_INSET),
   };
   // 段内段距：对白/心理宽松些，叙述紧凑些（成组感）
   // 1006：对白 +5 → +2（收紧，但仍略大于正文段距）
@@ -417,7 +433,7 @@ function EnsembleFrameStream({
     const m = speaker ? cast.find((c) => c.name === speaker) : undefined;
     return (
       <div
-        className="flex items-center gap-2.5 mb-2.5"
+        className="flex items-center gap-2.5 mb-3.5"
         // 头像行与正文共用同一条左基准（1006 第6轮口径 A）：
         // 给它和 BodyText 完全一样的左右内缩，头像左沿 = 正文左沿。
         style={{
@@ -501,7 +517,8 @@ function EnsembleFrameStream({
                 // 首帧不带上方间距，避免紧贴卡片顶边。
                 marginTop: i === 0 ? 0 : tpx(GAP_NARR),
                 marginBottom: tpx(GAP_NARR),
-                paddingLeft: tpx(FRAME_TEXT_INSET),
+                // 1008：旁白也走「与角色名对齐」的同一条左基准（正文左 = 名字左）。
+                paddingLeft: tpx(FRAME_BODY_INSET),
                 paddingRight: tpx(FRAME_TEXT_INSET),
               }}
             >
@@ -548,10 +565,10 @@ function EnsembleFrameStream({
         // 极浅底 + 左侧一根细线，**不带任何「心理」小标签**（用户明确要求删标签）。
         // 与叙述仍是同一灰阶，层级只靠「块感」而非颜色，避免心理太跳。
         //
-        // 1008 用户口径：**心理块自适应** ——
-        //   底色块**贴合文字宽度**（width: fit-content），短句不再拉成通栏长条；
-        //   长句到 max-width:100% 自动换行，左右内衬对称（12/12），
-        //   并与其它正文**共用同一条左右基准**（FRAME_TEXT_INSET）。
+        // 1008 用户口径：**心理块自适应** + **文字两边留空太大要收窄** ——
+        //   ① 底色块贴合文字宽度（width: fit-content），短句不再拉成通栏长条；
+        //   ② 左右内衬由 12/12 收到 **6/6**（用户：「文字两边留空太大了」）；
+        //   ③ 左基准对齐角色名（FRAME_BODY_INSET），与其它正文同一条线。
         if (f.kind === "inner") {
           return (
             <div
@@ -559,21 +576,21 @@ function EnsembleFrameStream({
               className="frame-inner"
               style={{
                 marginTop: tpx(topMargin),
-                marginLeft: tpx(FRAME_TEXT_INSET),
+                marginLeft: tpx(FRAME_BODY_INSET),
                 marginRight: tpx(FRAME_TEXT_INSET),
                 // 自适应核心：宽度由内容决定，上限 100% 时自动折行
                 width: "fit-content",
                 maxWidth: "100%",
-                paddingTop: tpx(7),
-                paddingBottom: tpx(7),
-                paddingLeft: tpx(12),
-                paddingRight: tpx(12),
+                paddingTop: tpx(6),
+                paddingBottom: tpx(6),
+                paddingLeft: tpx(6),
+                paddingRight: tpx(6),
                 background: "rgba(0,0,0,0.022)",
                 borderLeft: "2px solid rgba(0,0,0,0.10)",
                 borderRadius: "0 7px 7px 0",
               }}
             >
-              <BodyText raw={f.text} kind="act" />
+              <BodyText raw={f.text} kind="act" inset={0} />
             </div>
           );
         }
@@ -2363,11 +2380,12 @@ ${lastSpeakerNote}
               return (
                 <div key={turn.id}>
                   {/* ── 卡片间分隔标记（抄 chill 格式）─────────────────────
-                      左：本幕时间 · 右：`SCN`/`USR` + 虚线 + 三位序号。
-                      AI 幕 = SCN（scene），用户投稿幕 = USR。 */}
-                  <div className="flex items-center gap-2 px-[18px] pt-3 pb-1.5">
+                      1008 用户批注：「字色太深太大」「USR 和 SCN 都删掉」
+                      → 去掉 USR/SCN 标签，只留 **时间 + 虚线 + 三位序号**，
+                        颜色压到 black/20，字号再小一档（10px）。 */}
+                  <div className="flex items-center gap-2 px-[15px] pt-3 pb-1.5">
                     <span
-                      className="shrink-0 font-mono text-black/30 tabular-nums"
+                      className="shrink-0 font-mono text-black/20 tabular-nums"
                       style={{ fontSize: TYPE.MICRO }}
                     >
                       {formatMinute(turn.timestamp).slice(-5)}
@@ -2376,17 +2394,11 @@ ${lastSpeakerNote}
                       className="flex-1 h-px"
                       style={{
                         backgroundImage:
-                          "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                          "repeating-linear-gradient(to right, rgba(0,0,0,0.07) 0 1px, transparent 1px 4px)",
                       }}
                     />
                     <span
-                      className="shrink-0 font-mono tracking-[0.18em] text-black/25"
-                      style={{ fontSize: TYPE.MICRO }}
-                    >
-                      {isUser ? "USR" : "SCN"}
-                    </span>
-                    <span
-                      className="shrink-0 font-mono text-black/25 tabular-nums"
+                      className="shrink-0 font-mono text-black/20 tabular-nums"
                       style={{ fontSize: TYPE.MICRO }}
                     >
                       {String(turnIndex).padStart(3, "0")}
@@ -2396,14 +2408,14 @@ ${lastSpeakerNote}
                   <div
                     key={turn.id}
                     // 1008 抄 chill 格式：卡片改 **dotted 虚线边框**（原 0.04 实线太隐形）。
-                    className={`group bg-white rounded-[14px] pb-3 ${
-                      isUser ? "px-[15px] pt-[15px]" : "px-0 pt-0"
+                    className={`group bg-white rounded-[14px] pb-3 px-0 ${
+                      isUser ? "pt-[15px]" : "pt-0"
                     } border border-dotted border-black/[0.16] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
                   >
                   {/* ── AI 幕顶栏（抄 chill）：▶ 黑方块 + NARRATION + 虚线 + Multi ──
                       1008 用户拍板：AI 幕统一挂 `NARRATION` 顶栏，用户投稿幕不挂。 */}
                   {!isUser && (
-                    <div className="flex items-center gap-2 px-[15px] pt-[15px] pb-1">
+                    <div className="flex items-center gap-2 px-[15px] pt-[18px] pb-2.5">
                       <span className="shrink-0 w-[22px] h-[22px] rounded-[5px] bg-[#111111] flex items-center justify-center">
                         <Play size={9} strokeWidth={0} className="fill-white text-white ml-[1px]" />
                       </span>
@@ -2432,7 +2444,9 @@ ${lastSpeakerNote}
                       用户投稿（自己写的一幕）不切帧，按原样三色渲染。 */}
                   {isUser || turn.rawText === undefined ? (
                     <>
-                      <div className="flex items-center justify-between">
+                      {/* 用户投稿卡头部（1008：卡片改 px-0 后，头部自己带 15px 卡内衬，
+                          与 AI 卡的头像行共用同一条左基准）。 */}
+                      <div className="flex items-center justify-between px-[15px]">
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-[6px] bg-black/[0.04] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 border border-dotted border-black/[0.20] p-[2px]">
                             <div className="w-full h-full rounded-[3px] overflow-hidden flex items-center justify-center bg-black/[0.04]">
@@ -2548,56 +2562,64 @@ ${lastSpeakerNote}
                   {/* 元信息 + 操作（1008 抄 chill 格式）
                       · 上方一道虚线分隔
                       · 每行 **左标签 + 右值**（两端对齐，labels 淡、值等宽右对齐）
-                      · 下方再一道虚线 + 分页（‹ 1/1 ›）在左、操作图标在右 */}
+                      · 下方再一道虚线 + 分页（‹ 1/1 ›）在左、操作图标在右
+                      · 1008 用户批注：「**用户卡片不需要这三行**」（DATE/MODEL/TOKENS）
+                        → 仅 AI 幕渲染元信息行，用户投稿幕只留分页 + 操作图标。 */}
                   <div className="px-[15px]">
-                    <div
-                      className="h-px mb-2"
-                      style={{
-                        backgroundImage:
-                          "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
-                      }}
-                    />
-                    <div
-                      className="flex flex-col gap-[3px] font-mono tracking-tight leading-none text-black/40"
-                      style={{ fontSize: TYPE.MICRO }}
-                    >
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="shrink-0 text-black/28 tracking-[0.18em]">
-                          DATE
-                        </span>
-                        <span className="tabular-nums truncate">
-                          {formatMinute(turn.timestamp)}
-                        </span>
-                      </div>
-                      {(turn.model || lastModel) && (
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="shrink-0 text-black/28 tracking-[0.18em]">
-                            MODEL
-                          </span>
-                          <span
-                            className="truncate"
-                            title={turn.model || lastModel}
-                          >
-                            {turn.model || lastModel}
-                          </span>
+                    {!isUser && (
+                      <>
+                        <div
+                          className="h-px mb-2"
+                          style={{
+                            backgroundImage:
+                              "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                          }}
+                        />
+                        <div
+                          className="flex flex-col gap-[3px] font-mono tracking-tight leading-none text-black/40"
+                          style={{ fontSize: TYPE.MICRO }}
+                        >
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span className="shrink-0 text-black/28 tracking-[0.18em]">
+                              DATE
+                            </span>
+                            <span className="tabular-nums truncate">
+                              {formatMinute(turn.timestamp)}
+                            </span>
+                          </div>
+                          {(turn.model || lastModel) && (
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="shrink-0 text-black/28 tracking-[0.18em]">
+                                MODEL
+                              </span>
+                              <span
+                                className="truncate"
+                                title={turn.model || lastModel}
+                              >
+                                {turn.model || lastModel}
+                              </span>
+                            </div>
+                          )}
+                          {turn.tokens !== undefined && (
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="shrink-0 text-black/28 tracking-[0.18em]">
+                                TOKENS
+                              </span>
+                              <span className="tabular-nums">
+                                {turn.tokens}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {turn.tokens !== undefined && (
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="shrink-0 text-black/28 tracking-[0.18em]">
-                            TOKENS
-                          </span>
-                          <span className="tabular-nums">{turn.tokens}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div
-                      className="h-px mt-2"
-                      style={{
-                        backgroundImage:
-                          "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
-                      }}
-                    />
+                        <div
+                          className="h-px mt-2"
+                          style={{
+                            backgroundImage:
+                              "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                          }}
+                        />
+                      </>
+                    )}
                     <div className="flex items-center justify-between pt-1.5">
                       <span
                         className="font-mono text-black/30 tabular-nums"
