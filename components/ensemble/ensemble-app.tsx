@@ -182,32 +182,46 @@ function narrStyle(): React.CSSProperties {
     fontStyle: "italic",
   };
 }
-/** 头像尺寸（定稿 35px，此前 78px 过大被用户吐槽「像生图来了」） */
-const AVATAR_PX = 35;
+/** 头像尺寸（1008d 回退：按截图1 实测 33px；1005 定稿曾为 35px） */
+const AVATAR_PX = 33;
 // 段距（长文排版定稿）：
 // 1006 反馈（第6轮）：对白段距 11 → 10（收紧）；旁白间距 26 → 14（不再大喘气）。
 // 1008 反馈（第8轮）：**AI 卡片整体太挤** → 只拉大「组件之间」的块距，
 //   「文字内部」的段距（对白/叙述）**保持不变**（用户明确：文字部分除外）。
+// 1008d 反馈（第六次）：第8轮方向被否决 → 按截图1/截图2 实测重写（见下）。
 const GAP_DIALOG = 10; // 对白段之间（文字内部段距，不动）
 const GAP_ACT = 7; // 叙述/动作段之间（文字内部段距，不动）
 const GAP_INNER = GAP_ACT; // 心理块上下：与叙述一致（1005 反馈）
-const GAP_NARR = 30; // 旁白上下（1008c：22 → 30，继续拉，图2 呼吸感很强）
-const GAP_BLOCK = 38; // 角色块之间（换人）（1008c：32 → 38）
+const GAP_NARR = 30; // 旁白上下
+const GAP_BLOCK = 38; // 角色块之间（换人）
 
-// ── 帧级左右内缩（1008c · 按图2 实测反推）──
-// 图2（1080px 原图，≈3x）实测：卡片左 56 → 头像左 86 → 头像右 232 → 名字/正文左 262
-//   卡内衬 = (86-56)/3 ≈ 10px
-//   头像宽 = (232-86)/3 ≈ 49 → 项目用 35px
-//   头像↔名字 = (262-232)/3 ≈ 10px
-//   ⚠️ 名字左沿 == 正文左沿 == 旁白左沿（三者**完全齐平**，无额外缩进）
-const FRAME_INSET = 10;
-const FRAME_TEXT_INSET = 10; // 1008c：15 → 10（卡内衬，按图2 实测）
+// ── 帧级左右内缩（1008d · 按截图1/截图2 实测反推）──
+// 【定标】设备 vivo S15（1080px 宽，DPR=3）。
+//   截图1 = 864×1920，无裁剪 → 被压到 0.8x（864/1080），换算 k1 = 1/3/0.8 = 0.4167
+//   截图2 = 1080×732，裁剪图 → 原始分辨率，换算 k2 = 1/3 = 0.3333
+//   ✅ 交叉验证：两张图独立换算后卡片外留白 17.1 vs 17、卡片宽 325.8 vs 326 —— 完全吻合
+//
+// 【截图1（AI 卡）实测 → CSS px】
+//   卡片左 41 → 卡片外留白 41×k1 = 17
+//   卡内衬（卡边→头像左）74×k1 = 31 → 取 30（用户口径「宁小不大」）
+//   头像宽 80×k1 = 33
+//   头像↔名字 31×k1 = 13 → 取 12（宁小不大）
+//   正文左（卡边起）77×k1 = 32 → **对齐头像左沿**（不等名字，勿回改）
+const FRAME_INSET = 17; // 卡片外左右留白（实测 17.1）
+const FRAME_TEXT_INSET = 30; // 卡内衬（实测 31，宁小不大取 30）
 
-// ── 「正文与角色名齐平」基准（1008 用户口径 · 抄图2）──
-// 图2 里「姜志焕」名字左沿 与 正文「他咽下最后一口面…」左沿 **完全对齐**（都是 262）。
-//   = 卡内 10 + 头像 35 + 头像↔名字间距 10 = 55px
-const AVATAR_GAP = 10; // 头像与角色名间距（对应 gap-2.5）
-const FRAME_BODY_INSET = FRAME_TEXT_INSET + AVATAR_PX + AVATAR_GAP; // = 55px
+// ── ⚠️ 正文左基准 = 头像左基准（1008d 关键回退）──
+// 截图1 实测：头像左 115、正文左 118（差 3px 属字形抖动）→ 二者**同线**。
+//   第8轮曾把正文改成对齐「名字左沿」（= 卡内衬 + 头像 + 间距 = 55px），
+//   实测**截图1 并非如此**（名字左 225 ≠ 正文左 118）→ 本轮回退。
+//   结论：**FRAME_BODY_INSET 恒等于 FRAME_TEXT_INSET**，不再叠加头像宽度。
+const AVATAR_GAP = 12; // 头像与角色名间距（实测 13，宁小不大取 12）
+const FRAME_BODY_INSET = FRAME_TEXT_INSET; // = 30（正文对齐头像左沿）
+
+// ── 用户投稿卡·正文内衬（1008d A5 · 按截图2 实测）──
+// 截图2（1080 原始宽，k2 = 1/3）：卡片左 51、正文左 112 → (112-51)/3 ≈ 20px。
+//   仅作用于【输入的文字块】；用户卡的头部/元信息行仍走各自原有内衬。
+const FRAME_USER_INSET = 20;
 
 
 // ── 输入框自动换行（1007 · 第三次反馈遗留项）──
@@ -292,7 +306,8 @@ function BodyText({
 }: {
   raw: string;
   kind?: "dialogue" | "inner" | "act";
-  /** 左基准（px）。默认与角色名对齐（60）；嵌在心理块内时传 0（块自己已有内衬）。 */
+  /** 左基准（px）。默认与**头像左沿**对齐（1008d：FRAME_BODY_INSET == FRAME_TEXT_INSET）；
+      嵌在心理块内时传 0（块自己已有内衬）。 */
   inset?: number;
 }) {
   const paras = (raw ?? "")
@@ -311,10 +326,10 @@ function BodyText({
     fontWeight: 400,
     lineHeight: 1.75,
     opacity: 1,
-    // 帧级内缩（1008 用户口径 · 抄 chill）：
-    //   **正文左基准 = 角色名左基准**（FRAME_BODY_INSET = 60px），
-    //   头像挂在左侧留白里，正文右基准仍为 FRAME_TEXT_INSET（15px）。
-    //   → 用户实机批注「文字部分要和名字对齐」。
+    // 帧级内缩（1008d · 回退到截图1 口径）：
+    //   **正文左基准 = 头像左基准**（FRAME_BODY_INSET == FRAME_TEXT_INSET = 30px），
+    //   第8轮曾改成「对齐角色名左沿」（55px）→ 实测截图1 并非如此，已回退。
+    //   正文右基准同为 FRAME_TEXT_INSET，左右对称。
     //   嵌在心理块内时由调用方传 inset=0（避免与块内衬叠加）。
     paddingLeft: tpx(inset),
     paddingRight: tpx(inset === 0 ? 0 : FRAME_TEXT_INSET),
@@ -435,10 +450,12 @@ function EnsembleFrameStream({
     const m = speaker ? cast.find((c) => c.name === speaker) : undefined;
     return (
       <div
-        className="flex items-center gap-2.5 mb-4"
-        // 头像行与正文共用同一条左基准（1006 第6轮口径 A）：
-        // 给它和 BodyText 完全一样的左右内缩，头像左沿 = 正文左沿。
+        className="flex items-center mb-4"
+        // 1008d：头像 ↔ 角色名间距走 AVATAR_GAP（实测 13 → 宁小不大取 12）。
+        //   原来写死 Tailwind `gap-2.5`(10px)，改成行内 style 与常量联动。
+        // 头像行与正文共用同一条左基准：头像左沿 == 正文左沿 == 旁白左沿。
         style={{
+          gap: tpx(AVATAR_GAP),
           paddingLeft: tpx(FRAME_TEXT_INSET),
           paddingRight: tpx(FRAME_TEXT_INSET),
         }}
@@ -519,7 +536,8 @@ function EnsembleFrameStream({
                 // 首帧不带上方间距，避免紧贴卡片顶边。
                 marginTop: i === 0 ? 0 : tpx(GAP_NARR),
                 marginBottom: tpx(GAP_NARR),
-                // 1008：旁白也走「与角色名对齐」的同一条左基准（正文左 = 名字左）。
+                // 1008d：旁白与头像/正文共用同一条左基准（FRAME_BODY_INSET
+                //   现 == FRAME_TEXT_INSET，即对齐头像左沿）。
                 paddingLeft: tpx(FRAME_BODY_INSET),
                 paddingRight: tpx(FRAME_TEXT_INSET),
               }}
@@ -2415,15 +2433,17 @@ ${lastSpeakerNote}
                     } border border-dotted border-black/[0.16] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
                   >
                   {/* ── AI 幕顶栏（抄 chill）：▶ 黑方块 + NARRATION + 虚线 + Multi ──
-                      1008 用户拍板：AI 幕统一挂 `NARRATION` 顶栏，用户投稿幕不挂。 */}
+                      1008 用户拍板：AI 幕统一挂 `NARRATION` 顶栏，用户投稿幕不挂。
+                      1008d A1：**整体缩小 2px**（22px 方块 → 20px）、
+                        左内衬改为 **距卡片左边框 9px**（原 10px）。 */}
                   {!isUser && (
-                    <div className="flex items-center gap-2 px-[10px] pt-[20px] pb-4">
-                      <span className="shrink-0 w-[22px] h-[22px] rounded-[5px] bg-[#111111] flex items-center justify-center">
-                        <Play size={9} strokeWidth={0} className="fill-white text-white ml-[1px]" />
+                    <div className="flex items-center gap-2 pl-[9px] pr-[10px] pt-[20px] pb-4">
+                      <span className="shrink-0 w-[20px] h-[20px] rounded-[5px] bg-[#111111] flex items-center justify-center">
+                        <Play size={8} strokeWidth={0} className="fill-white text-white ml-[1px]" />
                       </span>
                       <span
                         className="shrink-0 font-medium tracking-[0.16em] text-black/45"
-                        style={{ fontSize: TYPE.MICRO }}
+                        style={{ fontSize: TYPE.MICRO - 2 }}
                       >
                         NARRATION
                       </span>
@@ -2436,7 +2456,7 @@ ${lastSpeakerNote}
                       />
                       <span
                         className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dotted border-black/[0.18] text-black/30 tracking-[0.08em]"
-                        style={{ fontSize: TYPE.MICRO }}
+                        style={{ fontSize: TYPE.MICRO - 2 }}
                       >
                         Multi
                       </span>
@@ -2508,7 +2528,17 @@ ${lastSpeakerNote}
                           </div>
                         </div>
                       ) : (
-                        <div className="frame-user" style={{ textAlign: "center" }}>
+                        // 1008d A5：用户卡【仅输入的文字块】按截图2 复刻 ——
+                        //   截图2 实测：卡片左 51、正文左 112 → 卡内衬 61px ÷3 ≈ 20px。
+                        //   且为**左对齐**（第8轮误改成的居中已回退）。
+                        <div
+                          className="frame-user"
+                          style={{
+                            textAlign: "left",
+                            paddingLeft: tpx(FRAME_USER_INSET),
+                            paddingRight: tpx(FRAME_USER_INSET),
+                          }}
+                        >
                           <BodyText raw={turn.content} inset={0} />
                         </div>
                       )}
@@ -3631,10 +3661,10 @@ ${lastSpeakerNote}
                         {/* 内联模型列表：加载中 / 出错 / 空 / 列表
                             1007 用户口径：列表「6 行内滑动，现在太多行了不好找」。
                             1007b 复验：14px「还是很大」→ 收到 13px，行高 38px。
-                            容器限高 = 6 行（6 × 38 = 228px），超出后容器内滚动，
-                            卡片不再被撑长。 */}
+                            1008d 用户口径：限高 **放宽到 5–6 行** → 取 6 行
+                            （行高约 26px，6 × 26 ≈ 156px），超出后容器内滚动。 */}
                         {expanded && (
-                          <div className="border-t border-dashed border-black/[0.12] max-h-[104px] overflow-y-auto overscroll-contain">
+                          <div className="border-t border-dashed border-black/[0.12] max-h-[156px] overflow-y-auto overscroll-contain">
                             {isLoadingModels && (
                               <div className="px-4 py-3.5 text-[11px] text-black/40">
                                 正在拉取该接口的模型列表…
@@ -3676,7 +3706,7 @@ ${lastSpeakerNote}
                                   >
                                     {/* 1008 抄 chill 图4：展开列表的模型名 **单行完整显示**
                                         （whitespace-nowrap，不折行、不省略）；
-                                        行高 7px，限高 4 行（用户口径「严格到4行」）。 */}
+                                        1008d：限高放宽到 6 行（用户口径「5行-6行」）。 */}
                                     <span
                                       className={`flex-1 min-w-0 block font-mono text-[10px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis ${
                                         selected
