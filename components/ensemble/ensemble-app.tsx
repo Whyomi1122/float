@@ -218,6 +218,12 @@ const FRAME_TEXT_INSET = 30; // 卡内衬（实测 31，宁小不大取 30）
 const AVATAR_GAP = 12; // 头像与角色名间距（实测 13，宁小不大取 12）
 const FRAME_BODY_INSET = FRAME_TEXT_INSET; // = 30（正文对齐头像左沿）
 
+// ── 头像+名字「整块」左基准（1008e 用户实机批注）──
+// 「头像和名字作为一个整块，往左边挪 5px；其余所有文字块都和旁白找齐」
+//   旁白/正文/心理 = FRAME_TEXT_INSET(30) **不动**
+//   头像块 = 30 - 5 = **25px** → 头像相对文字块「悬挂」出去 5px
+const FRAME_HEAD_INSET = FRAME_TEXT_INSET - 5; // = 25
+
 // ── 用户投稿卡·正文内衬（1008d A5 · 按截图2 实测）──
 // 截图2（1080 原始宽，k2 = 1/3）：卡片左 51、正文左 112 → (112-51)/3 ≈ 20px。
 //   仅作用于【输入的文字块】；用户卡的头部/元信息行仍走各自原有内衬。
@@ -452,11 +458,11 @@ function EnsembleFrameStream({
       <div
         className="flex items-center mb-4"
         // 1008d：头像 ↔ 角色名间距走 AVATAR_GAP（实测 13 → 宁小不大取 12）。
-        //   原来写死 Tailwind `gap-2.5`(10px)，改成行内 style 与常量联动。
-        // 头像行与正文共用同一条左基准：头像左沿 == 正文左沿 == 旁白左沿。
+        // 1008e：「头像+名字作为整块」左基准 = FRAME_HEAD_INSET（25px），
+        //   比其余文字块（30px）**再靠左 5px** → 头像「悬挂」出去。
         style={{
           gap: tpx(AVATAR_GAP),
-          paddingLeft: tpx(FRAME_TEXT_INSET),
+          paddingLeft: tpx(FRAME_HEAD_INSET),
           paddingRight: tpx(FRAME_TEXT_INSET),
         }}
       >
@@ -2435,9 +2441,11 @@ ${lastSpeakerNote}
                   {/* ── AI 幕顶栏（抄 chill）：▶ 黑方块 + NARRATION + 虚线 + Multi ──
                       1008 用户拍板：AI 幕统一挂 `NARRATION` 顶栏，用户投稿幕不挂。
                       1008d A1：**整体缩小 2px**（22px 方块 → 20px）、
-                        左内衬改为 **距卡片左边框 9px**（原 10px）。 */}
+                        左内衬改为 **距卡片左边框 9px**（原 10px）。
+                      1008e：**整体往下挪 6px**（用户实机批注）。
+                        实现：pt 20 → 26（顶栏整体下沉，pb 保持 4 不变）。 */}
                   {!isUser && (
-                    <div className="flex items-center gap-2 pl-[9px] pr-[10px] pt-[20px] pb-4">
+                    <div className="flex items-center gap-2 pl-[9px] pr-[10px] pt-[26px] pb-4">
                       <span className="shrink-0 w-[20px] h-[20px] rounded-[5px] bg-[#111111] flex items-center justify-center">
                         <Play size={8} strokeWidth={0} className="fill-white text-white ml-[1px]" />
                       </span>
@@ -2608,7 +2616,7 @@ ${lastSpeakerNote}
                           }}
                         />
                         <div
-                          className="flex flex-col gap-[3px] font-mono tracking-tight leading-none text-black/40"
+                          className="flex flex-col gap-[8px] font-mono tracking-tight leading-none text-black/40"
                           style={{ fontSize: TYPE.MICRO }}
                         >
                           <div className="flex items-baseline justify-between gap-3">
@@ -2624,8 +2632,11 @@ ${lastSpeakerNote}
                               <span className="shrink-0 text-black/28 tracking-[0.18em]">
                                 MODEL
                               </span>
+                              {/* 1008e 用户口径：「这里的 MODEL 必须显示完整！」
+                                  → 去掉 truncate，改为整段换行完整显示（长模型名不省略）。
+                                  靠右对齐用 text-right + break-all 兜底超长串。 */}
                               <span
-                                className="truncate"
+                                className="text-right break-all"
                                 title={turn.model || lastModel}
                               >
                                 {turn.model || lastModel}
