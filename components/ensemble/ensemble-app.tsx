@@ -38,6 +38,10 @@ import {
   type WorldBookHit,
   type WorldBookMiss,
 } from "@/lib/ensemble-worldbook";
+import {
+  buildEnsembleMemoryBlock,
+  type RoleMemoryBlock,
+} from "@/lib/ensemble-memory";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import { fetchModelNames } from "@/lib/model-list";
@@ -1008,6 +1012,17 @@ export function EnsembleApp({
     turnIndex: number;
     at: number;
   } | null>(null);
+  /**
+   * 记忆库日志（2026-10-09 M1）：每幕生成后记录「用了哪些角色的记忆、各几条」。
+   * 与触发日志同源，解决「不知道它提取了哪条记忆」的黑盒问题。
+   */
+  const [memoryLog, setMemoryLog] = useState<{
+    blocks: RoleMemoryBlock[];
+    roleCount: number;
+    totalCount: number;
+    enabled: boolean;
+    turnIndex: number;
+  } | null>(null);
   /** 状态面板草稿（点保存才落库） */
   const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
   const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
@@ -1374,12 +1389,31 @@ ${userPovRule}
 【人称铁律 5 · 对白不受限】
 ［对白］是角色嘴里说的话，人称照角色自己的说话习惯写，不受以上约束。`;
 
-      // ── 05 MEMORY LINK · 线上互通（图1）──
-      // ⚠️ 真实记忆库互通需另接记忆服务；此处仅把开关语义写进提示词，
-      //    关闭时明确要求「不得引用线下记忆」，避免模型自行编造跨场景记忆。
+      // ── 05 MEMORY LINK · 线上互通（图1 · 2026-10-09 M1 接入真实记忆库）──
+      // 此前只是「把开关语义写进提示词」的占位符；现在真正去读记忆库：
+      //   · 用户口径：全员并标注归属 / 读同一角色在单聊的记忆 / 共用单聊那套库
+      //   · `EnsembleCastMember.id` 即真实 characterId → 逐角色检索，天然实现"读同角色记忆"
+      //   · 关闭时只注入「不得引用线下记忆」的约束，不检索（省 token）
+      const memoryResult = await buildEnsembleMemoryBlock(
+        script.cast.map((c) => ({ id: c.id, name: c.name })),
+        script.turns
+          .slice(-10)
+          .map((t) => t.content)
+          .join("\n"),
+        { enabled: !!script.onlineSync }
+      );
       const memoryBlock = script.onlineSync
-        ? "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。"
+        ? memoryResult.text ||
+          "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。"
         : "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
+      // 记忆日志（供「触发日志」面板查看本幕用了谁的记忆）
+      setMemoryLog({
+        blocks: memoryResult.blocks,
+        roleCount: memoryResult.roleCount,
+        totalCount: memoryResult.totalCount,
+        enabled: !!script.onlineSync,
+        turnIndex: script.turns.length,
+      });
 
       // ── 世界书 · 记忆库（2026-10-09 接入 · 纯增量）──
       //   五大引擎均已接入世界书，群像此前缺失，本次补齐。
@@ -3557,6 +3591,57 @@ ${lastSpeakerNote}
                     </div>
                   </div>
                 )}
+
+                {/* ── 记忆库 · 线上互通（2026-10-09 M1）──
+                    与触发日志同面板：世界书看「翻了哪条设定」，这里看「用了谁的记忆」。
+                    直击用户痛点：付费小手机的记忆库不显示提取了哪条 → 此处逐条列出。 */}
+                <div className="bg-white rounded-[16px] p-2">
+                  <div className="px-3 pt-2 pb-1 text-[10px] text-black/30 tracking-[0.15em]">
+                    MEMORY · 线上互通记忆
+                  </div>
+                  {!memoryLog || !memoryLog.enabled ? (
+                    <div className="px-3 py-4 text-center text-[11px] text-black/30 leading-relaxed">
+                      {memoryLog && !memoryLog.enabled
+                        ? "线上互通已关闭 · 本幕未读取记忆库"
+                        : "还没有生成过 · 开启「线上互通」后跑一幕再看"}
+                    </div>
+                  ) : memoryLog.totalCount === 0 ? (
+                    <div className="px-3 py-4 text-center text-[11px] text-black/30 leading-relaxed">
+                      本幕未命中任何记忆
+                      <br />
+                      <span className="text-black/22 text-[10px]">（该角色在单聊里还没有相关记忆）</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="px-3 pb-2 flex items-baseline justify-between">
+                        <span className="text-[11px] text-black/35 tracking-wide">命中角色</span>
+                        <span className="font-mono tabular-nums text-[13px] text-[#111111] font-semibold">
+                          {memoryLog.roleCount} 人 · {memoryLog.totalCount} 条
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {memoryLog.blocks.map((b) => (
+                          <div
+                            key={b.characterId}
+                            className="px-3 py-2.5 rounded-[12px] hover:bg-black/[0.02]"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium bg-[#111111] text-white">
+                                归属
+                              </span>
+                              <span className="flex-1 min-w-0 text-[12px] text-[#111111] font-medium truncate">
+                                {b.name}
+                              </span>
+                              <span className="shrink-0 text-[10px] text-black/30 font-mono tabular-nums">
+                                核心 {b.core.length} · 长期 {b.longTerm.length}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* 底部 */}
                 <button
