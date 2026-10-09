@@ -28,8 +28,21 @@ export type StickyLedger = Map<string, number>;
 /** 单条命中的记录，用于调试面板「触发日志」。 */
 export type WorldBookHit = {
   uid: string;
+  /** 条目备注（用于日志展示）；空时退回前 12 字正文。 */
   comment: string;
+  /** 命中方式：常驻 / 关键词 / 粘性驻留。 */
   source: "constant" | "keyword" | "sticky";
+  /** 所属世界书名（日志分组用）。 */
+  bookName: string;
+  /** 触发它的关键词（keyword 命中有值，其余为空）—— 便于用户排查「为什么这条被翻了」。 */
+  matchedKey?: string;
+};
+
+/** 本轮扫描过、但**未命中**的条目（调试用：看哪些条目「相关却没触发」）。 */
+export type WorldBookMiss = {
+  uid: string;
+  comment: string;
+  bookName: string;
 };
 
 export type BuildWorldBookResult = {
@@ -37,6 +50,10 @@ export type BuildWorldBookResult = {
   text: string;
   /** 本轮命中明细（调试用）。 */
   hits: WorldBookHit[];
+  /** 本轮扫描但未命中的条目（调试用）。 */
+  misses: WorldBookMiss[];
+  /** 本轮参与扫描的条目总数（hits + misses）。 */
+  scannedCount: number;
 };
 
 /** 单条世界书条目 → 给模型的文本行。与方案「content 写陈述句」口径一致，不加祈使前缀。 */
@@ -67,18 +84,18 @@ function parseKeys(key: string): string[] {
  *   4. 都不满足 → 不激活。
  *
  * @param ledger 调用方持有的 sticky 台账（按剧本维度），本函数会就地更新。
- * @returns 命中记录；未命中返回 null。
+ * @returns 命中方式 + 触发关键词；未命中返回 null。
  */
 export function activateEntry(
   entry: WorldBookEntry,
   contextText: string,
   ledger: StickyLedger
-): WorldBookHit | null {
+): { source: "constant" | "keyword" | "sticky"; matchedKey?: string } | null {
   const uid = entry.uid || entry.comment || "?";
 
   // 1. 常驻条目：永远注入，不参与 sticky 递减
   if (entry.constant) {
-    return { uid, comment: entry.comment, source: "constant" };
+    return { source: "constant" };
   }
 
   // 2. 关键词命中（复用主引擎语义）
@@ -87,7 +104,9 @@ export function activateEntry(
     // 命中且带 sticky → 刷新驻留计数（sticky 语义：命中后跟着走 N 轮）
     const sticky = typeof entry.sticky === "number" ? entry.sticky : 0;
     if (sticky > 0) ledger.set(uid, sticky);
-    return { uid, comment: entry.comment, source: "keyword" };
+    // 找出具体命中的关键词（纯展示用，正则模式无法定位则留空）
+    const matchedKey = entry.use_regex ? undefined : findMatchedKey(entry.key, contextText);
+    return { source: "keyword", matchedKey };
   }
 
   // 3. 未命中但仍在驻留期（sticky 生效）
@@ -96,11 +115,17 @@ export function activateEntry(
     const next = remain - 1;
     if (next > 0) ledger.set(uid, next);
     else ledger.delete(uid);
-    return { uid, comment: entry.comment, source: "sticky" };
+    return { source: "sticky" };
   }
 
   // 4. 不激活
   return null;
+}
+
+/** 在上下文里找出第一个命中的主关键词（纯展示用途）。 */
+function findMatchedKey(key: string, contextText: string): string | undefined {
+  const lower = contextText.toLowerCase();
+  return parseKeys(key).find((k) => lower.includes(k.toLowerCase()));
 }
 
 /**
@@ -116,36 +141,51 @@ export function buildEnsembleWorldBookBlock(
   contextText: string,
   ledger: StickyLedger
 ): BuildWorldBookResult {
-  if (!books || books.length === 0) return { text: "", hits: [] };
+  if (!books || books.length === 0) {
+    return { text: "", hits: [], misses: [], scannedCount: 0 };
+  }
 
   const hits: WorldBookHit[] = [];
+  const misses: WorldBookMiss[] = [];
   const lines: string[] = [];
+  let scannedCount = 0;
 
   // 轮询所有绑定世界书的所有条目
   for (const book of books) {
+    const bookName = book.name || "(未命名)";
     for (const entry of book.entries ?? []) {
       if (entry.disable) continue;
       // 空 key 且非常驻：无意义条目，跳过（避免空串误命中）
       if (!entry.constant && parseKeys(entry.key).length === 0) continue;
 
-      const hit = activateEntry(entry, contextText, ledger);
-      if (!hit) continue;
+      scannedCount++;
+      const uid = entry.uid || entry.comment || "?";
+      const comment = entry.comment || (entry.content ?? "").trim().slice(0, 12);
+      const res = activateEntry(entry, contextText, ledger);
+
+      if (!res) {
+        // 未命中：记入 misses（日志用）
+        misses.push({ uid, comment, bookName });
+        continue;
+      }
 
       const body = formatEntry(entry);
       if (body) {
-        hits.push(hit);
+        hits.push({ uid, comment, source: res.source, bookName, matchedKey: res.matchedKey });
         lines.push(body);
       }
     }
   }
 
-  if (lines.length === 0) return { text: "", hits: [] };
+  if (lines.length === 0) {
+    return { text: "", hits: [], misses, scannedCount };
+  }
 
   const text = `
 ═══════════ 世界书 · 记忆库（本轮命中的设定，请严格遵循）═══════════
 ${lines.join("\n")}
 `;
-  return { text, hits };
+  return { text, hits, misses, scannedCount };
 }
 
 /**

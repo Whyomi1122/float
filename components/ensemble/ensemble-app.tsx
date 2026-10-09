@@ -35,6 +35,8 @@ import {
   buildEnsembleWorldBookBlock,
   pickBoundBooks,
   type StickyLedger,
+  type WorldBookHit,
+  type WorldBookMiss,
 } from "@/lib/ensemble-worldbook";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
@@ -990,8 +992,22 @@ export function EnsembleApp({
   const [showTimeSheet, setShowTimeSheet] = useState(false);
   /** 世界书绑定子弹窗（2026-10-09 M2-b） */
   const [showWorldBookSheet, setShowWorldBookSheet] = useState(false);
+  /** 世界书触发日志子弹窗（2026-10-09 M2-a） */
+  const [showWorldBookLogSheet, setShowWorldBookLogSheet] = useState(false);
   /** 世界书绑定草稿：选中的世界书 id 集合（保存前） */
   const [worldBookIdsDraft, setWorldBookIdsDraft] = useState<string[]>([]);
+  /**
+   * 世界书触发日志（2026-10-09 M2-a）：每次生成后记录本轮命中/未命中。
+   * 面板展示「本轮命中 N 条 / 未命中 M 条」，逐条列出触发方式与触发词，
+   * 解决「不知道 AI 到底翻出了哪条设定」的黑盒问题（付费小手机也没做到）。
+   */
+  const [worldBookLog, setWorldBookLog] = useState<{
+    hits: WorldBookHit[];
+    misses: WorldBookMiss[];
+    scannedCount: number;
+    turnIndex: number;
+    at: number;
+  } | null>(null);
   /** 状态面板草稿（点保存才落库） */
   const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
   const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
@@ -1382,6 +1398,14 @@ ${userPovRule}
         worldBookStickyRef.current
       );
       const worldBookBlock = wbResult.text;
+      // 触发日志（2026-10-09 M2-a）：记录本轮命中/未命中，供调试面板展示
+      setWorldBookLog({
+        hits: wbResult.hits,
+        misses: wbResult.misses,
+        scannedCount: wbResult.scannedCount,
+        turnIndex: script.turns.length,
+        at: Date.now(),
+      });
 
       // ── 01 OPENING · 开场白（图1）──
       const openingBlock = script.openingMessage?.trim()
@@ -3347,6 +3371,16 @@ ${lastSpeakerNote}
                     type="button"
                     onClick={() => {
                       setShowWorldBookSheet(false);
+                      setShowWorldBookLogSheet(true);
+                    }}
+                    className="py-3 px-4 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  >
+                    触发日志
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowWorldBookSheet(false);
                       setShowToolsSheet(true);
                     }}
                     className="flex-1 py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
@@ -3376,6 +3410,129 @@ ${lastSpeakerNote}
                     保存
                   </button>
                 </div>
+              </MiniSheet>
+            );
+          })()}
+
+          {/* ═══════════ 子弹窗 6：世界书触发日志（2026-10-09 M2-a） ═══════════
+              方案第八节：每轮生成后显示「本轮命中：N 条 / 未命中：M 条」，
+              逐条列出条目名 + 触发方式（常驻/关键词/粘性）+ 触发词。
+              目的：治「怕漏」——不用猜 AI 到底翻出了哪条设定。
+              ⚠️ 付费小手机的记忆库也没这个（用户反馈「不知道它提取了哪条」），此处做得更透明。 */}
+          {showWorldBookLogSheet && (() => {
+            const log = worldBookLog;
+            const SOURCE_LABEL: Record<string, { text: string; cls: string }> = {
+              constant: { text: "常驻", cls: "bg-[#111111] text-white" },
+              keyword: { text: "关键词", cls: "bg-[#111111]/10 text-[#111111]" },
+              sticky: { text: "粘性驻留", cls: "bg-amber-100 text-amber-700" },
+            };
+            return (
+              <MiniSheet
+                title="触发日志"
+                subtitle="WORLD BOOK · TRIGGER LOG"
+                onClose={() => {
+                  setShowWorldBookLogSheet(false);
+                  setShowToolsSheet(true);
+                }}
+              >
+                {/* 概览 */}
+                <div className="bg-white rounded-[16px] p-4">
+                  {!log ? (
+                    <div className="text-[12px] text-black/40 leading-relaxed py-2 text-center">
+                      还没有生成过 · 跑一幕后再来看这里
+                      <br />
+                      <span className="text-black/28 text-[11px]">本面板记录「这一轮翻出了哪几条设定」</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-[11px] text-black/35 tracking-wide">本轮命中</span>
+                        <span className="font-mono tabular-nums text-[13px] text-[#111111] font-semibold">
+                          {log.hits.length} / {log.scannedCount}
+                        </span>
+                      </div>
+                      <div className="mt-2 h-[3px] rounded-full bg-black/[0.06] overflow-hidden">
+                        <div
+                          className="h-full bg-[#111111] transition-all"
+                          style={{
+                            width: log.scannedCount
+                              ? `${Math.round((log.hits.length / log.scannedCount) * 100)}%`
+                              : "0%",
+                          }}
+                        />
+                      </div>
+                      <div className="mt-2 text-[10px] text-black/30 font-mono">
+                        第 {log.turnIndex} 轮 · 扫描 {log.scannedCount} 条 · 未命中 {log.misses.length} 条
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* 命中列表 */}
+                {log && log.hits.length > 0 && (
+                  <div className="bg-white rounded-[16px] p-2">
+                    <div className="px-3 pt-2 pb-1 text-[10px] text-black/30 tracking-[0.15em]">HIT · 已注入</div>
+                    <div className="space-y-1">
+                      {log.hits.map((h, i) => {
+                        const sl = SOURCE_LABEL[h.source] ?? SOURCE_LABEL.keyword;
+                        return (
+                          <div
+                            key={`${h.uid}-${h.source}-${i}`}
+                            className="flex items-start gap-2.5 px-3 py-2.5 rounded-[12px] hover:bg-black/[0.02]"
+                          >
+                            <span
+                              className={`shrink-0 mt-[2px] px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium ${sl.cls}`}
+                            >
+                              {sl.text}
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[12px] text-[#111111] truncate">{h.comment}</span>
+                              <span className="block text-[10px] text-black/30 mt-0.5 truncate">
+                                {h.bookName}
+                                {h.matchedKey ? ` · 命中「${h.matchedKey}」` : ""}
+                              </span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 未命中列表 */}
+                {log && log.misses.length > 0 && (
+                  <div className="bg-white rounded-[16px] p-2">
+                    <div className="px-3 pt-2 pb-1 text-[10px] text-black/30 tracking-[0.15em]">MISS · 未触发</div>
+                    <div className="space-y-1">
+                      {log.misses.map((m, i) => (
+                        <div
+                          key={`${m.uid}-${i}`}
+                          className="flex items-start gap-2.5 px-3 py-2.5 rounded-[12px] hover:bg-black/[0.02]"
+                        >
+                          <span className="shrink-0 mt-[2px] px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium bg-black/[0.05] text-black/35">
+                            未中
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[12px] text-black/50 truncate">{m.comment}</span>
+                            <span className="block text-[10px] text-black/25 mt-0.5 truncate">{m.bookName}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 底部 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowWorldBookLogSheet(false);
+                    setShowToolsSheet(true);
+                  }}
+                  className="w-full py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                >
+                  关闭
+                </button>
               </MiniSheet>
             );
           })()}
