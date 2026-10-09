@@ -2648,7 +2648,9 @@ ${lastSpeakerNote}
                         />
                         <div
                           className="flex flex-col gap-[8px] font-mono tracking-tight leading-none text-black/40"
-                          style={{ fontSize: TYPE.MICRO }}
+                          // 1009：用户口径「DATE/MODEL/TOKENS 字号缩小 2px」→ 11→9px。
+                          // token 体系禁止新增档位，此处行内直出。
+                          style={{ fontSize: tpx(TYPE.MICRO - 2) }}
                         >
                           <div className="flex items-baseline justify-between gap-3">
                             <span className="shrink-0 text-black/28 tracking-[0.18em]">

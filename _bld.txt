@@ -1,0 +1,99 @@
+﻿   ▲ Next.js 15.5.12
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 26.6s
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/71) ...
+   Generating static pages (17/71) 
+   Generating static pages (35/71) 
+   Generating static pages (53/71) 
+ ✓ Generating static pages (71/71)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                       Size  First Load JS
+┌ ○ /                                          1.71 MB        2.23 MB
+├ ○ /_not-found                                   1 kB         103 kB
+├ ƒ /api/app-market/apps                         285 B         103 kB
+├ ƒ /api/app-market/apps-lite                    285 B         103 kB
+├ ƒ /api/app-market/assets                       285 B         103 kB
+├ ƒ /api/app-market/download                     285 B         103 kB
+├ ○ /api/app-market/icon                         285 B         103 kB
+├ ƒ /api/auth/change-password                    285 B         103 kB
+├ ƒ /api/auth/login                              285 B         103 kB
+├ ƒ /api/auth/logout                             285 B         103 kB
+├ ƒ /api/auth/me                                 285 B         103 kB
+├ ƒ /api/black-market/checkin                    285 B         103 kB
+├ ƒ /api/black-market/purchase                   285 B         103 kB
+├ ƒ /api/black-market/theaters                   285 B         103 kB
+├ ƒ /api/black-market/wallet                     285 B         103 kB
+├ ƒ /api/game-hall/assets                        285 B         103 kB
+├ ƒ /api/game-hall/comments                      285 B         103 kB
+├ ƒ /api/game-hall/games                         285 B         103 kB
+├ ƒ /api/game-hall/list                          285 B         103 kB
+├ ƒ /api/game-hall/state                         285 B         103 kB
+├ ƒ /api/image-generation                        285 B         103 kB
+├ ƒ /api/image-generation/models                 285 B         103 kB
+├ ƒ /api/image-hosting/imgbb                     285 B         103 kB
+├ ƒ /api/mixology/comments                       285 B         103 kB
+├ ƒ /api/mixology/cover                          285 B         103 kB
+├ ƒ /api/mixology/hall                           285 B         103 kB
+├ ƒ /api/mixology/hall-list                      285 B         103 kB
+├ ƒ /api/moderation/reports                      285 B         103 kB
+├ ƒ /api/music/netease/[...path]                 285 B         103 kB
+├ ƒ /api/notewall/comments                       285 B         103 kB
+├ ƒ /api/notewall/notes                          285 B         103 kB
+├ ƒ /api/oauth-callback                          285 B         103 kB
+├ ƒ /api/online/config                           285 B         103 kB
+├ ƒ /api/online/docs                             285 B         103 kB
+├ ƒ /api/online/rooms                            285 B         103 kB
+├ ƒ /api/push/bridge-config                      285 B         103 kB
+├ ƒ /api/push/bridge-snapshots                   285 B         103 kB
+├ ƒ /api/push/bridge-wake                        285 B         103 kB
+├ ƒ /api/push/deploy-personal                    285 B         103 kB
+├ ƒ /api/push/jobs                               285 B         103 kB
+├ ƒ /api/push/outbox                             285 B         103 kB
+├ ƒ /api/push/public-key                         285 B         103 kB
+├ ƒ /api/push/shortcut-commands                  285 B         103 kB
+├ ƒ /api/push/shortcut-commands/deliver          285 B         103 kB
+├ ƒ /api/push/shortcut-commands/deliver-email    285 B         103 kB
+├ ƒ /api/push/shortcut-email                     285 B         103 kB
+├ ƒ /api/push/status                             285 B         103 kB
+├ ƒ /api/push/subscribe                          285 B         103 kB
+├ ƒ /api/push/test                               285 B         103 kB
+├ ƒ /api/supabase-admin                          285 B         103 kB
+├ ƒ /api/tool-proxy                              285 B         103 kB
+├ ƒ /api/tripo/animate                           285 B         103 kB
+├ ƒ /api/tripo/generate                          285 B         103 kB
+├ ƒ /api/tripo/status/[taskId]                   285 B         103 kB
+├ ƒ /api/tripo/verify                            285 B         103 kB
+├ ƒ /api/verify/admin                            285 B         103 kB
+├ ƒ /api/verify/admin/image                      285 B         103 kB
+├ ƒ /api/verify/status                           285 B         103 kB
+├ ƒ /api/verify/submit                           285 B         103 kB
+├ ƒ /api/voice/minimax-clone                     285 B         103 kB
+├ ƒ /api/voice/minimax-voices                    285 B         103 kB
+├ ƒ /api/weixin                                  285 B         103 kB
+├ ƒ /api/weixin/deploy-function                  285 B         103 kB
+├ ○ /app-market/admin                          4.47 kB         146 kB
+├ ○ /characters                                  349 B         103 kB
+├ ƒ /manifest.webmanifest                        285 B         103 kB
+├ ƒ /personal-shortcut-run                       285 B         103 kB
+├ ƒ /shortcut-run                                285 B         103 kB
+├ ○ /verify                                       3 kB         105 kB
+├ ○ /verify/admin                              2.41 kB         105 kB
+└ ○ /world-builder                              296 kB         440 kB
++ First Load JS shared by all                   102 kB
+  ├ chunks/1255-ad409e5887c155b0.js            45.7 kB
+  ├ chunks/4bd1b696-100b9d70ed4e49c1.js        54.2 kB
+  └ other shared chunks (total)                2.38 kB
+
+
+ƒ Middleware                                   34.9 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
