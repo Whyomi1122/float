@@ -7,20 +7,37 @@ export type SettingItemMeta = {
 };
 
 // --- WorldBook ---
+export type SelectiveLogic = "AND_ANY" | "NOT_ANY" | "NOT_ALL" | "AND_ALL";
+
 export type WorldBookEntry = {
     uid: string;
+    /** 主关键词：逗号分隔或数组（解析时统一为数组） */
     key: string;
+    /** 次关键词（selective 模式下需主+次同时命中） */
+    keysecondary?: string;
+    /** 开启 selective 模式：主 key 命中后还要看 keysecondary */
+    selective?: boolean;
+    /** selective 逻辑：AND_ANY / NOT_ANY / NOT_ALL / AND_ALL */
+    selectiveLogic?: SelectiveLogic;
     content: string;
     comment: string;
     use_regex: boolean;
     disable: boolean;
+    /** 常驻条目：每轮无条件注入 */
     constant: boolean;
     position: "before_char" | "after_char" | "before_em" | "after_em" | "before_an" | "after_an" | number;
     depth?: number;
+    /** 触发概率：0-100，记忆类永远 100 */
     probability?: number;
     useProbability?: boolean;
     role?: number;
     insertion_order: number;
+    /** 驻留轮数：触发后连续跟着走 N 轮，不用反复触发 */
+    sticky?: number;
+    /** 冷却轮数：触发后等 N 轮才能再次触发（防漏就设 0） */
+    cooldown?: number;
+    /** 知情者：条目只在这些角色的视角生成时注入（实现信息差） */
+    audience?: string[];
 };
 
 export type WorldBookConfig = SettingItemMeta & {

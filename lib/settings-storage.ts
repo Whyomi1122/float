@@ -3,6 +3,7 @@ import type {
     PresetConfig,
     WorldBookConfig,
     WorldBookEntry,
+    SelectiveLogic,
     RegexConfig,
     RegexRule,
     ApiConfig,
@@ -445,6 +446,9 @@ function parseWorldBookEntry(e: any): WorldBookEntry {
     return {
         uid: e.uid ? String(e.uid) : String(e.id || generateId("wb-entry")),
         key,
+        keysecondary: e.keysecondary != null ? String(e.keysecondary) : undefined,
+        selective: e.selective === true ? true : undefined,
+        selectiveLogic: (["AND_ANY","NOT_ANY","NOT_ALL","AND_ALL"].includes(e.selectiveLogic) ? e.selectiveLogic : undefined) as SelectiveLogic | undefined,
         content: String(e.content ?? ""),
         comment: String(e.comment ?? ""),
         use_regex: Boolean(e.use_regex || e.isRegex || false),
@@ -456,6 +460,9 @@ function parseWorldBookEntry(e: any): WorldBookEntry {
         useProbability: Boolean(e.useProbability || false),
         role: Number(e.role) || 0,
         insertion_order: Number(e.order ?? e.insertion_order ?? 50),
+        sticky: e.sticky != null ? Number(e.sticky) : undefined,
+        cooldown: e.cooldown != null ? Number(e.cooldown) : undefined,
+        audience: Array.isArray(e.audience) ? e.audience.map(String) : undefined,
     };
 }
 

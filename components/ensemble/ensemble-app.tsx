@@ -29,7 +29,13 @@ import {
   loadBindingConfig,
   resolveBinding,
   loadApiConfigs,
+  loadWorldBooks,
 } from "@/lib/settings-storage";
+import {
+  buildEnsembleWorldBookBlock,
+  pickBoundBooks,
+  type StickyLedger,
+} from "@/lib/ensemble-worldbook";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import { fetchModelNames } from "@/lib/model-list";
@@ -1058,6 +1064,13 @@ export function EnsembleApp({
   } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * 世界书 sticky 驻留台账（2026-10-09）。
+   * key = 世界书条目 uid，value = 剩余驻留轮数。命中 key 时刷新为 entry.sticky，
+   * 之后每轮递减；>0 时该条目仍会被注入（防漏）。跨轮复用，故用 ref 而非 state。
+   * ⚠️ 切换剧本时不清账也无妨（uid 冲突概率极低，且最多多注入一两轮）。
+   */
+  const worldBookStickyRef = useRef<StickyLedger>(new Map());
   /** 输入框（textarea）：随内容自动增高，行数到上限后在框内滚动 */
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   // 发送后输入被清空 → 高度收回一行（否则会停在多行高度，看着像没清干净）
@@ -1348,6 +1361,24 @@ ${userPovRule}
         ? "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。"
         : "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
 
+      // ── 世界书 · 记忆库（2026-10-09 接入 · 纯增量）──
+      //   五大引擎均已接入世界书，群像此前缺失，本次补齐。
+      //   · constant 常驻条目（世界观 / 当前状态 / 文风规则）→ 永远注入
+      //   · 关键词条目 → 命中才注入；带 sticky 的命中后驻留 N 轮（防漏）
+      //   匹配原文 = 最近 10 轮正文（与单聊 `history.slice(-10)` 口径一致）；
+      //   sticky 台账由组件顶层 ref 持有，跨轮复用。
+      const boundBooks = pickBoundBooks(loadWorldBooks(), script.worldBookIds);
+      const wbContextText = script.turns
+        .slice(-10)
+        .map((t) => t.content)
+        .join("\n");
+      const wbResult = buildEnsembleWorldBookBlock(
+        boundBooks,
+        wbContextText,
+        worldBookStickyRef.current
+      );
+      const worldBookBlock = wbResult.text;
+
       // ── 01 OPENING · 开场白（图1）──
       const openingBlock = script.openingMessage?.trim()
         ? `
@@ -1381,7 +1412,7 @@ ${script.openingMessage.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}${povBlock}
-${sceneBlock}${openingBlock}${memoryBlock}${timeBlock}${outputLenRule}
+${sceneBlock}${openingBlock}${memoryBlock}${worldBookBlock}${timeBlock}${outputLenRule}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 
