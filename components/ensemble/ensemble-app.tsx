@@ -1947,6 +1947,42 @@ ${lastSpeakerNote}
     void openModelPickerForApi(cfg);
   };
 
+  /**
+   * 点卡片主体 → 直达选择（2026-10-09 M-模型块直达）。
+   * 用户口径：「点整个块直接选择」——点卡片空白处即切到该 API 的**当前模型**
+   * （即上次选定的 modelOverride，没选过则用 defaultModel）。
+   * 想挑别的具体模型 → 点右侧 MODEL ▾ 展开列表（e.stopPropagation 隔开）。
+   *
+   * 与 toggleModelExpand 的区别：那个是「展开列表」，这个是「直接用」。
+   * 若该卡片已经是当前选中项且已展开，则等价于收起（避免点击无反馈）。
+   */
+  const selectApiDefaultModel = (cfg: ApiConfig) => {
+    if (!currentScript) return;
+    // 已选中且已展开 → 当作收起（可预期的手感）
+    if (currentScript.apiConfigIdOverride === cfg.id && modelPickerApiId === cfg.id) {
+      setModelPickerApiId(null);
+      setModelListError(null);
+      return;
+    }
+    // 该 API 的「当前模型」：优先上次为该 API 选定的，否则其默认模型
+    const targetModel =
+      currentScript.apiConfigIdOverride === cfg.id && currentScript.modelOverride
+        ? currentScript.modelOverride
+        : cfg.defaultModel || cfg.provider || "UNKNOWN";
+    const updated = {
+      ...currentScript,
+      apiConfigIdOverride: cfg.id,
+      modelOverride: targetModel,
+    };
+    setCurrentScript(updated);
+    saveOrUpdateEnsembleScript(updated);
+    setScripts(loadEnsembleScripts());
+    setLastModel(targetModel);
+    setModelPickerApiId(null);
+    setModelListError(null);
+    setToast(`已切到 ${cfg.name || cfg.provider || "该模型"}`);
+  };
+
   /** 提交某一幕的编辑 */
   const commitTurnEdit = (turnId: string) => {
     if (!currentScript) return;
@@ -3988,13 +4024,14 @@ ${lastSpeakerNote}
                           apiSelected ? "border-[#111111]" : "border-black/[0.12]"
                         }`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => toggleModelExpand(cfg)}
-                          className="w-full text-left px-3.5 pt-3 pb-3 active:bg-black/[0.02] transition-colors"
-                        >
-                          <div className="flex items-start justify-between gap-2.5">
-                            <div className="min-w-0 flex items-center gap-1.5">
+                        <div className="flex items-start justify-between gap-2.5 px-3.5 pt-3 pb-3">
+                          {/* 主体：点这里 = 直达选择该 API 的当前模型（2026-10-09 M-模型块直达） */}
+                          <button
+                            type="button"
+                            onClick={() => selectApiDefaultModel(cfg)}
+                            className="min-w-0 flex-1 text-left active:opacity-70 transition-opacity"
+                          >
+                            <div className="flex items-center gap-1.5">
                               {/* 1007 二次：API 站名 14 → 13px（用户「再小一些」）。
                                   行高收到 leading-tight，卡片随之变矮。 */}
                               <span className="text-[13px] font-semibold tracking-tight text-[#111111] truncate leading-tight">
@@ -4006,23 +4043,28 @@ ${lastSpeakerNote}
                                 </span>
                               )}
                             </div>
-                            <span className="shrink-0 flex items-center gap-1 px-1.5 py-[3px] rounded-[6px] border border-black/[0.15]">
-                              <span className="text-[11px] font-semibold tracking-[0.1em] text-black/60">
-                                MODEL
-                              </span>
-                              <ChevronDown
-                                size={10}
-                                strokeWidth={2.5}
-                                className={`text-black/40 transition-transform ${
-                                  expanded ? "rotate-180" : ""
-                                }`}
-                              />
+                            <div className="mt-0.5 font-mono text-[11px] text-black/45 truncate leading-tight">
+                              {currentModel}
+                            </div>
+                          </button>
+                          {/* 右侧：点这里 = 展开该 API 的模型列表（保留原能力，阻止冒泡不触发直达选择） */}
+                          <button
+                            type="button"
+                            onClick={() => toggleModelExpand(cfg)}
+                            className="shrink-0 flex items-center gap-1 px-1.5 py-[3px] rounded-[6px] border border-black/[0.15] active:scale-95 transition-transform"
+                          >
+                            <span className="text-[11px] font-semibold tracking-[0.1em] text-black/60">
+                              MODEL
                             </span>
-                          </div>
-                          <div className="mt-0.5 font-mono text-[11px] text-black/45 truncate leading-tight">
-                            {currentModel}
-                          </div>
-                        </button>
+                            <ChevronDown
+                              size={10}
+                              strokeWidth={2.5}
+                              className={`text-black/40 transition-transform ${
+                                expanded ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                        </div>
 
                         {/* 内联模型列表：加载中 / 出错 / 空 / 列表
                             1007 用户口径：列表「6 行内滑动，现在太多行了不好找」。
