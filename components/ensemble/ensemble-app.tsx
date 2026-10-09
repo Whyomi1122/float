@@ -988,6 +988,10 @@ export function EnsembleApp({
   // ── 状态面板 / 时间感知（2026-10-06）──
   const [showStatusSheet, setShowStatusSheet] = useState(false);
   const [showTimeSheet, setShowTimeSheet] = useState(false);
+  /** 世界书绑定子弹窗（2026-10-09 M2-b） */
+  const [showWorldBookSheet, setShowWorldBookSheet] = useState(false);
+  /** 世界书绑定草稿：选中的世界书 id 集合（保存前） */
+  const [worldBookIdsDraft, setWorldBookIdsDraft] = useState<string[]>([]);
   /** 状态面板草稿（点保存才落库） */
   const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
   const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
@@ -2846,6 +2850,7 @@ ${lastSpeakerNote}
                 currentScript.apiConfigIdOverride ? "model" : null,
                 currentScript.timeAwareness?.enabled ? "timeAwareness" : null,
                 currentScript.statusPanel?.enabled ? "statusPanel" : null,
+                currentScript.worldBookIds?.length ? "worldBook" : null,
               ].filter(Boolean) as EnsembleToolId[]
             }
             onPick={(id) => {
@@ -2876,6 +2881,10 @@ ${lastSpeakerNote}
                 );
                 setStatusTemplateDraft(sp?.template || DEFAULT_STATUS_TEMPLATE);
                 setShowStatusSheet(true);
+              } else if (id === "worldBook") {
+                // 世界书绑定（M2-b）：把剧本已绑定 id 灌进草稿，实时读全部可选世界书
+                setWorldBookIdsDraft([...(currentScript.worldBookIds ?? [])]);
+                setShowWorldBookSheet(true);
               }
             }}
           />
@@ -3245,6 +3254,131 @@ ${lastSpeakerNote}
               </div>
             </MiniSheet>
           )}
+
+          {/* ═══════════ 子弹窗 5：世界书绑定（2026-10-09 M2-b） ═══════════
+              群像此前完全没接入世界书，本面板让它「选要绑哪几本」。
+              · 只存 id 引用（worldBookIds），内容实时从「设置 → 世界书」读，避免快照过期。
+              · 未勾选任何 = 不注入（等价于关闭）。
+              · 条目级的 constant / 关键词 / sticky 逻辑由 lib/ensemble-worldbook.ts 处理，本面板不涉及。 */}
+          {showWorldBookSheet && (() => {
+            const allBooks = loadWorldBooks();
+            return (
+              <MiniSheet
+                title="世界书"
+                subtitle="WORLD BOOK · MEMORY"
+                onClose={() => {
+                  setShowWorldBookSheet(false);
+                  setShowToolsSheet(true);
+                }}
+              >
+                {/* 说明 */}
+                <div className="bg-white rounded-[16px] p-4">
+                  <div className="text-[11px] leading-relaxed text-black/45">
+                    勾选要在本剧本生效的世界书。规则：
+                    <br />· <span className="text-black/70 font-medium">常驻条目</span>每轮都注入；
+                    <br />· <span className="text-black/70 font-medium">关键词条目</span>正文提到才注入；
+                    <br />· 带 <span className="text-black/70 font-medium">sticky</span> 的条目命中后会跟着走几轮（防漏）。
+                    <br />不勾选 = 本剧本不读世界书。
+                  </div>
+                </div>
+
+                {/* 世界书列表 */}
+                <div className="bg-white rounded-[16px] p-2">
+                  {allBooks.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-[12px] text-black/35">
+                      还没有世界书 · 请到「设置 → 世界书」新建
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {allBooks.map((book) => {
+                        const checked = worldBookIdsDraft.includes(book.id);
+                        const entryCount = book.entries?.length ?? 0;
+                        return (
+                          <button
+                            key={book.id}
+                            type="button"
+                            onClick={() =>
+                              setWorldBookIdsDraft((prev) =>
+                                prev.includes(book.id)
+                                  ? prev.filter((x) => x !== book.id)
+                                  : [...prev, book.id]
+                              )
+                            }
+                            className="w-full flex items-center gap-3 px-3 py-3 rounded-[12px] text-left active:scale-[0.99] transition-transform hover:bg-black/[0.02]"
+                          >
+                            {/* 勾选框 */}
+                            <span
+                              className={`w-[20px] h-[20px] rounded-[6px] shrink-0 grid place-items-center border transition-colors ${
+                                checked
+                                  ? "bg-[#111111] border-[#111111]"
+                                  : "bg-white border-black/15"
+                              }`}
+                            >
+                              {checked && (
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                  <path
+                                    d="M2.5 6.2L4.8 8.5L9.5 3.8"
+                                    stroke="white"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              )}
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[13px] font-medium text-[#111111] truncate">
+                                {book.name}
+                              </span>
+                              <span className="block text-[10px] text-black/35 mt-0.5 truncate">
+                                {entryCount} 条{book.description ? ` · ${book.description}` : ""}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 底部按钮 */}
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowWorldBookSheet(false);
+                      setShowToolsSheet(true);
+                    }}
+                    className="flex-1 py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                  >
+                    关闭
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated: EnsembleScript = {
+                        ...currentScript,
+                        worldBookIds: worldBookIdsDraft,
+                      };
+                      setCurrentScript(updated);
+                      saveOrUpdateEnsembleScript(updated);
+                      setScripts(loadEnsembleScripts());
+                      setShowWorldBookSheet(false);
+                      setShowToolsSheet(true);
+                      setToast(
+                        worldBookIdsDraft.length
+                          ? `已绑定 ${worldBookIdsDraft.length} 本世界书 · 下一轮生效`
+                          : "已清空世界书绑定"
+                      );
+                    }}
+                    className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13px] font-semibold text-white active:scale-[0.985] transition-transform"
+                  >
+                    保存
+                  </button>
+                </div>
+              </MiniSheet>
+            );
+          })()}
 
           {/* ═══════════ 状态卡展示层（点头像 → 单角色卡片） ═══════════ */}
           {(() => {

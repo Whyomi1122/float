@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock,
   Activity,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import { TYPE } from "@/components/ensemble/ensemble-tokens";
@@ -39,7 +40,8 @@ export type EnsembleToolId =
   | "customCss"
   | "model"
   | "timeAwareness"
-  | "statusPanel";
+  | "statusPanel"
+  | "worldBook";
 
 export interface EnsembleToolItem {
   id: EnsembleToolId;
@@ -60,6 +62,7 @@ export interface EnsembleToolItem {
 export const ENSEMBLE_TOOLS: EnsembleToolItem[] = [
   { id: "timeAwareness", label: "时间感知", labelEn: "TIME AWARENESS", Icon: Clock, enabled: true },
   { id: "statusPanel", label: "状态面板", labelEn: "STATUS PANEL", Icon: Activity, enabled: true },
+  { id: "worldBook", label: "世界书", labelEn: "WORLD BOOK", Icon: BookOpen, enabled: true },
   { id: "customCss", label: "自定义 CSS", labelEn: "CUSTOM STYLE", Icon: Code2, enabled: true },
   { id: "model", label: "模型切换", labelEn: "API · SESSION", Icon: Layers, enabled: true },
 ];
