@@ -224,10 +224,12 @@ const FRAME_BODY_INSET = FRAME_TEXT_INSET; // = 30（正文对齐头像左沿）
 //   头像块 = 30 - 5 = **25px** → 头像相对文字块「悬挂」出去 5px
 const FRAME_HEAD_INSET = FRAME_TEXT_INSET - 5; // = 25
 
-// ── 用户投稿卡·正文内衬（1008d A5 · 按截图2 实测）──
-// 截图2（1080 原始宽，k2 = 1/3）：卡片左 51、正文左 112 → (112-51)/3 ≈ 20px。
-//   仅作用于【输入的文字块】；用户卡的头部/元信息行仍走各自原有内衬。
-const FRAME_USER_INSET = 20;
+// ── 用户投稿卡·正文内衬（1008e 用户第4条：「正文格式照搬旁白」）──
+//   旁白的左基准 = FRAME_BODY_INSET(30) → 用户卡正文取**同一个值**，
+//   于是「旁白 / 正文 / 心理 / 用户投稿正文」全部落在同一条线上。
+//   ⚠️ 字色不照搬旁白：用户 1006 第一次反馈 R1 明确要求
+//      「用户卡片输入指令和内容……改成全部黑色」，该口径继续有效。
+const FRAME_USER_INSET = FRAME_BODY_INSET; // = 30
 
 
 // ── 输入框自动换行（1007 · 第三次反馈遗留项）──
@@ -358,7 +360,14 @@ function BodyText({
           <div
             key={i}
             className="whitespace-pre-wrap"
-            style={{ ...headStyle, marginTop: i === 0 ? 0 : inner }}
+            // ⚠️ 1008e 修复（用户第2条「其余所有文字块都和旁白找齐」的根因）：
+            //   原来这里是 `style={{ ...headStyle, marginTop }}` ——
+            //   把 headStyle 里的 **paddingLeft / paddingRight 又套了一遍**，
+            //   外层 div 30px + 内层 div 30px = **60px**。
+            //   实测截图3：正文落在 63px，而旁白在 30px、心理块在 30px，
+            //   正文整整右移了一个头像宽度，正是用户看到的不对齐。
+            //   颜色 / 字号 / 行高本就继承自外层，内层只需 marginTop。
+            style={{ marginTop: i === 0 ? 0 : inner }}
           >
             {shown}
           </div>
@@ -2434,9 +2443,11 @@ ${lastSpeakerNote}
                   <div
                     key={turn.id}
                     // 1008 抄 chill 格式：卡片改 **dotted 虚线边框**（原 0.04 实线太隐形）。
-                    className={`group bg-white rounded-[14px] pb-3 px-0 ${
-                      isUser ? "pt-[15px]" : "pt-0"
-                    } border border-dotted border-black/[0.16] space-y-3 transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)]`}
+                    // 1008e 用户第4条「最后是整体拉松」：用户卡的上下留白 + 内部块距
+                    //   各放宽一档（pt 15→18 / pb 12→16 / space-y 12→16），AI 卡维持原值。
+                    className={`group bg-white rounded-[14px] px-0 border border-dotted border-black/[0.16] transition-shadow duration-200 hover:shadow-[0_2px_16px_rgba(0,0,0,0.05)] shadow-[0_1px_3px_rgba(0,0,0,0.03)] ${
+                      isUser ? "pt-[18px] pb-4 space-y-4" : "pt-0 pb-3 space-y-3"
+                    }`}
                   >
                   {/* ── AI 幕顶栏（抄 chill）：▶ 黑方块 + NARRATION + 虚线 + Multi ──
                       1008 用户拍板：AI 幕统一挂 `NARRATION` 顶栏，用户投稿幕不挂。
@@ -2474,38 +2485,57 @@ ${lastSpeakerNote}
                       用户投稿（自己写的一幕）不切帧，按原样三色渲染。 */}
                   {isUser || turn.rawText === undefined ? (
                     <>
-                      {/* 用户投稿卡头部（1008：卡片改 px-0 后，头部自己带 15px 卡内衬，
-                          与 AI 卡的头像行共用同一条左基准）。 */}
-                      <div className="flex items-center justify-between px-[10px]">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-[6px] bg-black/[0.04] overflow-hidden flex items-center justify-center text-[11px] font-semibold text-black/55 border border-dotted border-black/[0.20] p-[2px]">
-                            <div className="w-full h-full rounded-[3px] overflow-hidden flex items-center justify-center bg-black/[0.04]">
-                            {castChar?.avatar ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={castChar.avatar}
-                                alt={turn.senderName}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : isUser ? (
-                              activePersona?.avatarUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={activePersona.avatarUrl}
-                                  alt={turn.senderName}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                turn.senderName.slice(0, 1)
-                              )
-                            ) : (
-                              turn.senderName.slice(0, 1)
-                            )}
-                            </div>
-                          </div>
-                          <div className="font-semibold text-[13px] text-[#1a1a1a]">
-                            {turn.senderName}
-                          </div>
+                      {/* 用户投稿卡头部（1008e · 用户第4条「头像和名字整块格式照搬 AI 卡片，
+                          包括字号字色甚至是缩进等等全部一样」）：
+                          一比一复制 AI 卡的 renderBlockHead ——
+                            左基准 FRAME_HEAD_INSET(25) / 头像 AVATAR_PX(33) + 方角虚线框
+                            / 间距 AVATAR_GAP(12) / 名字 T_NAME(11) + C_NAME(#5a5a5e) + 600。 */}
+                      <div
+                        className="flex items-center mb-4"
+                        style={{
+                          gap: tpx(AVATAR_GAP),
+                          paddingLeft: tpx(FRAME_HEAD_INSET),
+                          paddingRight: tpx(FRAME_TEXT_INSET),
+                        }}
+                      >
+                        <div
+                          className="rounded-[8px] border border-dotted border-black/20 bg-black/[0.03] overflow-hidden flex items-center justify-center shrink-0"
+                          style={{ width: tpx(AVATAR_PX), height: tpx(AVATAR_PX) }}
+                        >
+                          {castChar?.avatar ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={castChar.avatar}
+                              alt={turn.senderName}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : activePersona?.avatarUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={activePersona.avatarUrl}
+                              alt={turn.senderName}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span
+                              className="font-semibold text-black/35"
+                              style={{ fontSize: tpx(15) }}
+                            >
+                              {turn.senderName.slice(0, 1)}
+                            </span>
+                          )}
+                        </div>
+                        {/* 名字：与 AI 卡完全同款（frame-name + T_NAME + C_NAME + 600） */}
+                        <div
+                          className="frame-name font-semibold tracking-wide"
+                          style={{
+                            fontSize: tpx(T_NAME),
+                            color: C_NAME,
+                            fontWeight: 600,
+                            opacity: 1,
+                          }}
+                        >
+                          {turn.senderName}
                         </div>
                       </div>
 
@@ -2536,18 +2566,19 @@ ${lastSpeakerNote}
                           </div>
                         </div>
                       ) : (
-                        // 1008d A5：用户卡【仅输入的文字块】按截图2 复刻 ——
-                        //   截图2 实测：卡片左 51、正文左 112 → 卡内衬 61px ÷3 ≈ 20px。
-                        //   且为**左对齐**（第8轮误改成的居中已回退）。
+                        // 1008e 第4条：用户卡正文「照搬旁白」——
+                        //   左基准 = FRAME_BODY_INSET(30)，右基准 = FRAME_TEXT_INSET(30)，
+                        //   字号/字色由 BodyText kind="act" 控制（SM=13 / 灰色 #8e8e93）。
+                        //   与 AI 卡旁白完全同款视觉。左对齐不变。
                         <div
                           className="frame-user"
                           style={{
                             textAlign: "left",
-                            paddingLeft: tpx(FRAME_USER_INSET),
-                            paddingRight: tpx(FRAME_USER_INSET),
+                            paddingLeft: tpx(FRAME_BODY_INSET),
+                            paddingRight: tpx(FRAME_TEXT_INSET),
                           }}
                         >
-                          <BodyText raw={turn.content} inset={0} />
+                          <BodyText raw={turn.content} kind="act" inset={0} />
                         </div>
                       )}
                     </>
