@@ -12,6 +12,19 @@ import {
 } from "@/lib/settings-storage";
 import { loadCharacters } from "@/lib/character-storage";
 import type { WorldBookConfig, WorldBookEntry } from "@/lib/settings-types";
+import {
+    parseTxtToWorldBook,
+    parseTxtToArchive,
+    guessTxtMaterialKind,
+    extractDocTitle,
+    type TxtMaterialKind,
+} from "@/lib/txt-import";
+import {
+    loadEnsembleScripts,
+    saveOrUpdateEnsembleScript,
+    type EnsembleScript,
+    type EnsembleArchiveEntry,
+} from "@/lib/ensemble-storage";
 import { SettingsContext } from "../phone-settings-app";
 import { BottomSheet, ConfirmDialog, TextExpandModal } from "@/components/ui/modal";
 import { SwipeActionRow, useSwipeActions } from "@/components/ui/swipe-actions";
@@ -27,6 +40,20 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
     const [expandUid, setExpandUid] = useState<string | null>(null);
     const [importError, setImportError] = useState<string | null>(null);
 
+    /** 格式导入（2026-10-10）：粘贴 / 选 chill 的世界书·文风·归档 txt，自动识别类型后导入 */
+    const [showTxtImport, setShowTxtImport] = useState(false);
+    const [txtImportDraft, setTxtImportDraft] = useState("");
+    const [txtImportName, setTxtImportName] = useState("");
+    const [txtImportError, setTxtImportError] = useState<string | null>(null);
+    /** 手动指定资料类型（auto = 自动识别） */
+    const [txtImportKind, setTxtImportKind] = useState<TxtMaterialKind | "auto">("auto");
+    /** 归档导入目标剧本 id */
+    const [txtImportScriptId, setTxtImportScriptId] = useState("");
+    /** 归档导入模式 */
+    const [txtImportArchiveMode, setTxtImportArchiveMode] = useState<"append" | "replace">("replace");
+    const [ensembleScripts, setEnsembleScripts] = useState<EnsembleScript[]>([]);
+    const txtFileInputRef = useRef<HTMLInputElement>(null);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const { setSubpageTitle, setOverrideBack, setSubpageRightAction } = useContext(SettingsContext);
@@ -40,6 +67,14 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
         }
         setIsLoaded(true);
     }, []);
+
+    /** 打开格式导入时，拉一次剧本列表（归档导入的目标） */
+    useEffect(() => {
+        if (!showTxtImport) return;
+        const scripts = loadEnsembleScripts();
+        setEnsembleScripts(scripts);
+        setTxtImportScriptId((prev) => prev || scripts[0]?.id || "");
+    }, [showTxtImport]);
 
     const persist = useCallback((newBooks: WorldBookConfig[]) => {
         setBooks(newBooks);
@@ -456,6 +491,82 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
         reader.readAsText(file);
     };
 
+    /** 当前应当采用的材料类型：auto 时用自动识别结果 */
+    const resolveTxtKind = (): TxtMaterialKind =>
+        txtImportKind === "auto" ? guessTxtMaterialKind(txtImportDraft) : txtImportKind;
+
+    /** 格式导入主流程：按识别出的类型，分别走「世界书」或「归档」 */
+    const handleTxtImportConfirm = () => {
+        const raw = txtImportDraft.trim();
+        if (!raw) {
+            setTxtImportError("请先粘贴或选择 txt 内容。");
+            return;
+        }
+        const kind = resolveTxtKind();
+
+        // ── 归档：写进指定剧本的 archives ──
+        if (kind === "archive") {
+            if (!txtImportScriptId) {
+                setTxtImportError("没有可导入的剧本，请先在群像里建一个剧本。");
+                return;
+            }
+            const scripts = loadEnsembleScripts();
+            const target = scripts.find((s) => s.id === txtImportScriptId);
+            if (!target) {
+                setTxtImportError("目标剧本不存在，请重新选择。");
+                return;
+            }
+            const entry: EnsembleArchiveEntry = {
+                id: `arc_import_${Date.now().toString(36)}`,
+                createdAt: new Date().toISOString(),
+                turnCount: 0,
+                content: parseTxtToArchive(raw),
+                model: "（导入）",
+            };
+            const nextArchives =
+                txtImportArchiveMode === "replace"
+                    ? [entry]
+                    : [...(target.archives ?? []), entry];
+            saveOrUpdateEnsembleScript({ ...target, archives: nextArchives });
+            setShowTxtImport(false);
+            setTxtImportDraft("");
+            setTxtImportName("");
+            setTxtImportError(null);
+            return;
+        }
+
+        // ── 世界书：切成条目存成一本 ──
+        const wb = parseTxtToWorldBook(raw, txtImportName.trim() || undefined);
+        if (!wb.entries.length) {
+            setTxtImportError("没有解析出任何条目，请检查内容。");
+            return;
+        }
+        persist([wb, ...books]);
+        setActiveBookId(wb.id);
+        setViewMode("detail");
+        setShowTxtImport(false);
+        setTxtImportDraft("");
+        setTxtImportName("");
+        setTxtImportError(null);
+    };
+
+    /** 格式导入：选本地 .txt 文件 */
+    const handleTxtImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = String(event.target?.result ?? "");
+            setTxtImportDraft(text);
+            if (!txtImportName.trim()) {
+                setTxtImportName(extractDocTitle(text, file.name.replace(/\.txt$/i, "")));
+            }
+            setTxtImportError(null);
+        };
+        reader.readAsText(file);
+        if (txtFileInputRef.current) txtFileInputRef.current.value = "";
+    };
+
     const updateEntry = (uid: string, updates: Partial<WorldBookEntry>) => {
         if (!activeBook) return;
         const newEntries = activeBook.entries.map(e => e.uid === uid ? { ...e, ...updates } : e);
@@ -478,6 +589,26 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
                 <>
                     <div className="flex items-center">
                         <h2 className="m-0 mx-2 ts-28 font-bold italic leading-none text-black">Worldbooks</h2>
+                    </div>
+
+                    {/* txt 一键导入（2026-10-10）：把 chill 的世界书/文风 txt 直接贴/选进来 */}
+                    <div className="mx-2 flex gap-2">
+                        <button
+                            type="button"
+                            onClick={addBook}
+                            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[16px] bg-black text-[12px] font-bold text-white shadow-sm active:scale-95"
+                        >
+                            <Plus size={15} strokeWidth={1.8} />
+                            新建世界书
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setTxtImportError(null); setShowTxtImport(true); }}
+                            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[16px] border border-black/10 bg-white text-[12px] font-bold text-black shadow-sm active:scale-95"
+                        >
+                            <Upload size={15} strokeWidth={1.8} />
+                            格式导入
+                        </button>
                     </div>
 
                     {books.length === 0 ? (
@@ -885,6 +1016,153 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
                     onConfirm={() => setImportError(null)}
                     onCancel={() => setImportError(null)}
                 />
+            )}
+
+            {showTxtImport && (
+                <BottomSheet title="格式导入" onClose={() => setShowTxtImport(false)}>
+                    <div className="flex flex-col gap-3">
+                        <input
+                            type="file"
+                            accept=".txt,text/plain"
+                            className="hidden"
+                            ref={txtFileInputRef}
+                            onChange={handleTxtImportFile}
+                        />
+                        <button
+                            type="button"
+                            className="ui-btn ui-btn-outline w-full"
+                            onClick={() => txtFileInputRef.current?.click()}
+                        >
+                            <Upload size={16} /> 选择本地 .txt 文件
+                        </button>
+
+                        <div className="flex flex-col gap-2">
+                            <label className="menu-label ts-13 font-semibold ml-1">或直接粘贴 txt 内容</label>
+                            <textarea
+                                value={txtImportDraft}
+                                onChange={(e) => {
+                                    setTxtImportDraft(e.target.value);
+                                    if (txtImportError) setTxtImportError(null);
+                                }}
+                                spellCheck={false}
+                                placeholder={"【反80世界书·职业线】\n\n══ 〇、文件职责与优先级 ══\n……"}
+                                rows={10}
+                                className="ui-textarea ts-13 resize-y leading-relaxed"
+                            />
+                        </div>
+
+                        {/* 资料类型 */}
+                        <div className="flex flex-col gap-2">
+                            <label className="menu-label ts-13 font-semibold ml-1">资料类型</label>
+                            <div className="flex gap-2">
+                                {([
+                                    { k: "auto" as const, label: "自动识别" },
+                                    { k: "worldbook" as const, label: "世界书" },
+                                    { k: "archive" as const, label: "归档" },
+                                ]).map((opt) => {
+                                    const active = txtImportKind === opt.k;
+                                    const autoKind = opt.k === "auto" && txtImportDraft.trim()
+                                        ? guessTxtMaterialKind(txtImportDraft)
+                                        : null;
+                                    const autoLabel = autoKind === "archive"
+                                        ? "→ 归档"
+                                        : autoKind === "worldbook"
+                                            ? "→ 世界书"
+                                            : autoKind === "unknown"
+                                                ? "→ 世界书"
+                                                : "";
+                                    return (
+                                        <button
+                                            key={opt.k}
+                                            type="button"
+                                            onClick={() => {
+                                                setTxtImportKind(opt.k);
+                                                if (txtImportError) setTxtImportError(null);
+                                            }}
+                                            className={`flex-1 h-9 rounded-[14px] text-[12px] font-bold transition ${active
+                                                ? "bg-black text-white"
+                                                : "bg-black/[0.05] text-black/55"}`}
+                                        >
+                                            {opt.label}{autoLabel ? ` ${autoLabel}` : ""}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* 归档：目标剧本 + 模式 */}
+                        {resolveTxtKind() === "archive" && (
+                            <div className="flex flex-col gap-3 rounded-[14px] bg-black/[0.03] p-3">
+                                <div className="flex flex-col gap-2">
+                                    <label className="menu-label ts-13 font-semibold ml-1">导入到哪个剧本</label>
+                                    {ensembleScripts.length === 0 ? (
+                                        <p className="menu-desc ts-12">还没有剧本，请先在群像里建一个。</p>
+                                    ) : (
+                                        <select
+                                            value={txtImportScriptId}
+                                            onChange={(e) => setTxtImportScriptId(e.target.value)}
+                                            className="ui-input font-medium"
+                                        >
+                                            {ensembleScripts.map((s) => (
+                                                <option key={s.id} value={s.id}>
+                                                    {s.title || "未命名剧本"}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+                                <div className="flex gap-2">
+                                    {([
+                                        { m: "append" as const, label: "追加" },
+                                        { m: "replace" as const, label: "覆盖（清空旧的）" },
+                                    ]).map((opt) => (
+                                        <button
+                                            key={opt.m}
+                                            type="button"
+                                            onClick={() => setTxtImportArchiveMode(opt.m)}
+                                            className={`flex-1 h-9 rounded-[14px] text-[12px] font-bold transition ${txtImportArchiveMode === opt.m
+                                                ? "bg-black text-white"
+                                                : "bg-black/[0.05] text-black/55"}`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 世界书：名称 */}
+                        {resolveTxtKind() !== "archive" && (
+                            <div className="flex flex-col gap-2">
+                                <label className="menu-label ts-13 font-semibold ml-1">世界书名称</label>
+                                <input
+                                    type="text"
+                                    value={txtImportName}
+                                    onChange={(e) => setTxtImportName(e.target.value)}
+                                    placeholder="留空则自动取【标题】..."
+                                    className="ui-input font-medium"
+                                />
+                                <p className="menu-desc ts-12">
+                                    每个「══ 标题 ══」会切成一条世界书条目，默认全部常驻。
+                                </p>
+                            </div>
+                        )}
+
+                        {txtImportError && (
+                            <p className="text-[12px] leading-relaxed text-[var(--c-danger)]">{txtImportError}</p>
+                        )}
+
+                        <button
+                            type="button"
+                            className="ui-btn ui-btn-primary w-full"
+                            onClick={handleTxtImportConfirm}
+                        >
+                            {resolveTxtKind() === "archive"
+                                ? <><Plus size={16} /> 导入到剧本归档</>
+                                : <><BookOpen size={16} /> 解析并导入世界书</>}
+                        </button>
+                    </div>
+                </BottomSheet>
             )}
 
             {addEntryMenuOpen && activeBook && (
