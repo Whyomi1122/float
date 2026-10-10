@@ -265,26 +265,28 @@ function autoGrowTextarea(el: HTMLTextAreaElement | null): void {
   el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_PX)}px`;
 }
 
-// ── 每轮输出长度 / token 护栏（用户口径 2026-10-06 四次调整后定稿）──
+// ── 每轮输出长度 / token 护栏（用户口径 2026-10-10 收紧定稿）──
 // 设计要点：**提示词管「别写太多」，maxTokens 闸门管「别写太长」**，两者叠加。
-//   - 提示词里的 N  → 模型自觉「写 N 字左右」（所以不会涨到 2000 字）
-//   - maxTokens     → 服务器强制闸门（所以不会无限长）
-// 因此护栏**不需要很大余量**，只需留一口气让模型把最后一句收完。
-// 若 M 严格 = N，模型想写 N+20 字就会被闸门劈成半句 —— 这才是真正的风险。
-// 用户定稿：M = N + 200（留一口气收尾，token 数字也不夸张）。
+//   - 提示词里的 N  → 模型自觉「写 N 字左右」
+//   - maxTokens     → 服务器强制闸门（真正卡住，超了就截断）
+//
+// 1006 旧版：M = N + 200、1 字 ≈ 1.6 token → N=1000 时闸门 1920 token，
+//   实测模型钻空子写到 1830 字（≈ 真实 1900 token），闸门形同虚设 —— 用户要求收紧。
+// 1010 收紧：M = N + 150、1 字 ≈ 1.35 token → N=1000 时闸门 1552 token（≈ 1150~1200 字）。
+//   既真正卡得住，又给「收尾一句话」留了口气，不至于把正文劈成半句。
 const CHARS_MIN = 50;
 const CHARS_MAX = 5000; // 目标值上限
-const CHARS_TO_TOKENS = 1.6;
+const CHARS_TO_TOKENS = 1.35;
 const TOKEN_HEADROOM = 1;
 /** 收尾余量：给模型留出把最后一句写完的额度，不参与「目标字数」提示。 */
-const CHARS_TAIL_MARGIN = 200;
+const CHARS_TAIL_MARGIN = 150;
 
-/** 由目标字数 N 求实际允许的字数上限 M。用户定稿：M = N + 200。 */
+/** 由目标字数 N 求实际允许的字数上限 M。用户定稿：M = N + 150。 */
 function targetCharsToMaxChars(n: number): number {
   return Math.round(n) + CHARS_TAIL_MARGIN;
 }
 
-/** 由目标字数 N 求请求用的 maxOutputTokens（1 字 ≈ 1.6 token）。 */
+/** 由目标字数 N 求请求用的 maxOutputTokens（1 字 ≈ 1.35 token）。 */
 function charsToMaxTokens(chars: number): number {
   return Math.ceil(targetCharsToMaxChars(chars) * CHARS_TO_TOKENS * TOKEN_HEADROOM);
 }
@@ -1371,7 +1373,7 @@ ${script.background.trim()}
       const totalChars = charsPerTurn;
       const effectiveMaxTokens =
         script.maxTokensPerTurn ?? charsToMaxTokens(totalChars);
-      // 用户公式 M = N + max(400, N × 0.5)：本轮实际允许的字数上限
+      // 用户公式 M = N + 150（1010 收紧）：本轮实际允许的字数上限
       const maxChars = targetCharsToMaxChars(charsPerTurn);
 
       // 上一轮的主说话人：默认只在「被别人搭话」时出现，避免同一人连着霸场。
@@ -1379,7 +1381,7 @@ ${script.background.trim()}
         ? `\n【上一幕的说话人】${lastTurn.senderName}。除非剧情里有人明确对他开口、他必须回应，否则这一幕请让**别的角色**主导，不要又从头到尾都是他。`
         : "";
 
-      // ── 输出长度控制规则（用户定稿，1006 四次调整：M = N + 200）──
+      // ── 输出长度控制规则（用户定稿，1010 收紧：M = N + 150）──
       const outputLenRule = `
 【输出长度控制规则】
 1. 每轮目标字数 N = ${charsPerTurn} 字，请**尽量写够**，不要草草结束。
@@ -1797,7 +1799,7 @@ ${lastSpeakerNote}
         content: replyContent,
         rawText: replyContent,
         timestamp: baseIso,
-        tokens: Math.ceil(replyContent.length * 1.3),
+        tokens: replyContent.length,
         model: apiConfig.defaultModel || apiConfig.name || undefined,
         // 状态数据落库（第六暗号剥离产物）：供点头像查看角色卡。
         // 只有启用状态面板且真的解析出条目才存，避免存空数组。
@@ -1840,7 +1842,7 @@ ${lastSpeakerNote}
     // 立刻把当前展示版本落库，保证退出重进不丢
     const updated = updateEnsembleTurn(currentScript.id, turn.id, {
       content: generated,
-      tokens: Math.ceil(generated.length * 1.3),
+      tokens: generated.length,
     });
     if (updated) {
       setCurrentScript(updated);
@@ -1859,7 +1861,7 @@ ${lastSpeakerNote}
     setRollIndexMap((prev) => ({ ...prev, [turnId]: next }));
     const updated = updateEnsembleTurn(currentScript.id, turnId, {
       content: versions[next],
-      tokens: Math.ceil(versions[next].length * 1.3),
+      tokens: versions[next].length,
     });
     if (updated) {
       setCurrentScript(updated);
@@ -1888,7 +1890,7 @@ ${lastSpeakerNote}
 
       const updated = updateEnsembleTurn(currentScript.id, turnId, {
         content: nextVersions[nextIndex],
-        tokens: Math.ceil(nextVersions[nextIndex].length * 1.3),
+        tokens: nextVersions[nextIndex].length,
       });
       if (updated) {
         setCurrentScript(updated);
@@ -2270,7 +2272,7 @@ ${lastSpeakerNote}
     if (!text) return;
     const updated = updateEnsembleTurn(currentScript.id, turnId, {
       content: text,
-      tokens: Math.ceil(text.length * 1.3),
+      tokens: text.length,
     });
     if (updated) {
       setCurrentScript(updated);
@@ -2291,7 +2293,7 @@ ${lastSpeakerNote}
       senderType: "user",
       content: text,
       timestamp: new Date().toISOString(),
-      tokens: Math.ceil(text.length * 1.3),
+      tokens: text.length,
     };
 
     const updated = appendEnsembleTurn(currentScript.id, newTurn);
@@ -3131,7 +3133,7 @@ ${lastSpeakerNote}
                           {turn.tokens !== undefined && (
                             <div className="flex items-baseline justify-between gap-3">
                               <span className="shrink-0 text-black/28 tracking-[0.18em]">
-                                TOKENS
+                                字数
                               </span>
                               <span className="tabular-nums">
                                 {turn.tokens}
@@ -4196,7 +4198,7 @@ ${lastSpeakerNote}
             // 与 triggerAiTurn 共用同一套换算（charsToMaxTokens），
             // 保证面板上写的就是真实发出去的护栏值。
             const effectiveTokens = charsToMaxTokens(charsDraft);
-            // 用户公式 M = N + max(400, N × 0.5)：给用户看的「实际最多多少字」
+            // 用户公式 M = N + 150（1010 收紧）：给用户看的「实际最多多少字」
             const maxChars = targetCharsToMaxChars(charsDraft);
             const numBadge = (n: string) => (
               <span className="font-mono text-[11px] text-black/20 tracking-widest">

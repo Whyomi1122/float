@@ -21,6 +21,7 @@ import {
 } from "@/lib/txt-import";
 import {
     loadEnsembleScripts,
+    saveEnsembleScripts,
     saveOrUpdateEnsembleScript,
     type EnsembleScript,
     type EnsembleArchiveEntry,
@@ -51,6 +52,10 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
     const [txtImportBookMode, setTxtImportBookMode] = useState<"new" | "replace">("new");
     /** 覆盖模式下的目标世界书 id */
     const [txtImportTargetBookId, setTxtImportTargetBookId] = useState("");
+    /** 世界书导入后是否顺手绑定到某个剧本 */
+    const [txtImportBindScript, setTxtImportBindScript] = useState(false);
+    /** 绑定目标剧本 id */
+    const [txtImportBindScriptId, setTxtImportBindScriptId] = useState("");
     /** 归档导入目标剧本 id */
     const [txtImportScriptId, setTxtImportScriptId] = useState("");
     /** 归档导入模式 */
@@ -500,6 +505,25 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
     const resolveTxtKind = (): TxtMaterialKind =>
         txtImportKind === "auto" ? guessTxtMaterialKind(txtImportDraft) : txtImportKind;
 
+    /**
+     * 把某本世界书绑定到指定剧本（写进 script.worldBookIds）。
+     * 幂等：已绑定则跳过；同时会顺手更新组件内的剧本列表缓存。
+     *
+     * ⚠️ 群像 App 的绑定面板读的是 `script.worldBookIds`，格式导入新建的书
+     *    默认不在里面 → 引擎 pickBoundBooks 取不到 → 世界书不触发。
+     *    这里补上「导入即绑定」，免得用户还得再跑一趟群像 App 手动勾选。
+     */
+    const bindBookToScript = (bookId: string, scriptId: string) => {
+        const scripts = loadEnsembleScripts();
+        const idx = scripts.findIndex((s) => s.id === scriptId);
+        if (idx < 0) return;
+        const cur = scripts[idx].worldBookIds ?? [];
+        if (cur.includes(bookId)) return;
+        scripts[idx] = { ...scripts[idx], worldBookIds: [...cur, bookId] };
+        saveEnsembleScripts(scripts);
+        setEnsembleScripts(scripts);
+    };
+
     /** 格式导入主流程：按识别出的类型，分别走「世界书」或「归档」 */
     const handleTxtImportConfirm = () => {
         const raw = txtImportDraft.trim();
@@ -564,15 +588,24 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
                 books.map((b) => (b.id === target.id ? replaced : b))
             );
             setActiveBookId(target.id);
+            // 顺手绑定到剧本（用户勾了才做）
+            if (txtImportBindScript && txtImportBindScriptId) {
+                bindBookToScript(target.id, txtImportBindScriptId);
+            }
         } else {
             // 另开一本
             persist([wb, ...books]);
             setActiveBookId(wb.id);
+            // 顺手绑定到剧本（用户勾了才做）
+            if (txtImportBindScript && txtImportBindScriptId) {
+                bindBookToScript(wb.id, txtImportBindScriptId);
+            }
         }
         setViewMode("detail");
         setShowTxtImport(false);
         setTxtImportDraft("");
         setTxtImportName("");
+        setTxtImportBindScript(false);
         setTxtImportError(null);
     };
 
@@ -1224,6 +1257,51 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
                                 <p className="menu-desc ts-12">
                                     每个「══ 标题 ══」会切成一条世界书条目，默认全部常驻。
                                 </p>
+
+                                {/* 绑定到剧本（可选）：导入后直接挂到剧本，省得再跑群像手动勾选 */}
+                                <div className="flex flex-col gap-2 rounded-[14px] bg-black/[0.03] p-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setTxtImportBindScript((v) => !v);
+                                            if (!txtImportBindScriptId) {
+                                                setTxtImportBindScriptId(ensembleScripts[0]?.id || "");
+                                            }
+                                        }}
+                                        className="flex items-center justify-between"
+                                    >
+                                        <span className="text-[12px] font-bold text-black/70">导入后绑定到剧本</span>
+                                        <span
+                                            className={`relative h-5 w-9 rounded-full transition ${txtImportBindScript ? "bg-black" : "bg-black/15"}`}
+                                        >
+                                            <span
+                                                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${txtImportBindScript ? "left-[18px]" : "left-0.5"}`}
+                                            />
+                                        </span>
+                                    </button>
+                                    {txtImportBindScript && (
+                                        ensembleScripts.length === 0 ? (
+                                            <p className="menu-desc ts-12">还没有剧本，请先在群像里建一个。</p>
+                                        ) : (
+                                            <>
+                                                <select
+                                                    value={txtImportBindScriptId || ensembleScripts[0]?.id || ""}
+                                                    onChange={(e) => setTxtImportBindScriptId(e.target.value)}
+                                                    className="ui-input font-medium"
+                                                >
+                                                    {ensembleScripts.map((s) => (
+                                                        <option key={s.id} value={s.id}>
+                                                            {s.title || "未命名剧本"}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <p className="menu-desc ts-12">
+                                                    绑定后，群像跑这一幕就会读这本世界书（否则它不会触发）。
+                                                </p>
+                                            </>
+                                        )
+                                    )}
+                                </div>
                             </div>
                         )}
 

@@ -312,7 +312,7 @@ export function setTurnDisplayContent(
     ...scripts[idx],
     turns: scripts[idx].turns.map((t) =>
       t.id === turnId
-        ? { ...t, content, tokens: Math.ceil(content.length * 1.3) }
+        ? { ...t, content, tokens: content.length }
         : t
     ),
     updatedAt: new Date().toISOString(),
