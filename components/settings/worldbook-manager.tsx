@@ -47,6 +47,10 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
     const [txtImportError, setTxtImportError] = useState<string | null>(null);
     /** 手动指定资料类型（auto = 自动识别） */
     const [txtImportKind, setTxtImportKind] = useState<TxtMaterialKind | "auto">("auto");
+    /** 世界书导入方式：另开一本 / 覆盖已有 */
+    const [txtImportBookMode, setTxtImportBookMode] = useState<"new" | "replace">("new");
+    /** 覆盖模式下的目标世界书 id */
+    const [txtImportTargetBookId, setTxtImportTargetBookId] = useState("");
     /** 归档导入目标剧本 id */
     const [txtImportScriptId, setTxtImportScriptId] = useState("");
     /** 归档导入模式 */
@@ -74,7 +78,8 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
         const scripts = loadEnsembleScripts();
         setEnsembleScripts(scripts);
         setTxtImportScriptId((prev) => prev || scripts[0]?.id || "");
-    }, [showTxtImport]);
+        setTxtImportTargetBookId((prev) => prev || books[0]?.id || "");
+    }, [showTxtImport, books]);
 
     const persist = useCallback((newBooks: WorldBookConfig[]) => {
         setBooks(newBooks);
@@ -535,14 +540,35 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
             return;
         }
 
-        // ── 世界书：切成条目存成一本 ──
+        // ── 世界书：切成条目 ──
         const wb = parseTxtToWorldBook(raw, txtImportName.trim() || undefined);
         if (!wb.entries.length) {
             setTxtImportError("没有解析出任何条目，请检查内容。");
             return;
         }
-        persist([wb, ...books]);
-        setActiveBookId(wb.id);
+
+        if (txtImportBookMode === "replace") {
+            // 覆盖已有世界书：保留原书名与元信息，只换 entries
+            const target = books.find((b) => b.id === txtImportTargetBookId);
+            if (!target) {
+                setTxtImportError("请选择要覆盖的世界书。");
+                return;
+            }
+            const replaced: WorldBookConfig = {
+                ...target,
+                entries: wb.entries.map((e) => ({ ...e })),
+                updatedAt: Date.now(),
+            };
+            setBooks((prev) => prev.map((b) => (b.id === target.id ? replaced : b)));
+            saveWorldBooks(
+                books.map((b) => (b.id === target.id ? replaced : b))
+            );
+            setActiveBookId(target.id);
+        } else {
+            // 另开一本
+            persist([wb, ...books]);
+            setActiveBookId(wb.id);
+        }
         setViewMode("detail");
         setShowTxtImport(false);
         setTxtImportDraft("");
@@ -1131,17 +1157,70 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
                             </div>
                         )}
 
-                        {/* 世界书：名称 */}
+                        {/* 世界书：导入方式 */}
                         {resolveTxtKind() !== "archive" && (
-                            <div className="flex flex-col gap-2">
-                                <label className="menu-label ts-13 font-semibold ml-1">世界书名称</label>
-                                <input
-                                    type="text"
-                                    value={txtImportName}
-                                    onChange={(e) => setTxtImportName(e.target.value)}
-                                    placeholder="留空则自动取【标题】..."
-                                    className="ui-input font-medium"
-                                />
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-col gap-2">
+                                    <label className="menu-label ts-13 font-semibold ml-1">导入方式</label>
+                                    <div className="flex gap-2">
+                                        {([
+                                            { m: "new" as const, label: "另开一本" },
+                                            { m: "replace" as const, label: "覆盖已有" },
+                                        ]).map((opt) => (
+                                            <button
+                                                key={opt.m}
+                                                type="button"
+                                                onClick={() => {
+                                                    setTxtImportBookMode(opt.m);
+                                                    if (txtImportError) setTxtImportError(null);
+                                                }}
+                                                className={`flex-1 h-9 rounded-[14px] text-[12px] font-bold transition ${txtImportBookMode === opt.m
+                                                    ? "bg-black text-white"
+                                                    : "bg-black/[0.05] text-black/55"}`}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {txtImportBookMode === "replace" ? (
+                                    // 覆盖：选目标世界书
+                                    <div className="flex flex-col gap-2">
+                                        <label className="menu-label ts-13 font-semibold ml-1">覆盖哪一本</label>
+                                        {books.length === 0 ? (
+                                            <p className="menu-desc ts-12">还没有世界书，请改用「另开一本」。</p>
+                                        ) : (
+                                            <select
+                                                value={txtImportTargetBookId || books[0]?.id || ""}
+                                                onChange={(e) => setTxtImportTargetBookId(e.target.value)}
+                                                className="ui-input font-medium"
+                                            >
+                                                {books.map((b) => (
+                                                    <option key={b.id} value={b.id}>
+                                                        {b.name}（{b.entries.length} 条）
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        <p className="menu-desc ts-12 text-[var(--c-danger)]">
+                                            ⚠️ 覆盖会清空该世界书的原有全部条目。
+                                        </p>
+                                    </div>
+                                ) : (
+                                    // 另开一本：填名称
+                                    <div className="flex flex-col gap-2">
+                                        <label className="menu-label ts-13 font-semibold ml-1">世界书名称</label>
+                                        <input
+                                            type="text"
+                                            value={txtImportName}
+                                            onChange={(e) => setTxtImportName(e.target.value)}
+                                            placeholder="留空则自动取【标题】..."
+                                            className="ui-input font-medium"
+                                        />
+                                    </div>
+                                )}
+
                                 <p className="menu-desc ts-12">
                                     每个「══ 标题 ══」会切成一条世界书条目，默认全部常驻。
                                 </p>
@@ -1159,7 +1238,9 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
                         >
                             {resolveTxtKind() === "archive"
                                 ? <><Plus size={16} /> 导入到剧本归档</>
-                                : <><BookOpen size={16} /> 解析并导入世界书</>}
+                                : txtImportBookMode === "replace"
+                                    ? <><BookOpen size={16} /> 覆盖该世界书</>
+                                    : <><BookOpen size={16} /> 解析并导入世界书</>}
                         </button>
                     </div>
                 </BottomSheet>
