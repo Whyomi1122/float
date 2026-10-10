@@ -42,6 +42,15 @@ import {
   buildEnsembleMemoryBlock,
   type RoleMemoryBlock,
 } from "@/lib/ensemble-memory";
+import {
+  buildArchiveBlock,
+  computePendingTurns,
+  computeVisibleTurns,
+  computeWrappedTurnIds,
+  computeArchiveStats,
+  buildArchiveSummaryPrompt,
+  makeRangeLabel,
+} from "@/lib/ensemble-archive";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import { fetchModelNames } from "@/lib/model-list";
@@ -55,6 +64,7 @@ import {
   EnsembleScript,
   EnsembleTurn,
   EnsembleCastMember,
+  type EnsembleArchiveEntry,
   loadEnsembleScripts,
   saveOrUpdateEnsembleScript,
   deleteEnsembleScript,
@@ -1023,6 +1033,27 @@ export function EnsembleApp({
     enabled: boolean;
     turnIndex: number;
   } | null>(null);
+  /**
+   * 杀青归档状态（2026-10-10）：
+   *   · archiveWrappedIds —— 已杀青的幕 id 集合（UI 打 ✓Wrapped 印记用）
+   *   · archiveStats       —— 三栏统计（总条数 / 已杀青 / 未杀青）
+   *   · archiveBusy        —— 正在总结中（防重复点击）
+   *   · archiveError       —— 上次总结失败的原因
+   *   · showArchiveSheet   —— 归档面板开关
+   */
+  const [archiveWrappedIds, setArchiveWrappedIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [archiveStats, setArchiveStats] = useState<{
+    total: number;
+    wrapped: number;
+    pending: number;
+  }>({ total: 0, wrapped: 0, pending: 0 });
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [showArchiveSheet, setShowArchiveSheet] = useState(false);
+  const [archiveCountDraft, setArchiveCountDraft] = useState(20);
+  const [archiveContentDraft, setArchiveContentDraft] = useState("");
   /** 状态面板草稿（点保存才落库） */
   const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
   const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
@@ -1441,6 +1472,23 @@ ${userPovRule}
         at: Date.now(),
       });
 
+      // ── 杀青归档 · 剧情记忆（2026-10-10 接入）──
+      //   对齐 chill「杀青总结」：已杀青的剧情在 AI 眼里**真删**（不占 token、看不到），
+      //   AI 只能靠这段归档回忆过往。这就是「归档是唯一真相」——
+      //   用户改好归档后，老原文不再被重读，不会与修正后的归档打架。
+      const archiveBlock = buildArchiveBlock(script.archives);
+      const wrappedIds = computeWrappedTurnIds(
+        script.turns as unknown as Parameters<typeof computeWrappedTurnIds>[0],
+        script.archives
+      );
+      setArchiveWrappedIds(wrappedIds);
+      setArchiveStats(
+        computeArchiveStats(
+          script.turns as unknown as Parameters<typeof computeArchiveStats>[0],
+          script.archives
+        )
+      );
+
       // ── 01 OPENING · 开场白（图1）──
       const openingBlock = script.openingMessage?.trim()
         ? `
@@ -1474,7 +1522,7 @@ ${script.openingMessage.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}${povBlock}
-${sceneBlock}${openingBlock}${memoryBlock}${worldBookBlock}${timeBlock}${outputLenRule}
+${sceneBlock}${openingBlock}${memoryBlock}${archiveBlock}${worldBookBlock}${timeBlock}${outputLenRule}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 
@@ -1576,13 +1624,21 @@ ${lastSpeakerNote}
 11. 紧扣上一幕推进情节，制造新的张力或情感转折，不要复述已知信息。${statusBlock}`;
 
       // ── 重 roll 时：剔除被重 roll 的这一幕，只按它之前的上下文重新生成 ──
+      // ── 上下文回合（2026-10-10 杀青接入）──
+      //   不再固定砍「最近 N 幕」，而是给「杀青点之后的全部剧情」。
+      //   已杀青的幕由 computeVisibleTurns 排除（真删）；token 体量由用户手动杀青控制。
+      //   重 roll 时再剔除被重 roll 的那一幕，只按它之前的上下文重新生成。
+      const visibleTurns = computeVisibleTurns(
+        script.turns as unknown as Parameters<typeof computeVisibleTurns>[0],
+        script.archives
+      );
       const contextTurns = opts?.rerollTurnId
-        ? script.turns.filter((t) => t.id !== opts.rerollTurnId)
-        : script.turns;
+        ? visibleTurns.filter((t) => t.id !== opts.rerollTurnId)
+        : visibleTurns;
 
       const messagesPayload = [
         { role: "system", content: systemPrompt },
-        ...contextTurns.slice(-(script.contextLimit ?? 10)).map((t) => ({
+        ...contextTurns.map((t) => ({
           role: t.senderType === "user" ? "user" : "assistant",
           // 历史回合按**新契约**回灌，形成格式自强化（模型会跟着学看到的格式）：
           //   · 旁白幕           → `［旁白］:\n正文`
@@ -1908,6 +1964,144 @@ ${lastSpeakerNote}
     setIsComposing(false);
     setApiError(null);
     setToast("已取消本轮生成");
+  };
+
+  /** ─── 杀青归档（2026-10-10）───────────────────────────────
+   *  对齐 chill「杀青总结」：手动触发 → 调当前群像模型总结最近未归档的前 N 条
+   *  → 追加一条归档 → 该范围在 AI 眼里真删（靠 computeVisibleTurns 排除）。
+   *  可编辑、可「换个模型重来」（撤销上一次）。
+   */
+
+  /** 打开面板时刷新统计与档案草稿。 */
+  const refreshArchivePanel = () => {
+    const s = currentScript;
+    if (!s) return;
+    setArchiveStats(
+      computeArchiveStats(
+        s.turns as unknown as Parameters<typeof computeArchiveStats>[0],
+        s.archives
+      )
+    );
+    setArchiveWrappedIds(
+      computeWrappedTurnIds(
+        s.turns as unknown as Parameters<typeof computeWrappedTurnIds>[0],
+        s.archives
+      )
+    );
+    const merged = (s.archives ?? [])
+      .map((a) => a.content.trim())
+      .filter(Boolean)
+      .join("\n\n");
+    setArchiveContentDraft(merged);
+    setArchiveError(null);
+  };
+
+  /** 提炼并杀青：总结最近未归档的前 N 条，追加为一条归档。 */
+  const handleWrap = async (count: number) => {
+    const s = currentScript;
+    if (!s || archiveBusy) return;
+    const n = Math.max(1, Math.floor(count) || 1);
+    const pendingAll = computePendingTurns(
+      s.turns as unknown as Parameters<typeof computePendingTurns>[0],
+      s.archives
+    );
+    if (pendingAll.length === 0) {
+      setArchiveError("没有新的未归档剧情可杀青。");
+      return;
+    }
+    const target = pendingAll.slice(0, n);
+    setArchiveBusy(true);
+    setArchiveError(null);
+    try {
+      const apiConfig = resolveEnsembleApiConfig(
+        s.cast[0]?.id,
+        s.apiConfigIdOverride,
+        s.modelOverride
+      );
+      if (!apiConfig) throw new Error("未找到可用的 API 配置，请先在设置里绑定模型。");
+
+      const lastTurn = target[target.length - 1];
+      const rangeLabel = makeRangeLabel(
+        lastTurn?.createdAt ? new Date(lastTurn.createdAt) : new Date()
+      );
+      const prevArchive = (s.archives ?? [])
+        .slice(-1)
+        .map((a) => a.content)
+        .join("");
+      const prompt = buildArchiveSummaryPrompt(
+        target as unknown as Parameters<typeof buildArchiveSummaryPrompt>[0],
+        { rangeLabel, previousArchive: prevArchive }
+      );
+
+      const res = await simpleLLMCall(apiConfig, [
+        {
+          role: "system",
+          content:
+            "你是一个剧本归档助手。只总结给到的剧情本身，不添加任何设定、指令或未来建议。",
+        },
+        { role: "user", content: prompt },
+      ]);
+      if (res.error) throw new Error(res.error);
+      const content = (res.content ?? "").trim();
+      if (!content) throw new Error("模型返回为空，请重试或换个模型。");
+
+      const entry: EnsembleArchiveEntry = {
+        id: `arc_${Date.now().toString(36)}`,
+        createdAt: new Date().toISOString(),
+        lastTurnId: lastTurn?.id,
+        turnCount: target.length,
+        content,
+        model: s.modelOverride || apiConfig.defaultModel,
+      };
+      const updated = {
+        ...s,
+        archives: [...(s.archives ?? []), entry],
+      };
+      setCurrentScript(updated);
+      saveOrUpdateEnsembleScript(updated);
+      setScripts(loadEnsembleScripts());
+      refreshArchivePanel();
+      setToast(`已杀青 ${target.length} 幕`);
+    } catch (e) {
+      setArchiveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  /** 撤销上次杀青（换个模型重来）：弹出最后一条归档。 */
+  const handleUndoWrap = () => {
+    const s = currentScript;
+    if (!s || archiveBusy) return;
+    const list = s.archives ?? [];
+    if (list.length === 0) {
+      setArchiveError("没有可撤销的归档。");
+      return;
+    }
+    const updated = { ...s, archives: list.slice(0, -1) };
+    setCurrentScript(updated);
+    saveOrUpdateEnsembleScript(updated);
+    setScripts(loadEnsembleScripts());
+    refreshArchivePanel();
+    setToast("已撤销上次杀青");
+  };
+
+  /** 保存档案：把编辑框内容回写到「最后一条归档」（无归档则忽略）。 */
+  const handleSaveArchiveContent = () => {
+    const s = currentScript;
+    if (!s) return;
+    const list = s.archives ?? [];
+    if (list.length === 0) return;
+    const next = list.slice();
+    next[next.length - 1] = {
+      ...next[next.length - 1],
+      content: archiveContentDraft,
+    };
+    const updated = { ...s, archives: next };
+    setCurrentScript(updated);
+    saveOrUpdateEnsembleScript(updated);
+    setScripts(loadEnsembleScripts());
+    setToast("档案已保存");
   };
 
   /** 打开「模型切换」：默认停在 API 一级列表，重置上次的二级态 */
@@ -2602,6 +2796,17 @@ ${lastSpeakerNote}
                             "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
                         }}
                       />
+                      {/* ── 杀青印记（2026-10-10）：已归档的幕打 ✓ WRAPPED ──
+                          对齐 chill：已杀青的剧情对 AI 隐藏，UI 上留印记告知用户。
+                          斜置微缩标签，浅底虚线边，视觉上"盖过章"。 */}
+                      {archiveWrappedIds.has(turn.id) && (
+                        <span
+                          className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dashed border-black/[0.28] text-black/45 tracking-[0.08em] -rotate-[3deg]"
+                          style={{ fontSize: TYPE.MICRO - 3 }}
+                        >
+                          ✓ WRAPPED
+                        </span>
+                      )}
                       <span
                         className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dotted border-black/[0.18] text-black/30 tracking-[0.08em]"
                         style={{ fontSize: TYPE.MICRO - 2 }}
@@ -2979,6 +3184,10 @@ ${lastSpeakerNote}
                 // 世界书绑定（M2-b）：把剧本已绑定 id 灌进草稿，实时读全部可选世界书
                 setWorldBookIdsDraft([...(currentScript.worldBookIds ?? [])]);
                 setShowWorldBookSheet(true);
+              } else if (id === "archive") {
+                // 杀青归档（2026-10-10）：打开面板即刷新统计
+                refreshArchivePanel();
+                setShowArchiveSheet(true);
               }
             }}
           />
@@ -3657,6 +3866,142 @@ ${lastSpeakerNote}
               </MiniSheet>
             );
           })()}
+
+          {/* ═══════════ 子弹窗 7：杀青归档（2026-10-10） ═══════════
+              把「已发生的剧情」用 AI 总结成档案，之后老剧情对 AI 隐藏（真删），靠归档回忆。
+              布局照 chill 截图：三栏统计 → 杀青操作区 → 档案预览/编辑 → 底部两按钮。
+              · 统计/待杀青/已杀青全部来自 lib/ensemble-archive.ts（纯增量，不碰现有常驻逻辑）。
+              · 字号写死 px，不随全局缩放。 */}
+          {showArchiveSheet && (
+            <MiniSheet
+              title="杀青归档"
+              subtitle="WRAP · INCREMENTAL ARCHIVE"
+              onClose={() => {
+                // 关闭回功能面板，与本文件其他子弹窗保持一致
+                setShowArchiveSheet(false);
+                setShowToolsSheet(true);
+              }}
+            >
+              {/* ── 三栏统计卡片 ── */}
+              <div className="flex items-stretch gap-2.5">
+                {/* 总条数 */}
+                <div className="flex-1 bg-white rounded-[16px] px-3 py-3.5 text-center">
+                  <div className="font-mono tabular-nums text-[16px] font-semibold text-[#111111] leading-none">
+                    {archiveStats.total}
+                  </div>
+                  <div className="text-[10px] text-black/35 mt-2 tracking-wide">
+                    总条数
+                  </div>
+                </div>
+                {/* 已杀青 */}
+                <div className="flex-1 bg-white rounded-[16px] px-3 py-3.5 text-center">
+                  <div className="font-mono tabular-nums text-[16px] font-semibold text-[#111111] leading-none">
+                    {archiveStats.wrapped}
+                  </div>
+                  <div className="text-[10px] text-black/35 mt-2 tracking-wide">
+                    已杀青
+                  </div>
+                </div>
+                {/* 未杀青（深色底黑字高亮，对比另外两个） */}
+                <div className="flex-1 bg-[#111111] rounded-[16px] px-3 py-3.5 text-center">
+                  <div className="font-mono tabular-nums text-[16px] font-semibold text-white leading-none">
+                    {archiveStats.pending}
+                  </div>
+                  <div className="text-[10px] text-white/60 mt-2 tracking-wide">
+                    未杀青
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 杀青操作区 ── */}
+              <div className="bg-white rounded-[16px] p-3.5 space-y-2.5">
+                <div className="text-[12px] font-medium text-[#111111]">
+                  杀青最近未归档的前 N 条
+                </div>
+                {/* N 输入 + 全部 */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    value={archiveCountDraft}
+                    onChange={(e) => setArchiveCountDraft(Number(e.target.value) || 1)}
+                    className="w-[92px] bg-black/[0.03] border border-black/5 rounded-xl px-3 py-2 text-[13px] font-mono text-[#111111] outline-none focus:border-black/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setArchiveCountDraft(archiveStats.pending)}
+                    className="px-3 py-2 rounded-full bg-black/[0.05] text-[11px] font-medium text-black/60 active:scale-95 transition-transform"
+                  >
+                    全部
+                  </button>
+                </div>
+                {/* 主按钮：提炼并杀青 */}
+                <button
+                  type="button"
+                  disabled={archiveBusy}
+                  onClick={() => handleWrap(archiveCountDraft)}
+                  className="w-full py-3 rounded-[16px] bg-[#111111] text-[13px] font-semibold text-white active:scale-[0.985] transition-transform disabled:opacity-45 disabled:active:scale-100"
+                >
+                  {archiveBusy ? "总结中…" : "提炼并杀青"}
+                </button>
+                {/* 次按钮：撤销上次杀青 */}
+                <button
+                  type="button"
+                  disabled={archiveBusy}
+                  onClick={() => handleUndoWrap()}
+                  className="w-full py-2.5 rounded-[16px] bg-black/[0.04] text-[12px] font-medium text-black/55 active:scale-[0.985] transition-transform disabled:opacity-45 disabled:active:scale-100"
+                >
+                  ↩ 撤销上次杀青（换个模型重来）
+                </button>
+                {/* 错误提示 */}
+                {archiveError ? (
+                  <div className="text-[11px] leading-relaxed text-red-500 break-words">
+                    {archiveError}
+                  </div>
+                ) : null}
+              </div>
+
+              {/* ── 档案预览 / 编辑区 ── */}
+              <div className="bg-white rounded-[16px] p-3.5 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-medium text-[#111111]">
+                    剧情档案
+                  </span>
+                  <span className="px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium bg-black/[0.05] text-black/40">
+                    可编辑
+                  </span>
+                </div>
+                <textarea
+                  value={archiveContentDraft}
+                  onChange={(e) => setArchiveContentDraft(e.target.value)}
+                  spellCheck={false}
+                  placeholder={`/* 杀青后生成/回填的剧情档案 · 可手动改写 */\n\n   ## 剧情档案\n   · ……`}
+                  className="w-full min-h-[220px] bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[11px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-y leading-relaxed"
+                />
+              </div>
+
+              {/* ── 底部按钮（照 CSS 面板布局） ── */}
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowArchiveSheet(false);
+                    setShowToolsSheet(true);
+                  }}
+                  className="flex-1 py-3 rounded-[16px] bg-white text-[13px] font-medium text-black/55 active:scale-[0.985] transition-transform"
+                >
+                  关闭
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveArchiveContent()}
+                  className="flex-1 py-3 rounded-[16px] bg-[#111111] text-[13px] font-semibold text-white active:scale-[0.985] transition-transform"
+                >
+                  保存档案
+                </button>
+              </div>
+            </MiniSheet>
+          )}
 
           {/* ═══════════ 状态卡展示层（点头像 → 单角色卡片） ═══════════ */}
           {(() => {
