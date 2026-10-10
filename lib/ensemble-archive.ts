@@ -196,6 +196,28 @@ export function makeRangeLabel(at: Date = new Date(), override?: string): string
   )} ${wd} ${p(at.getHours())}:${p(at.getMinutes())}`;
 }
 
+/**
+ * 用「剧情时间」生成头部范围标签（用户 2026-10-10 拍板）。
+ *
+ * ⚠️ 归档头部必须用**剧情时间**，不是现实时间——否则跑架空剧情时，
+ *    头部日期会与正文里的【时间戳】驴唇不对马嘴。
+ *
+ * @param storyDate 剧情时间（由 resolveStoryTime(script.timeAwareness) 求得）。
+ *                  没有时间感知配置时退回现实时间，保证标签一定有值。
+ * @param fallback  兜底时间（默认 new Date()）。
+ */
+export function makeStoryRangeLabel(
+  storyDate?: Date | null,
+  fallback: Date = new Date()
+): string {
+  const d = storyDate ?? fallback;
+  const wd = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `归档 · 至 ${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${wd} ${p(
+    d.getHours()
+  )}:${p(d.getMinutes())}`;
+}
+
 /** 统计信息（供 UI 三栏：总条数 / 已杀青 / 未杀青）。 */
 export type ArchiveStats = {
   total: number;

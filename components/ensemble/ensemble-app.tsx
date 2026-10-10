@@ -49,7 +49,7 @@ import {
   computeWrappedTurnIds,
   computeArchiveStats,
   buildArchiveSummaryPrompt,
-  makeRangeLabel,
+  makeStoryRangeLabel,
 } from "@/lib/ensemble-archive";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
@@ -1054,6 +1054,12 @@ export function EnsembleApp({
   const [showArchiveSheet, setShowArchiveSheet] = useState(false);
   const [archiveCountDraft, setArchiveCountDraft] = useState(20);
   const [archiveContentDraft, setArchiveContentDraft] = useState("");
+  /**
+   * 历史记录分页（2026-10-10 用户要求）：每 10 轮一段，默认只渲染最后 1 段，
+   * 往上点「加载更早记录」逐段展开。**纯 UI 分页**——不改数据、不碰杀青。
+   */
+  const HISTORY_BATCH = 10;
+  const [earlierBatches, setEarlierBatches] = useState(1);
   /** 状态面板草稿（点保存才落库） */
   const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
   const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
@@ -1976,6 +1982,17 @@ ${lastSpeakerNote}
   const refreshArchivePanel = () => {
     const s = currentScript;
     if (!s) return;
+    refreshArchivePanelFor(s);
+  };
+
+  /**
+   * 用「指定剧本快照」刷新面板（不读 state）。
+   *
+   * ⚠️ B1 修复（2026-10-10）：杀青后必须传**新建的 updated**，
+   *    而不是刚 `setCurrentScript` 的旧 state —— React 的 state 更新是异步的，
+   *    立刻读 currentScript 拿到的是旧值，导致「档案要重进面板才出现」。
+   */
+  const refreshArchivePanelFor = (s: EnsembleScript) => {
     setArchiveStats(
       computeArchiveStats(
         s.turns as unknown as Parameters<typeof computeArchiveStats>[0],
@@ -2021,8 +2038,11 @@ ${lastSpeakerNote}
       if (!apiConfig) throw new Error("未找到可用的 API 配置，请先在设置里绑定模型。");
 
       const lastTurn = target[target.length - 1];
-      const rangeLabel = makeRangeLabel(
-        lastTurn?.createdAt ? new Date(lastTurn.createdAt) : new Date()
+      // 头部标签用**剧情时间**（用户 2026-10-10 拍板）：跑架空剧情时，
+      // 若用现实时间会与正文里的【时间戳】对不上。
+      const storyTime = resolveStoryTime(s.timeAwareness);
+      const rangeLabel = makeStoryRangeLabel(
+        storyTime?.date ?? (lastTurn?.createdAt ? new Date(lastTurn.createdAt) : null)
       );
       const prevArchive = (s.archives ?? [])
         .slice(-1)
@@ -2060,7 +2080,7 @@ ${lastSpeakerNote}
       setCurrentScript(updated);
       saveOrUpdateEnsembleScript(updated);
       setScripts(loadEnsembleScripts());
-      refreshArchivePanel();
+      refreshArchivePanelFor(updated);
       setToast(`已杀青 ${target.length} 幕`);
     } catch (e) {
       setArchiveError(e instanceof Error ? e.message : String(e));
@@ -2082,7 +2102,7 @@ ${lastSpeakerNote}
     setCurrentScript(updated);
     saveOrUpdateEnsembleScript(updated);
     setScripts(loadEnsembleScripts());
-    refreshArchivePanel();
+    refreshArchivePanelFor(updated);
     setToast("已撤销上次杀青");
   };
 
@@ -2101,6 +2121,7 @@ ${lastSpeakerNote}
     setCurrentScript(updated);
     saveOrUpdateEnsembleScript(updated);
     setScripts(loadEnsembleScripts());
+    refreshArchivePanelFor(updated);
     setToast("档案已保存");
   };
 
@@ -2384,6 +2405,8 @@ ${lastSpeakerNote}
                   e.preventDefault();
                   e.stopPropagation();
                   setCurrentScript(s);
+                  // 切剧本时重置历史分页（只显示最后一段）
+                  setEarlierBatches(1);
                   setView("workspace");
                 }}
                 className="bg-white/80 backdrop-blur-sm border border-black/[0.04] rounded-2xl p-4 shadow-sm active:scale-[0.99] transition cursor-pointer flex flex-col gap-2.5"
@@ -2720,7 +2743,53 @@ ${lastSpeakerNote}
               </div>
             )}
 
-            {currentScript.turns.map((turn, turnIndex) => {
+            {/* ── 历史分页（2026-10-10）：每 10 轮一段，默认只显示最后一段 ──
+                纯 UI 分页（不改数据）。点「加载更早记录」逐段往上展开，
+                对齐 chill 的 FETCH EARLIER LOGS 交互。 */}
+            {(() => {
+              const total = currentScript.turns.length;
+              const shownCount = Math.min(total, earlierBatches * HISTORY_BATCH);
+              const hiddenCount = total - shownCount;
+              if (hiddenCount <= 0) return null;
+              return (
+                <div className="flex items-center gap-2 pt-1 pb-2">
+                  <span
+                    className="flex-1 h-px"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEarlierBatches((n) => n + 1)}
+                    className="shrink-0 px-3.5 py-1.5 rounded-full bg-white border border-black/[0.06] text-[11px] font-medium text-black/55 tracking-[0.04em] active:scale-[0.96] transition-transform"
+                  >
+                    加载更早记录 · 还有 {hiddenCount} 幕
+                  </button>
+                  <span
+                    className="flex-1 h-px"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                    }}
+                  />
+                </div>
+              );
+            })()}
+
+            {currentScript.turns
+              .slice(
+                -Math.min(
+                  currentScript.turns.length,
+                  earlierBatches * HISTORY_BATCH
+                )
+              )
+              .map((turn, turnIndex, shownArr) => {
+                // 分页后 slice 的序号会从 0 重来 → 换算回「全量序号」，
+                // 保证 ✓ 分隔标记里的三位序号与真实轮次一致（不影响任何计算）。
+                const fullIndex =
+                  currentScript.turns.length - shownArr.length + turnIndex;
               const isUser = turn.senderType === "user";
               const isNarrationTurn = turn.senderType === "narration";
               const isNarrator = isNarrationTurn || turn.senderId === "narration";
@@ -2759,7 +2828,7 @@ ${lastSpeakerNote}
                       className="shrink-0 font-mono text-black/20 tabular-nums"
                       style={{ fontSize: TYPE.MICRO }}
                     >
-                      {String(turnIndex).padStart(3, "0")}
+                      {String(fullIndex).padStart(3, "0")}
                     </span>
                   </div>
 
@@ -2798,10 +2867,10 @@ ${lastSpeakerNote}
                       />
                       {/* ── 杀青印记（2026-10-10）：已归档的幕打 ✓ WRAPPED ──
                           对齐 chill：已杀青的剧情对 AI 隐藏，UI 上留印记告知用户。
-                          斜置微缩标签，浅底虚线边，视觉上"盖过章"。 */}
+                          2026-10-10 用户反馈：改**红色**更醒目（原灰底不够显眼）。 */}
                       {archiveWrappedIds.has(turn.id) && (
                         <span
-                          className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dashed border-black/[0.28] text-black/45 tracking-[0.08em] -rotate-[3deg]"
+                          className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dashed border-red-400 text-red-500 font-semibold tracking-[0.08em] -rotate-[3deg]"
                           style={{ fontSize: TYPE.MICRO - 3 }}
                         >
                           ✓ WRAPPED
