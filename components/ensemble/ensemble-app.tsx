@@ -1060,6 +1060,10 @@ export function EnsembleApp({
    */
   const HISTORY_BATCH = 10;
   const [earlierBatches, setEarlierBatches] = useState(1);
+  /** 未杀青超限提醒阈值（超过这个幕数就提示「该杀青了」） */
+  const ARCHIVE_PENDING_ALERT = 40;
+  /** 本会话内是否已忽略超限提醒横幅 */
+  const [archiveBannerDismissed, setArchiveBannerDismissed] = useState(false);
   /** 状态面板草稿（点保存才落库） */
   const [statusEnabledDraft, setStatusEnabledDraft] = useState(false);
   const [statusFieldsDraft, setStatusFieldsDraft] = useState<StatusField[]>([]);
@@ -1073,7 +1077,7 @@ export function EnsembleApp({
   const [statusCardMemberId, setStatusCardMemberId] = useState<string | null>(null);
   // ── Settings 全页草稿（图1 · 1006）──
   const [openingDraft, setOpeningDraft] = useState("");
-  const [contextDraft, setContextDraft] = useState(10);
+  const [contextDraft, setContextDraft] = useState(40);
   const [povDraft, setPovDraft] = useState<"first" | "second" | "third">("third");
   const [onlineSyncDraft, setOnlineSyncDraft] = useState(false);
   /** 剧本设置里「每轮字数」的草稿值，点保存才落库（= 每个角色各自的字数） */
@@ -1180,6 +1184,27 @@ export function EnsembleApp({
     if (currentScript) {
       // 载入剧本时先解析一次模型名，保证 MODEL 行即使未生成也有值
       setLastModel(ensembleModelLabel(currentScript.cast[0]?.id));
+      // ── C1 修复（2026-10-10）──
+      //   一进工作页就把「归档印记 / 统计」算好，不必等生成剧情或进归档面板。
+      //   此前只在 generateTurn 里算，导致刚打开剧本看不到 ✓WRAPPED。
+      setArchiveWrappedIds(
+        computeWrappedTurnIds(
+          currentScript.turns as unknown as Parameters<
+            typeof computeWrappedTurnIds
+          >[0],
+          currentScript.archives
+        )
+      );
+      setArchiveStats(
+        computeArchiveStats(
+          currentScript.turns as unknown as Parameters<
+            typeof computeArchiveStats
+          >[0],
+          currentScript.archives
+        )
+      );
+      // 切剧本时重置历史分页
+      setEarlierBatches(1);
     }
   }, [currentScript?.id]);
 
@@ -1202,7 +1227,7 @@ export function EnsembleApp({
     const chars = s.charsPerTurn ?? 600;
     setCharsDraft(chars);
     setCharsInput(String(chars));
-    setContextDraft(s.contextLimit ?? 10);
+    setContextDraft(s.contextLimit ?? 40);
     setPovDraft(s.narrativePov ?? "third");
     setOnlineSyncDraft(s.onlineSync ?? false);
     setShowToolsSheet(false);
@@ -1633,11 +1658,16 @@ ${lastSpeakerNote}
       // ── 上下文回合（2026-10-10 杀青接入）──
       //   不再固定砍「最近 N 幕」，而是给「杀青点之后的全部剧情」。
       //   已杀青的幕由 computeVisibleTurns 排除（真删）；token 体量由用户手动杀青控制。
+      //   2026-10-10 C3：再套一层「未杀青上限」兜底（contextLimit，防不杀青撑爆 token）。
       //   重 roll 时再剔除被重 roll 的那一幕，只按它之前的上下文重新生成。
-      const visibleTurns = computeVisibleTurns(
+      const visibleTurnsAll = computeVisibleTurns(
         script.turns as unknown as Parameters<typeof computeVisibleTurns>[0],
         script.archives
       );
+      const capLimit = script.contextLimit && script.contextLimit > 0
+        ? script.contextLimit
+        : visibleTurnsAll.length;
+      const visibleTurns = visibleTurnsAll.slice(-capLimit);
       const contextTurns = opts?.rerollTurnId
         ? visibleTurns.filter((t) => t.id !== opts.rerollTurnId)
         : visibleTurns;
@@ -2762,7 +2792,26 @@ ${lastSpeakerNote}
                   />
                   <button
                     type="button"
-                    onClick={() => setEarlierBatches((n) => n + 1)}
+                    onClick={() => {
+                      // ── C4（2026-10-10）：加载更早记录时保持阅读位置 ──
+                      //   往上插入内容后，若浏览器把视口重算到别处会「跳」。
+                      //   这里记住「视口顶部在整体内容里的绝对位置」，插入后还原。
+                      const el = scrollRef.current;
+                      const changed = el ? el.scrollHeight : 0;
+                      setEarlierBatches((n) => n + 1);
+                      if (el) {
+                        const topBefore = el.scrollTop;
+                        requestAnimationFrame(() => {
+                          requestAnimationFrame(() => {
+                            const node = scrollRef.current;
+                            if (!node) return;
+                            // scrollHeight 变化量 = 上方插入的高度差；据此补回 scrollTop
+                            const delta = node.scrollHeight - changed;
+                            node.scrollTop = topBefore + delta;
+                          });
+                        });
+                      }
+                    }}
                     className="shrink-0 px-3.5 py-1.5 rounded-full bg-white border border-black/[0.06] text-[11px] font-medium text-black/55 tracking-[0.04em] active:scale-[0.96] transition-transform"
                   >
                     加载更早记录 · 还有 {hiddenCount} 幕
@@ -3136,6 +3185,34 @@ ${lastSpeakerNote}
               </div>
             )}
           </div>
+
+          {/* ── 未杀青超限提醒（2026-10-10 C2）──
+              未杀青幕数超过阈值时，在输入框上方提示「该杀青了」。
+              点击直达归档面板；可关闭（本轮会被记住）。 */}
+          {!archiveBannerDismissed &&
+            archiveStats.pending > ARCHIVE_PENDING_ALERT && (
+              <div
+                className="px-3 shrink-0"
+                style={{ paddingBottom: 6 }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    refreshArchivePanel();
+                    setShowArchiveSheet(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200/[0.7] text-left active:scale-[0.99] transition-transform"
+                >
+                  <span className="text-[13px] leading-none">⚠️</span>
+                  <span className="flex-1 text-[11px] text-amber-800/90 leading-snug">
+                    已有 <b>{archiveStats.pending}</b> 幕未杀青，剧情越堆越多会让记忆变模糊，建议提炼归档
+                  </span>
+                  <span className="shrink-0 text-[11px] font-semibold text-amber-700">
+                    去杀青 ›
+                  </span>
+                </button>
+              </div>
+            )}
 
           {/* 底部输入栏 */}
           <div
@@ -4281,16 +4358,16 @@ ${lastSpeakerNote}
                     {sectionHead(<Clock size={13} strokeWidth={2} />, "CONTEXT", "03")}
                     <div className="bg-white rounded-[16px] p-4">
                       <div className="text-[13px] font-semibold text-[#111111]">
-                        Context Limit / 记忆轮数
+                        Context Limit / 未杀青上限
                       </div>
                       <div className="text-[11px] text-black/35 mt-1 mb-2.5">
-                        每次请求发送最近多少轮对话给 AI
+                        杀青后 AI 只看「杀青点之后」的剧情；这里限制最多给它多少轮（防 token 爆）。已杀青的幕不受影响。
                       </div>
                       <div className="flex items-center gap-3">
                         <input
                           type="range"
-                          min={1}
-                          max={30}
+                          min={5}
+                          max={60}
                           step={1}
                           value={contextDraft}
                           onChange={(e) => setContextDraft(Number(e.target.value))}
