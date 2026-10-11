@@ -612,6 +612,9 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     showStickerPanel: boolean;
     showPlusMenu: boolean;
     customPlusActions: RegisteredCustomAppChatPlusAction[];
+    emojiTab: "emoji" | "sticker";
+    onSwitchEmojiTab: (tab: "emoji" | "sticker") => void;
+    offlineMode: boolean;
     onClearQuote: () => void;
     onToggleOfflineMode: () => void;
     onClosePanels: () => void;
@@ -643,6 +646,9 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     showStickerPanel,
     showPlusMenu,
     customPlusActions,
+    emojiTab,
+    onSwitchEmojiTab,
+    offlineMode,
     onClearQuote,
     onToggleOfflineMode,
     onClosePanels,
@@ -729,6 +735,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
         { icon: <Gift size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "礼物", onClick: () => onOpenRichModal("gift") },
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>, label: "位置", onClick: () => onOpenRichModal("location") },
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>, label: "语音条", onClick: () => onOpenRichModal("voice_msg") },
+        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={offlineMode ? "var(--c-icon-active)" : "var(--c-text)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12.01" y2="18" /><line x1="3" y1="3" x2="21" y2="21" /></svg>, label: "线下模式", active: offlineMode, onClick: onToggleOfflineMode },
         ...customPlusActions.map(action => ({
             icon: action.appIconDataUrl
                 ? <span className="chat-plus-custom-app-icon" style={{ backgroundImage: `url(${action.appIconDataUrl})` }} aria-hidden="true" />
@@ -778,70 +785,65 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                     onClose={() => setSuggestClosed(true)}
                 />
             )}
-            <textarea
-                ref={textareaRef}
-                rows={1}
-                value={inputText}
-                onChange={e => {
-                    setInputText(e.target.value);
-                    setSuggestClosed(false);
-                    e.target.style.height = "auto";
-                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
-                }}
-                onFocus={(e) => {
-                    if (panelOpen) {
-                        e.target.blur();
-                        onClosePanels();
-                        const target = e.target as HTMLTextAreaElement;
-                        requestAnimationFrame(() => requestAnimationFrame(() => target.focus()));
-                    }
-                    setSuggestClosed(false);
-                }}
-                onBlur={() => setSuggestClosed(true)}
-                onKeyDown={e => {
-                    if (e.key === "Escape") {
-                        setSuggestClosed(true);
-                        return;
-                    }
-                    if (shouldSendChatInputOnEnter(e, enterToSendEnabled)) {
-                        e.preventDefault();
-                        handleSubmit();
-                    }
-                }}
-                enterKeyHint={enterToSendEnabled ? "send" : "enter"}
-                className="chat-input-textarea"
-                disabled={inputLocked}
-                placeholder={inputLocked
-                    ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
-                    : (theaterMode ? "写下番外指令..." : undefined)}
-            />
-
-            <div className="chat-input-actions">
-                <button
-                    onClick={onToggleOfflineMode}
-                    className="ui-bare-btn text-[var(--c-text)] chat-offline-toggle"
-                    aria-label="线下模式"
-                    title="线下模式"
-                >
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" />
-                        <circle cx="12" cy="10" r="3" />
-                    </svg>
-                </button>
-                <button onClick={onToggleEmojiPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
-                </button>
-                <button onClick={onToggleStickerPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" /><polyline points="14 3 14 8 21 8" /><path d="M8 13h0" /><path d="M16 13h0" /><path d="M10 17c.5.3 1.2.5 2 .5s1.5-.2 2-.5" /></svg>
-                </button>
-                <button onClick={onTogglePlusMenu} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
+            <div className="chat-input-row">
+                <button onClick={onTogglePlusMenu} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)] chat-input-icon-btn" style={inputLocked ? { opacity: 0.35 } : undefined} aria-label="更多" title="更多">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
                 </button>
+                <button onClick={onToggleEmojiPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)] chat-input-icon-btn" style={inputLocked ? { opacity: 0.35 } : undefined} aria-label="表情" title="表情">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
+                </button>
+                <div className="chat-input-field">
+                    <textarea
+                        ref={textareaRef}
+                        rows={1}
+                        value={inputText}
+                        onChange={e => {
+                            setInputText(e.target.value);
+                            setSuggestClosed(false);
+                            e.target.style.height = "auto";
+                            e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                        }}
+                        onFocus={(e) => {
+                            if (panelOpen) {
+                                e.target.blur();
+                                onClosePanels();
+                                const target = e.target as HTMLTextAreaElement;
+                                requestAnimationFrame(() => requestAnimationFrame(() => target.focus()));
+                            }
+                            setSuggestClosed(false);
+                        }}
+                        onBlur={() => setSuggestClosed(true)}
+                        onKeyDown={e => {
+                            if (e.key === "Escape") {
+                                setSuggestClosed(true);
+                                return;
+                            }
+                            if (shouldSendChatInputOnEnter(e, enterToSendEnabled)) {
+                                e.preventDefault();
+                                handleSubmit();
+                            }
+                        }}
+                        enterKeyHint={enterToSendEnabled ? "send" : "enter"}
+                        className="chat-input-textarea"
+                        disabled={inputLocked}
+                        placeholder={inputLocked
+                            ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
+                            : (theaterMode ? "写下番外指令..." : undefined)}
+                    />
+                    <button
+                        className="ui-bare-btn chat-input-voice-btn"
+                        aria-label="语音条"
+                        title="语音条"
+                        onClick={() => { onOpenRichModal("voice_msg"); onClosePanels(); }}
+                    >
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>
+                    </button>
+                </div>
                 <button
                     onClick={handleSubmit}
                     disabled={!isGenerating && (inputLocked || !inputText.trim())}
                     style={inputLocked && !isGenerating ? { opacity: 0.35 } : undefined}
-                    className="ui-bare-btn text-[var(--c-text)]"
+                    className="ui-bare-btn text-[var(--c-text)] chat-input-icon-btn"
                     aria-label={isGenerating ? "停止本轮生成" : "发送"}
                     title={isGenerating ? "停止本轮生成" : "发送"}
                 >
@@ -856,7 +858,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 </button>
                 {!isGenerating && (
                     <button
-                        className="ui-bare-btn text-[var(--c-text)]"
+                        className="ui-bare-btn text-[var(--c-text)] chat-input-icon-btn"
                         title={!inputLocked && inputText.trim() ? "发送输入框内容并触发回复" : "触发 AI 主动回复"}
                         onClick={() => {
                             const trimmed = inputText.trim();
@@ -896,23 +898,48 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 <ChatPluginSlot name="chat.inputToolbar" slotProps={{ isGroup }} className="chat-plugin-input-toolbar" />
             )}
 
-            {showEmojiPanel && (
-                <EmojiPanel
-                    onSelect={(emoji) => appendText(emoji, { focus: false })}
-                    onEffectSend={(text) => {
-                        if (inputLocked || isGenerating) return;
-                        onSendText(text);
-                        onClosePanels();
-                    }}
-                />
-            )}
-
-            {showStickerPanel && (
-                <StickerPanel
-                    onSend={onSendSticker}
-                    characterId={characterId}
-                    characterIds={stickerCharacterIds}
-                />
+            {(showEmojiPanel || showStickerPanel) && (
+                <div className="chat-emoji-panel-shell">
+                    <div className="chat-emoji-tabs" role="tablist">
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={emojiTab === "emoji"}
+                            className="chat-emoji-tab"
+                            {...(emojiTab === "emoji" ? { "data-active": "" } : {})}
+                            onClick={() => onSwitchEmojiTab("emoji")}
+                        >
+                            表情
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={emojiTab === "sticker"}
+                            className="chat-emoji-tab"
+                            {...(emojiTab === "sticker" ? { "data-active": "" } : {})}
+                            onClick={() => onSwitchEmojiTab("sticker")}
+                        >
+                            表情包
+                        </button>
+                    </div>
+                    {emojiTab === "emoji" && (
+                        <EmojiPanel
+                            onSelect={(emoji) => appendText(emoji, { focus: false })}
+                            onEffectSend={(text) => {
+                                if (inputLocked || isGenerating) return;
+                                onSendText(text);
+                                onClosePanels();
+                            }}
+                        />
+                    )}
+                    {emojiTab === "sticker" && (
+                        <StickerPanel
+                            onSend={onSendSticker}
+                            characterId={characterId}
+                            characterIds={stickerCharacterIds}
+                        />
+                    )}
+                </div>
             )}
         </div>
     );
@@ -1139,6 +1166,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     // Emoji panel
     const [showEmojiPanel, setShowEmojiPanel] = useState(false);
     const [showStickerPanel, setShowStickerPanel] = useState(false);
+    // 表情面板内的 tab：emoji / 表情包
+    const [emojiTab, setEmojiTab] = useState<"emoji" | "sticker">("emoji");
     const chatTextInputRef = useRef<ChatTextInputHandle | null>(null);
     const offlineTextInputRef = useRef<OfflineTextInputHandle | null>(null);
 
@@ -6239,11 +6268,25 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 showStickerPanel={showStickerPanel}
                 showPlusMenu={showPlusMenu}
                 customPlusActions={customPlusActions}
+                emojiTab={emojiTab}
+                onSwitchEmojiTab={(tab) => setEmojiTab(tab)}
+                offlineMode={offlineMode}
                 onClearQuote={() => setQuotingMessage(null)}
                 onToggleOfflineMode={toggleOfflineMode}
                 onClosePanels={() => { setShowEmojiPanel(false); setShowStickerPanel(false); setShowPlusMenu(false); }}
-	                onToggleEmojiPanel={() => { setShowEmojiPanel(!showEmojiPanel); setShowStickerPanel(false); setShowPlusMenu(false); }}
-	                onToggleStickerPanel={() => { setShowStickerPanel(!showStickerPanel); setShowEmojiPanel(false); setShowPlusMenu(false); }}
+	                onToggleEmojiPanel={() => {
+	                    const isOpen = showEmojiPanel || showStickerPanel;
+	                    if (isOpen) {
+	                        // 已打开：在「表情 / 表情包」之间切换 tab
+	                        setEmojiTab(emojiTab === "emoji" ? "sticker" : "emoji");
+	                    } else {
+	                        setEmojiTab("emoji");
+	                    }
+	                    setShowEmojiPanel(true);
+	                    setShowStickerPanel(false);
+	                    setShowPlusMenu(false);
+	                }}
+	                onToggleStickerPanel={() => { setEmojiTab("sticker"); setShowStickerPanel(true); setShowEmojiPanel(false); setShowPlusMenu(false); }}
 	                onTogglePlusMenu={() => { setShowPlusMenu(!showPlusMenu); setShowEmojiPanel(false); setShowStickerPanel(false); }}
 	                onToggleTheaterMode={toggleTheaterMode}
 	                onCloseTheaterMode={closeTheaterMode}
