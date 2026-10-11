@@ -4,7 +4,7 @@
 // 约定：所有持久化都走 kv-db 的字符串 KV（kvGet 返回 string|null，kvSet 只接 string），
 // 因此对象一律 JSON.stringify / JSON.parse，并对解析失败做兜底。
 
-import { kvGet, kvSet } from "./kv-db";
+import { kvGet, kvSet, isKvHydrated } from "./kv-db";
 import { resolveUserIdentity } from "./settings-storage";
 
 export type EnsemblePersona = {
@@ -221,7 +221,26 @@ export function saveEnsembleScripts(scripts: EnsembleScript[]): void {
   writeJson(STORAGE_KEY_SCRIPTS, scripts);
 }
 
+/**
+ * 保存/更新一条剧本。
+ *
+ * ⚠️ 2026-10-11 加护栏：这是「读全部 → 改一条 → 整包写回」的结构，
+ *   所以在 kv **未水合**时调用是危险的——loadEnsembleScripts() 会返回 []，
+ *   整包写回就把 IndexedDB 里其它剧本全清了。
+ *   与上一轮 worldbook-manager 的「格式导入写空快照」是同一个病。
+ *
+ *   策略：未水合时**拒绝写入**并告警，而不是静默写坏数据。
+ *   正常路径下调用方（ensemble-app）已 await hydrateKvDb()，不会走到这里；
+ *   真走到了说明有时序问题，宁可丢这一次写入也不能丢用户的剧本库。
+ */
 export function saveOrUpdateEnsembleScript(script: EnsembleScript): void {
+  if (!isKvHydrated()) {
+    console.warn(
+      "[ensemble-storage] 拒绝保存：kv 尚未水合，整包写回会清空其它剧本。" +
+      "调用方应先 await hydrateKvDb()。key=" + STORAGE_KEY_SCRIPTS
+    );
+    return;
+  }
   const scripts = loadEnsembleScripts();
   const next = { ...script, updatedAt: new Date().toISOString() };
   const idx = scripts.findIndex((s) => s.id === script.id);

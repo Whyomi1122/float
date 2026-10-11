@@ -72,6 +72,8 @@ import {
   deleteEnsembleTurn,
   updateEnsembleTurn,
 } from "@/lib/ensemble-storage";
+import { hydrateKvDb } from "@/lib/kv-db";
+import { ensureSettingsStorageHydrated } from "@/lib/settings-storage";
 import {
   parseEnsembleReply,
   type EnsembleFrame,
@@ -1022,8 +1024,7 @@ export function EnsembleApp({
     misses: WorldBookMiss[];
     scannedCount: number;
     turnIndex: number;
-    at: number;
-  } | null>(null);
+    at: number;  } | null>(null);
   /**
    * 记忆库日志（2026-10-09 M1）：每幕生成后记录「用了哪些角色的记忆、各几条」。
    * 与触发日志同源，解决「不知道它提取了哪条记忆」的黑盒问题。
@@ -1034,6 +1035,27 @@ export function EnsembleApp({
     totalCount: number;
     enabled: boolean;
     turnIndex: number;
+  } | null>(null);
+  /**
+   * 护栏诊断（2026-10-11 · 治「长度指令只管一轮」的可观测性）：
+   * 记录本轮请求发出去的护栏值与实际回来的用量，让用户不用开 DevTools
+   * 就能判断护栏是「生效 / 被中转忽略 / 本地没发」。
+   *
+   *   sentMaxTokens    —— 我们算出来并发出去的 token 闸门
+   *   completionTokens —— 供应商回报的实际输出 token
+   *   finishReason     —— length = 被闸门截断；stop = 模型自己停
+   *   contentChars     —— 本轮正文实际字数
+   *   targetChars/maxChars —— 给用户看的「目标 / 上界」字数
+   */
+  const [guardrailLog, setGuardrailLog] = useState<{
+    sentMaxTokens: number | null;
+    completionTokens: number | null;
+    finishReason: string | null;
+    contentChars: number;
+    targetChars: number;
+    maxChars: number;
+    turnIndex: number;
+    at: number;
   } | null>(null);
   /**
    * 杀青归档状态（2026-10-10）：
@@ -1160,12 +1182,34 @@ export function EnsembleApp({
   const [identities, setIdentities] = useState<UserIdentity[]>([]);
   const [activePersonaId, setActivePersonaId] = useState<string | null>(null);
 
+  // ── 初始化加载（2026-10-11 修：必须等两套存储都水合）──
+  //
+  // ⚠️ 旧实现直接 setScripts(loadEnsembleScripts())，是「世界书退出重进必须
+  //   重选一遍才生效」的根因。这里其实有**两套互相独立的存储**，各自异步水合：
+  //
+  //   ① 剧本本体  → kvDb   （kvGet/kvSet，靠 hydrateKvDb() 灌内存缓存）
+  //   ② 世界书    → settingsDb（readWorldBooksCache()，靠 ensureSettingsStorageHydrated()）
+  //
+  //   组件挂载时这两次水合通常都还没跑完，于是：
+  //     · loadEnsembleScripts() → kvGet 全 null → 读到 [] → worldBookIds 丢失
+  //     · loadWorldBooks()      → _worldBooks ?? [] → 读到 [] → 即便 id 还在也匹配不到书
+  //   表现就是「生成时世界书块是空的、触发日志没命中」，用户手动再选一遍
+  //   （触发一次带完整 currentScript 的写入）才偶然把状态救回来。
+  //
+  //   修法与 WorldBuilder / custom-app-runner 等既有页面一致：两个都 await 完再读。
   useEffect(() => {
-    setScripts(loadEnsembleScripts());
-    const list = loadUserIdentities();
-    setIdentities(list);
-    // 默认激活第一个面具（与全局默认绑定一致）
-    setActivePersonaId(list[0]?.id ?? null);
+    let cancelled = false;
+    Promise.all([hydrateKvDb(), ensureSettingsStorageHydrated()])
+      .catch(() => undefined)
+      .then(() => {
+        if (cancelled) return;
+        setScripts(loadEnsembleScripts());
+        const list = loadUserIdentities();
+        setIdentities(list);
+        // 默认激活第一个面具（与全局默认绑定一致）
+        setActivePersonaId(list[0]?.id ?? null);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const activePersona =
@@ -1756,6 +1800,32 @@ ${lastSpeakerNote}
         }
         return null;
       }
+
+      // ── 护栏诊断落表（2026-10-11）──
+      //   把「发出去的闸门值 / 实际用量 / 结束原因 / 实际字数」记下来，
+      //   在「触发日志」面板里直接渲染，不用开 DevTools。
+      //   正文按「去掉标记行后的纯文本」计字，跟用户看到的字数口径一致。
+      const plainForCount = replyContent
+        .split("\n")
+        .filter((line) => {
+          const t = line.trim();
+          if (!t) return false;
+          // 归属行「角色名：」与暗号行「［对白］:」不计入正文字数
+          if (/^［(对白|叙述|动作|心理|旁白)］\s*[:：]?$/.test(t)) return false;
+          if (/^[^［\s]{1,12}[:：]$/.test(t)) return false;
+          return true;
+        })
+        .join("");
+      setGuardrailLog({
+        sentMaxTokens: result.sentMaxTokens ?? null,
+        completionTokens: result.completionTokens ?? null,
+        finishReason: result.finishReason ?? null,
+        contentChars: plainForCount.length,
+        targetChars: charsPerTurn,
+        maxChars,
+        turnIndex: script.turns.length,
+        at: Date.now(),
+      });
 
       // 2026-10 修复（图3「岳霖玉：整段斜体灰 + 无头像 + 内容重复」根因）：
       //   旧实现在整段最前面无条件削掉「任意已知角色名 + 冒号」，本意是清理
@@ -3909,6 +3979,72 @@ ${lastSpeakerNote}
                   setShowToolsSheet(true);
                 }}
               >
+                {/* ── 护栏诊断（2026-10-11）──
+                    放在最上面：用户最关心的「这一轮有没有被卡住」一眼可见。
+                    三态判据（颜色直接表态）：
+                      ✅ 生效   finishReason=length 且 实际字数 ≤ 上界
+                      ⚠️ 被忽略 实际 token 远超发出值，或字数超上界却没截断
+                      ❌ 没发出 sentMaxTokens 为空（本地就没带这个参数） */}
+                {guardrailLog && (() => {
+                  const g = guardrailLog;
+                  const overChars = g.contentChars > g.maxChars;
+                  const sentNull = g.sentMaxTokens === null;
+                  const truncated = g.finishReason === "length"
+                    || g.finishReason === "max_tokens"
+                    || g.finishReason === "max_output_tokens"
+                    || g.finishReason === "max_completion_tokens";
+                  const exceededSent = g.sentMaxTokens !== null
+                    && g.completionTokens !== null
+                    && g.completionTokens > g.sentMaxTokens * 1.05;
+                  const state = sentNull
+                    ? { label: "未发出", cls: "bg-red-50 text-red-600", hint: "本地没有把 max_tokens 写进请求体" }
+                    : exceededSent
+                    ? { label: "被忽略", cls: "bg-amber-50 text-amber-700", hint: "实际用量超过发出值，中转/供应商忽略了该参数" }
+                    : overChars
+                    ? { label: "超出上界", cls: "bg-amber-50 text-amber-700", hint: "字数超过上界且未被截断，护栏未起作用" }
+                    : truncated
+                    ? { label: "已卡住", cls: "bg-emerald-50 text-emerald-700", hint: "被长度上限截断，护栏生效" }
+                    : { label: "正常", cls: "bg-emerald-50 text-emerald-700", hint: "模型自己收尾，未触顶" };
+                  return (
+                    <div className="bg-white rounded-[16px] p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-black/35 tracking-wide">护栏</span>
+                        <span className={`px-2 py-[3px] rounded-[6px] text-[10px] font-semibold ${state.cls}`}>
+                          {state.label}
+                        </span>
+                      </div>
+                      <div className="mt-2.5 grid grid-cols-2 gap-y-1.5 text-[11px]">
+                        <span className="text-black/35">本轮字数</span>
+                        <span className="font-mono tabular-nums text-right text-[#111111]">
+                          {g.contentChars}
+                          <span className="text-black/30">
+                            {" "}/ 目标 {g.targetChars} · 上界 {g.maxChars}
+                          </span>
+                        </span>
+                        <span className="text-black/35">发出上限</span>
+                        <span className="font-mono tabular-nums text-right text-[#111111]">
+                          {g.sentMaxTokens === null ? "未传" : `${g.sentMaxTokens} token`}
+                        </span>
+                        <span className="text-black/35">实际用量</span>
+                        <span className="font-mono tabular-nums text-right text-[#111111]">
+                          {g.completionTokens === null ? "未回报" : `${g.completionTokens} token`}
+                        </span>
+                        <span className="text-black/35">结束原因</span>
+                        <span className="font-mono text-right text-[#111111]">
+                          {g.finishReason ?? "未返回"}
+                        </span>
+                        <span className="text-black/35">轮次</span>
+                        <span className="font-mono tabular-nums text-right text-black/40">
+                          第 {g.turnIndex} 轮
+                        </span>
+                      </div>
+                      <div className="mt-2.5 text-[10px] text-black/30 leading-relaxed">
+                        {state.hint}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* 概览 */}
                 <div className="bg-white rounded-[16px] p-4">
                   {!log ? (

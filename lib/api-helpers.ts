@@ -99,7 +99,16 @@ export async function simpleLLMCall(
     config: ApiConfig,
     messages: { role: string; content: string }[],
     options?: { temperature?: number; max_tokens?: number; signal?: AbortSignal; label?: string; strictMaxTokens?: boolean },
-): Promise<{ content: string | null; error?: string; finishReason?: string; wasTruncated?: boolean }> {
+): Promise<{
+    content: string | null;
+    error?: string;
+    finishReason?: string;
+    wasTruncated?: boolean;
+    /** 实际发出去的 max_tokens（null = 没带该参数）；护栏诊断用。 */
+    sentMaxTokens?: number | null;
+    /** 供应商回报的输出 token 数；护栏诊断用。 */
+    completionTokens?: number | null;
+}> {
     const baseUrl = determineBaseUrl(config);
     if (!baseUrl || !config.apiKey) {
         return { content: null, error: "API 地址或密钥无效" };
@@ -236,10 +245,10 @@ export async function simpleLLMCall(
         if (!content) {
             console.warn("[simpleLLMCall] Empty response. Keys:", JSON.stringify(Object.keys(data || {})),
                 "Full:", JSON.stringify(data).slice(0, 500));
-            return { content: null, error: describeEmptyLLMResponse(data, finishReason, wasTruncated, config), finishReason, wasTruncated };
+            return { content: null, error: describeEmptyLLMResponse(data, finishReason, wasTruncated, config), finishReason, wasTruncated, sentMaxTokens: max_tokens ?? null, completionTokens: usage?.completion_tokens ?? null };
         }
 
-        return { content, finishReason, wasTruncated };
+        return { content, finishReason, wasTruncated, sentMaxTokens: max_tokens ?? null, completionTokens: usage?.completion_tokens ?? null };
     } catch (err) {
         console.warn("[simpleLLMCall] fetch error:", err);
         pushApiLog({
