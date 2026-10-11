@@ -8,6 +8,7 @@ import {
     createWorldBook,
     parseWorldBookFromJson,
     loadBindingConfig,
+    ensureSettingsStorageHydrated,
     UNSUPPORTED_IMPORT_FORMAT,
 } from "@/lib/settings-storage";
 import { loadCharacters } from "@/lib/character-storage";
@@ -68,13 +69,48 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
     const { setSubpageTitle, setOverrideBack, setSubpageRightAction } = useContext(SettingsContext);
 
     // Initial load
+    //
+    // ⚠️ 2026-10-11 修：这里原先只读一次，且**只在读到数据时才 setBooks**：
+    //    世界书数据在 IndexedDB，若首次进来时 IDB 还没水合完（或读失败），
+    //    `loaded` 就是空 —— 于是 books 停在 []，而整个页面没有别的地方会补读。
+    //    结果：格式导入「提示成功」但写的是空快照、列表也一直是空的。
+    //    （自建/迁移环境里 IDB 更慢更易失败，这正是「昨天行、今天不行」的来源。）
+    //    现在：若首次为空则等水合完成后重试，并且**空列表也要落进 state**，
+    //    保证「库里真的没有」和「还没读出来」能被正确区分。
     useEffect(() => {
+        let canceled = false;
+        const apply = (loaded: WorldBookConfig[]) => {
+            if (canceled) return;
+            setBooks(loaded);
+            setActiveBookId((prev) => prev || loaded[0]?.id || "");
+            setIsLoaded(true);
+        };
+
         const loaded = loadWorldBooks();
         if (loaded.length > 0) {
-            setBooks(loaded);
-            setActiveBookId(loaded[0]?.id || "");
+            apply(loaded);
+            return;
         }
-        setIsLoaded(true);
+
+        // 空：可能是真没有，也可能是 IDB 尚未水合 —— 等一次水合再定夺
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+        void ensureSettingsStorageHydrated()
+            .then(() => {
+                if (canceled) return;
+                apply(loadWorldBooks());
+                // 水合仍为空时再补一次（覆盖水合失败的场景）
+                retryTimer = setTimeout(() => {
+                    if (canceled) return;
+                    const again = loadWorldBooks();
+                    if (again.length > 0) apply(again);
+                }, 1500);
+            })
+            .catch(() => apply([]));
+
+        return () => {
+            canceled = true;
+            if (retryTimer) clearTimeout(retryTimer);
+        };
     }, []);
 
     /** 打开格式导入时，拉一次剧本列表（归档导入的目标） */
@@ -565,6 +601,17 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
         }
 
         // ── 世界书：切成条目 ──
+        //
+        // ⚠️ 2026-10-11 修：这里必须用**函数式更新 + 直接从 localStorage 取最新**
+        //    （与 @/lib/ensemble-storage 同源同签名，所以直接读同一份 key）。
+        //
+        //    旧实现用 `books`（组件 state 快照）做基准：
+        //      · 覆盖模式：saveWorldBooks(books.map(...))  ← 空快照会整包清库
+        //      · 另开一本：persist([wb, ...books])        ← 同样用空快照
+        //    而世界书页面**没有水合 gate**（只有 `loaded.length > 0` 才 setBooks），
+        //    IndexedDB 一旦慢/失败，books 就是 []，于是「提示成功」但实际写空。
+        //    改用「读最新 → 改 → 写」，任何时序下都不会拿旧快照覆盖。
+        const latestBooks = loadWorldBooks();
         const wb = parseTxtToWorldBook(raw, txtImportName.trim() || undefined);
         if (!wb.entries.length) {
             setTxtImportError("没有解析出任何条目，请检查内容。");
@@ -573,7 +620,7 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
 
         if (txtImportBookMode === "replace") {
             // 覆盖已有世界书：保留原书名与元信息，只换 entries
-            const target = books.find((b) => b.id === txtImportTargetBookId);
+            const target = latestBooks.find((b) => b.id === txtImportTargetBookId);
             if (!target) {
                 setTxtImportError("请选择要覆盖的世界书。");
                 return;
@@ -583,10 +630,8 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
                 entries: wb.entries.map((e) => ({ ...e })),
                 updatedAt: Date.now(),
             };
-            setBooks((prev) => prev.map((b) => (b.id === target.id ? replaced : b)));
-            saveWorldBooks(
-                books.map((b) => (b.id === target.id ? replaced : b))
-            );
+            const nextBooks = latestBooks.map((b) => (b.id === target.id ? replaced : b));
+            persist(nextBooks);
             setActiveBookId(target.id);
             // 顺手绑定到剧本（用户勾了才做）
             if (txtImportBindScript && txtImportBindScriptId) {
@@ -594,7 +639,7 @@ export function WorldBookManager({ isActive = true }: { isActive?: boolean } = {
             }
         } else {
             // 另开一本
-            persist([wb, ...books]);
+            persist([wb, ...latestBooks]);
             setActiveBookId(wb.id);
             // 顺手绑定到剧本（用户勾了才做）
             if (txtImportBindScript && txtImportBindScriptId) {
