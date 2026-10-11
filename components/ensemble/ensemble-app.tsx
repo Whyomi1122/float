@@ -75,6 +75,11 @@ import {
 import { hydrateKvDb } from "@/lib/kv-db";
 import { ensureSettingsStorageHydrated } from "@/lib/settings-storage";
 import {
+  loadChatAppSettings,
+  CHAT_APP_SETTINGS_UPDATED_EVENT,
+} from "@/lib/chat-storage";
+import { shouldSendChatInputOnEnter } from "@/lib/chat-input-keyboard";
+import {
   parseEnsembleReply,
   type EnsembleFrame,
   type EnsembleStatusEntry,
@@ -1173,6 +1178,23 @@ export function EnsembleApp({
   const worldBookStickyRef = useRef<StickyLedger>(new Map());
   /** 输入框（textarea）：随内容自动增高，行数到上限后在框内滚动 */
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  /**
+   * 回车发送开关（2026-10-11 接入聊天 App 的同一项设置）。
+   * 关闭时 Enter 只换行、靠发送按钮提交 —— 手机上**必须**能关：
+   * 输入法的「发送」键就是 Enter，用户没有 Shift 可逃，否则打不了多行。
+   */
+  const [enterToSendEnabled, setEnterToSendEnabled] = useState(
+    () => loadChatAppSettings().enterToSendEnabled === true
+  );
+  useEffect(() => {
+    const syncEnterToSend = () => {
+      setEnterToSendEnabled(loadChatAppSettings().enterToSendEnabled === true);
+    };
+    // 与聊天 App 共用同一个设置项：那边改了，这边立刻跟上。
+    syncEnterToSend();
+    window.addEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncEnterToSend);
+    return () => window.removeEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncEnterToSend);
+  }, []);
   // 发送后输入被清空 → 高度收回一行（否则会停在多行高度，看着像没清干净）
   useEffect(() => {
     if (!inputText) autoGrowTextarea(composerRef.current);
@@ -3359,18 +3381,19 @@ ${lastSpeakerNote}
                   autoGrowTextarea(e.currentTarget);
                 }}
                 onKeyDown={(e) => {
-                  // Enter = 发送；Shift+Enter = 换行（与主流聊天一致）。
+                  // Enter 行为跟随「设置 → 回车发送」开关（与聊天 App 同一项设置）。
+                  // ⚠️ 旧实现无条件「Enter=发送」，手机上会要命：
+                  //    手机输入法的「发送」键就是 Enter，用户没有 Shift 可逃，
+                  //    于是想换行却直接把消息发了出去（用户反馈即此）。
+                  //    开关关闭时 Enter 只换行，靠发送按钮提交。
                   // ⚠️ isComposing：中文/日文输入法用回车**确认候选词**时必须放行，
                   //    否则一选词就把半成品发出去了。
-                  if (
-                    e.key === "Enter" &&
-                    !e.shiftKey &&
-                    !e.nativeEvent.isComposing
-                  ) {
+                  if (shouldSendChatInputOnEnter(e, enterToSendEnabled)) {
                     e.preventDefault();
                     handleSendTurn();
                   }
                 }}
+                enterKeyHint={enterToSendEnabled ? "send" : "enter"}
                 placeholder={activePersona ? `以「${activePersona.name}」发言...` : "Write your line..."}
                 className="flex-1 min-w-0 bg-black/[0.03] border-none outline-none rounded-xl px-3 py-2 text-xs text-[#1a1a1a] placeholder:text-black/25 resize-none leading-[1.6] overflow-y-auto"
                 style={{ maxHeight: `${COMPOSER_MAX_PX}px` }}
