@@ -4004,30 +4004,46 @@ ${lastSpeakerNote}
               >
                 {/* ── 护栏诊断（2026-10-11）──
                     放在最上面：用户最关心的「这一轮有没有被卡住」一眼可见。
-                    三态判据（颜色直接表态）：
-                      ✅ 生效   finishReason=length 且 实际字数 ≤ 上界
-                      ⚠️ 被忽略 实际 token 远超发出值，或字数超上界却没截断
-                      ❌ 没发出 sentMaxTokens 为空（本地就没带这个参数） */}
+
+                    ⚠️ 判定门槛（2026-10-11 二修）：初版把「字数 > 上界」直接判成
+                    「超出上界 · 护栏未起作用」，实测会误报——两轮实测分别是
+                    479/450（+6.4%）与 792/750（+5.6%），结束原因都是 stop，
+                    属于模型对字数的正常软性波动，不是护栏失效。
+
+                    正确的判据顺序（先看硬证据，再看软指标）：
+                      1. finishReason=length → 被闸门截断，护栏**真生效** ✅
+                      2. 实际 token 远超发出值 → 中转忽略了参数 ⚠️
+                      3. 没带 max_tokens        → 本地就没发 🔴
+                      4. stop + 轻微超标        → 正常波动（软提示，不报警）
+                      5. stop + 超标 ≥50%       → 才是护栏真没起作用 ⚠️
+                    上界 = 目标 + 150 字，那 150 是「收尾余量」不是「容错空间」，
+                    所以轻微超出属预期内，不该占一个警告位。 */}
                 {guardrailLog && (() => {
                   const g = guardrailLog;
-                  const overChars = g.contentChars > g.maxChars;
+                  const overshoot = g.maxChars > 0 ? (g.contentChars - g.maxChars) / g.maxChars : 0;
                   const sentNull = g.sentMaxTokens === null;
                   const truncated = g.finishReason === "length"
                     || g.finishReason === "max_tokens"
                     || g.finishReason === "max_output_tokens"
-                    || g.finishReason === "max_completion_tokens";
+                    || g.finishReason === "max_completion_tokens"
+                    || g.finishReason === "max_tokens_reached";
                   const exceededSent = g.sentMaxTokens !== null
                     && g.completionTokens !== null
                     && g.completionTokens > g.sentMaxTokens * 1.05;
+                  // 只在「停止原因正常、却大幅超出」时才算护栏失效；±20% 内视为波动。
+                  const reallyOver = !truncated && overshoot > 0.5;
+                  const slightlyOver = !truncated && overshoot > 0.2 && !reallyOver;
                   const state = sentNull
-                    ? { label: "未发出", cls: "bg-red-50 text-red-600", hint: "本地没有把 max_tokens 写进请求体" }
+                    ? { label: "未发出", cls: "bg-red-50 text-red-600", hint: "本地没有把 max_tokens 写进请求体，护栏完全没生效。" }
                     : exceededSent
-                    ? { label: "被忽略", cls: "bg-amber-50 text-amber-700", hint: "实际用量超过发出值，中转/供应商忽略了该参数" }
-                    : overChars
-                    ? { label: "超出上界", cls: "bg-amber-50 text-amber-700", hint: "字数超过上界且未被截断，护栏未起作用" }
+                    ? { label: "被忽略", cls: "bg-amber-50 text-amber-700", hint: "实际用量超过发出值，中转或供应商忽略了 max_tokens。" }
                     : truncated
-                    ? { label: "已卡住", cls: "bg-emerald-50 text-emerald-700", hint: "被长度上限截断，护栏生效" }
-                    : { label: "正常", cls: "bg-emerald-50 text-emerald-700", hint: "模型自己收尾，未触顶" };
+                    ? { label: "已卡住", cls: "bg-emerald-50 text-emerald-700", hint: "被长度上限截断，护栏按预期生效。" }
+                    : reallyOver
+                    ? { label: "护栏失效", cls: "bg-red-50 text-red-600", hint: `模型自行收尾却仍超出上界 ${Math.round(overshoot * 100)}%，护栏基本没起作用，建议收紧提示词里的字数要求。` }
+                    : slightlyOver
+                    ? { label: "略超", cls: "bg-black/[0.05] text-black/45", hint: `超出上界 ${Math.round(overshoot * 100)}%，模型自行收尾（stop），属正常波动。` }
+                    : { label: "正常", cls: "bg-emerald-50 text-emerald-700", hint: "字数在上界内，模型自行收尾，未触顶。" };
                   return (
                     <div className="bg-white rounded-[16px] p-4">
                       <div className="flex items-center justify-between">
