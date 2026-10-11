@@ -37,6 +37,8 @@ let _presets: PresetConfig[] | null = null;
 let _worldBooks: WorldBookConfig[] | null = null;
 let _regexes: RegexConfig[] | null = null;
 let _hydrated = false;
+/** 正在进行的 hydrate（并发调用复用，避免重复读 IDB） */
+let _hydratePromise: Promise<void> | null = null;
 let _presetsWriteQueue: Promise<void> = Promise.resolve();
 
 function safeParse<T>(raw: string | null): T[] {
@@ -45,7 +47,17 @@ function safeParse<T>(raw: string | null): T[] {
 
 // ── Hydration (must be called once at startup) ──
 
-export async function hydrateSettingsDb(): Promise<void> {
+export function hydrateSettingsDb(): Promise<void> {
+    if (_hydrated || typeof window === "undefined") return Promise.resolve();
+    // 并发复用：多个入口（桌面壳 / 绑定页 / 自定义应用 bridge）会同时触发水合
+    if (_hydratePromise) return _hydratePromise;
+    _hydratePromise = doHydrate().finally(() => {
+        if (!_hydrated) _hydratePromise = null; // 失败允许下次重试
+    });
+    return _hydratePromise;
+}
+
+async function doHydrate(): Promise<void> {
     if (_hydrated || typeof window === "undefined") return;
 
     const alreadyMigrated = window.localStorage.getItem(LS_MIGRATED_FLAG);
@@ -118,12 +130,22 @@ export async function hydrateSettingsDb(): Promise<void> {
             _regexes = regexes;
             console.log(`[SettingsDB] Loaded: ${presets.length} presets, ${worldBooks.length} worldBooks, ${regexes.length} regexes`);
         } catch (err) {
+            // ⚠️ 失败时**不要**把缓存清空成 []：_worldBooks = [] 会让
+            //    loadWorldBooks() 立刻返回空数组，而写回（writeWorldBooksCache）
+            //    会把这个空快照 clear+bulkPut 进 IndexedDB —— 一次临时读失败
+            //    就把用户真实的世界书全抹掉（格式导入「提示成功但实机看不到」即此）。
+            //    改为「保持未知（null）」+ 只在本次会话内标记不水合：
+            //    · readWorldBooksCache() 本就返回 _worldBooks ?? []，保持 null 只是空读，不误写
+            //    · 下次调 hydrateSettingsDb() 会重试（此前这里失败也置 _hydrated=true，
+            //      导致永久卡死在空缓存上）
             console.error("[SettingsDB] Failed to load from IndexedDB:", err);
-            _presets = [];
-            _worldBooks = [];
-            _regexes = [];
+            console.warn("[SettingsDB] Keeping in-memory caches unset (not empty) and allowing a later hydration retry.");
+            migrateLegacyLocalStorage();
+            return;
         }
     }
+    // 水合成功后再补一次旧 key 迁移（新库为空时才会真正落数据）
+    migrateLegacyLocalStorage();
     _hydrated = true;
 }
 
@@ -165,22 +187,24 @@ function enqueuePresetsPersist(presets: PresetConfig[], warnInQueue: boolean): P
 }
 
 export function writePresetsCache(presets: PresetConfig[]): void {
-    _presets = presets;
+    // 同 writeWorldBooksCache：未水合时整包写会抹掉已有数据（旧逻辑只做增量
+    // bulkPut，但缓存里的空快照一旦水合就会 clear+bulkPut，依旧会抹掉）。
     if (!_hydrated && typeof window !== "undefined") {
-        console.warn("[SettingsDB] writePresetsCache before hydration; using additive write to avoid replacing existing presets.");
-        settingsDb.presets.bulkPut(presets).catch(err => console.warn("[SettingsDB] additive save presets failed:", err));
+        console.warn("[SettingsDB] writePresetsCache ignored before hydration (would clobber stored presets); retrying hydration.");
+        void hydrateSettingsDb();
         return;
     }
+    _presets = presets;
     void enqueuePresetsPersist(presets, true);
 }
 
 export async function writePresetsCacheAsync(presets: PresetConfig[]): Promise<void> {
-    _presets = presets;
     if (!_hydrated && typeof window !== "undefined") {
-        console.warn("[SettingsDB] writePresetsCacheAsync before hydration; using additive write to avoid replacing existing presets.");
-        await settingsDb.presets.bulkPut(presets);
+        console.warn("[SettingsDB] writePresetsCacheAsync ignored before hydration (would clobber stored presets); retrying hydration.");
+        await hydrateSettingsDb();
         return;
     }
+    _presets = presets;
     try {
         await enqueuePresetsPersist(presets, false);
     } catch (err) {
@@ -190,12 +214,18 @@ export async function writePresetsCacheAsync(presets: PresetConfig[]): Promise<v
 }
 
 export function writeWorldBooksCache(books: WorldBookConfig[]): void {
-    _worldBooks = books;
+    // ⚠️ 未水合时**一律禁止整包写**：此时 `books` 多半是 `loadWorldBooks()`
+    //    返回的 `_worldBooks ?? []`（因为没水合，一定是空数组）。
+    //    旧逻辑只做 bulkPut（「增量写」），但那个空数组随后在同一个会话里
+    //    一旦水合成功就会被当成快照 clear+bulkPut —— 依然会抹掉真实数据。
+    //    正确做法：**丢弃这次写**（内存缓存都不更新），并推一次水合重试；
+    //    等水合完成，用户的操作重新执行即可（读到的就是真实数据）。
     if (!_hydrated && typeof window !== "undefined") {
-        console.warn("[SettingsDB] writeWorldBooksCache before hydration; using additive write to avoid replacing existing worldBooks.");
-        settingsDb.worldBooks.bulkPut(books).catch(err => console.warn("[SettingsDB] additive save worldBooks failed:", err));
+        console.warn("[SettingsDB] writeWorldBooksCache ignored before hydration (would clobber stored world books); retrying hydration.");
+        void hydrateSettingsDb();
         return;
     }
+    _worldBooks = books;
     settingsDb.transaction("rw", settingsDb.worldBooks, async () => {
         await settingsDb.worldBooks.clear();
         await settingsDb.worldBooks.bulkPut(books);
@@ -203,14 +233,45 @@ export function writeWorldBooksCache(books: WorldBookConfig[]): void {
 }
 
 export function writeRegexesCache(regexes: RegexConfig[]): void {
-    _regexes = regexes;
+    // 同 writeWorldBooksCache：未水合时的整包写会抹掉已有正则。
     if (!_hydrated && typeof window !== "undefined") {
-        console.warn("[SettingsDB] writeRegexesCache before hydration; using additive write to avoid replacing existing regexes.");
-        settingsDb.regexes.bulkPut(regexes).catch(err => console.warn("[SettingsDB] additive save regexes failed:", err));
+        console.warn("[SettingsDB] writeRegexesCache ignored before hydration (would clobber stored regexes); retrying hydration.");
+        void hydrateSettingsDb();
         return;
     }
+    _regexes = regexes;
     settingsDb.transaction("rw", settingsDb.regexes, async () => {
         await settingsDb.regexes.clear();
         await settingsDb.regexes.bulkPut(regexes);
     }).catch(err => console.warn("[SettingsDB] save regexes failed:", err));
+}
+
+// 旧 localStorage key（一次性迁移用）。这些 key 曾经由 kv-db 管理并被整个删除，
+// 老用户若还留着这份数据，这里补一次迁移，避免永久丢失。
+const LEGACY_LS_PRESETS_KEY = "ai_phone_presets";
+const LEGACY_LS_WORLDBOOKS_KEY = "ai_phone_worldbooks";
+const LEGACY_LS_REGEXES_KEY = "ai_phone_regexes";
+
+/**
+ * 把残留的旧 localStorage 世界书/预设/正则一次性并入缓存（幂等）。
+ * 只在「新库确实还没有数据」时执行，避免旧快照覆盖新数据。
+ */
+function migrateLegacyLocalStorage(): void {
+    if (typeof window === "undefined") return;
+    try {
+        for (const [key, apply] of [
+            [LEGACY_LS_PRESETS_KEY, (items: unknown[]) => { if (!(_presets?.length)) _presets = items as PresetConfig[]; }],
+            [LEGACY_LS_WORLDBOOKS_KEY, (items: unknown[]) => { if (!(_worldBooks?.length)) _worldBooks = items as WorldBookConfig[]; }],
+            [LEGACY_LS_REGEXES_KEY, (items: unknown[]) => { if (!(_regexes?.length)) _regexes = items as RegexConfig[]; }],
+        ] as const) {
+            const raw = window.localStorage.getItem(key);
+            if (!raw) continue;
+            const items = safeParse(raw);
+            if (!Array.isArray(items) || items.length === 0) continue;
+            apply(items);
+            console.log(`[SettingsDB] Migrated legacy localStorage key "${key}" (${items.length} items).`);
+        }
+    } catch (err) {
+        console.warn("[SettingsDB] Legacy localStorage migration skipped:", err);
+    }
 }

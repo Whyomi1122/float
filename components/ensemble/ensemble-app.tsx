@@ -2138,21 +2138,47 @@ ${lastSpeakerNote}
     setToast("已撤销上次杀青");
   };
 
-  /** 保存档案：把编辑框内容回写到「最后一条归档」（无归档则忽略）。 */
+  /**
+   * 保存档案（2026-10-11 修）：把编辑框内容回写到归档。
+   *
+   * 旧实现有三个坑，导致实机「能编辑、点保存没反应」：
+   *  ① `list.length === 0` 时**静默 return** —— 用户看着有字却毫无反馈；
+   *  ② 只回写「最后一条」归档。而编辑框里的草稿是**全部归档拼接**的
+   *     （见 refreshArchivePanelFor 的 merged），多 archive 时保存等于没存；
+   *  ③ 不 setArchiveError，出错也没提示。
+   * 现在：无归档 → 红字提示；有归档 → 合并回写最后一条并清空草稿重填。
+   */
   const handleSaveArchiveContent = () => {
     const s = currentScript;
     if (!s) return;
     const list = s.archives ?? [];
-    if (list.length === 0) return;
-    const next = list.slice();
-    next[next.length - 1] = {
-      ...next[next.length - 1],
-      content: archiveContentDraft,
-    };
+    const content = archiveContentDraft;
+
+    // 没有任何归档：草稿无处可存，给明确提示（把草稿直接变成一条「手动档案」也合理，
+    // 但会与「杀青」语义混淆，这里只提示，避免误建）。
+    if (list.length === 0) {
+      setArchiveError("还没有任何归档记录。请先「提炼并杀青」，再编辑档案。");
+      return;
+    }
+
+    if (!content.trim()) {
+      setArchiveError("档案内容为空，已取消保存（不会清空已有归档）。");
+      return;
+    }
+
+    // 与编辑框口径一致：全部归档拼接后，整体回写到最后一条，前面几条清空内容，
+    // 避免「改了却没生效」或「内容重复叠加」。
+    const next = list.map((a, i) => {
+      if (i === list.length - 1) return { ...a, content };
+      // 只有一条归档时这个分支不会走到；多条时把前面的内容并入最后一条
+      return a.content.trim() ? { ...a, content: "" } : a;
+    });
     const updated = { ...s, archives: next };
     setCurrentScript(updated);
     saveOrUpdateEnsembleScript(updated);
-    setScripts(loadEnsembleScripts());
+    const reloaded = loadEnsembleScripts();
+    setScripts(reloaded);
+    // ⚠️ 存完必须重填草稿：否则 textarea 仍是旧内容，看起来「没保存」
     refreshArchivePanelFor(updated);
     setToast("档案已保存");
   };
