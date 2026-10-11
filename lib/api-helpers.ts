@@ -98,7 +98,7 @@ export function isNativeGoogleApi(config: ApiConfig): boolean {
 export async function simpleLLMCall(
     config: ApiConfig,
     messages: { role: string; content: string }[],
-    options?: { temperature?: number; max_tokens?: number; signal?: AbortSignal; label?: string },
+    options?: { temperature?: number; max_tokens?: number; signal?: AbortSignal; label?: string; strictMaxTokens?: boolean },
 ): Promise<{ content: string | null; error?: string; finishReason?: string; wasTruncated?: boolean }> {
     const baseUrl = determineBaseUrl(config);
     if (!baseUrl || !config.apiKey) {
@@ -108,6 +108,19 @@ export async function simpleLLMCall(
     const headers = buildRequestHeaders(config, baseUrl);
     const temperature = options?.temperature ?? 0.7;
     const max_tokens = options?.max_tokens;
+
+    // ⚠️ 护栏严格模式（2026-10-11）：
+    //   本函数是「通用轻量调用」，历史上各调用方（摘要、起名、分类等）都不传
+    //   max_tokens，所以下面 Anthropic 分支用 8192 兜底 —— 否则 Anthropic 会
+    //   直接拒请求。但这个兜底对「字数护栏」是致命的：
+    //   群像设 N=1000 想要 1552 token 的硬闸门，一旦走了兜底分支就变成 8192，
+    //   模型可以写到 2092 字（≈2800 token）都不会被截断 ——
+    //   现象与用户实测「护栏设 1552、实际输出 2092 字」完全一致。
+    //   strictMaxTokens=true 表示「这次调用真的要卡字数」，此时拒绝兜底：
+    //   宁可报错暴露问题，也不静默放宽护栏。
+    if (options?.strictMaxTokens && !max_tokens) {
+        return { content: null, error: "[护栏] strictMaxTokens=true 但未传 max_tokens，已阻止本次调用（避免静默放宽）" };
+    }
 
     try {
         let fetchUrl: string;
@@ -158,7 +171,18 @@ export async function simpleLLMCall(
 
         const bodySize = body.length;
         const bodyTokenEstimate = Math.ceil(bodySize / 3);
-        console.log("[simpleLLMCall] Request:", { url: fetchUrl.slice(0, 80), bodySize, bodyTokenEstimate, model: config.defaultModel });
+        // ⚠️ 把「护栏到底有没有真发出去」打出来（2026-10-11）。
+        //   此前群像实测：设 N=1000 → 护栏 1552，实际输出 2092 字未被截断——
+        //   一直归因于「第三方中转忽略 max_tokens」，但真正的原因无法从日志分辨：
+        //   到底是（a）参数被中转丢掉，还是（b）本地压根没把它写进请求体。
+        //   这里把 sentMaxTokens 打出来，(b) 立刻排除。
+        console.log("[simpleLLMCall] Request:", {
+            url: fetchUrl.slice(0, 80),
+            bodySize,
+            bodyTokenEstimate,
+            model: config.defaultModel,
+            sentMaxTokens: max_tokens ?? null,
+        });
 
         const res = await fetch(fetchUrl, { method: "POST", headers, body, signal: options?.signal });
 
@@ -181,13 +205,33 @@ export async function simpleLLMCall(
         const content = extractLLMContent(data, config.provider);
         const finishReason = extractFinishReason(data);
         const wasTruncated = isTruncationFinishReason(finishReason);
+        const usage = extractUsage(data);
+
+        // ⚠️ 护栏生效性诊断（2026-10-11）：把「发出多少 token / 实际用多少 token /
+        //    finishReason」三者并排打出来，一眼判断护栏是「生效」「被忽略」还是「被吞」。
+        //    · sentMaxTokens 发出、completion≈sent、finishReason=length → 护栏真卡住了 ✅
+        //    · sentMaxTokens 发出、completion 远超 sent、finishReason=stop  → 中转忽略了参数 ❌
+        //    · sentMaxTokens = null                                          → 本地没把它写进请求体 ❌
+        //      （后者是最可能的元凶：Anthropic 分支有 `?? 8192` 兜底，
+        //        而 max_tokens 实测 2092 字 ≈ 2800 token，远低于 8192——
+        //        与「护栏设 1552、实际输出 2092 字」的现象完全吻合，需实机确认走的是哪条分支。）
+        console.log("[simpleLLMCall] Response:", {
+            model: config.defaultModel,
+            sentMaxTokens: max_tokens ?? null,
+            completionTokens: usage?.completion_tokens ?? null,
+            promptTokens: usage?.prompt_tokens ?? null,
+            finishReason: finishReason ?? null,
+            wasTruncated,
+            contentChars: content?.length ?? 0,
+        });
+
         pushApiLog({
             characterName: options?.label,
             source: "background",
             model: config.defaultModel,
             messages: messages.map(m => ({ role: m.role, content: m.content })),
             rawResponse: content ?? describeEmptyLLMResponse(data, finishReason, wasTruncated, config),
-            usage: extractUsage(data),
+            usage,
         });
         if (!content) {
             console.warn("[simpleLLMCall] Empty response. Keys:", JSON.stringify(Object.keys(data || {})),
