@@ -753,16 +753,40 @@
   height: 24px;
 }
 
-/* 输入框胶囊：包住 textarea + 右侧语音条按钮 */
+/* 输入框胶囊：只包 textarea（语音条已移回加号菜单） */
 .chat-input-field {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  padding: 0 6px 0 4px;
+  padding: 0 12px;
   border-radius: 20px;
   background: #F1F3F5;
+}
+
+/* 一体式发送键：白字 → 深底圆形（对齐群像的黑色发送键） */
+.chat-input-row .chat-input-send-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #1a1a1a;
+  color: #ffffff;
+  font-size: 0;
+}
+
+.chat-input-row .chat-input-send-btn:active {
+  transform: scale(0.94);
+}
+
+.chat-input-row .chat-input-send-btn:disabled {
+  opacity: 0.4;
 }
 
 .chat-input-field .chat-input-textarea {
@@ -777,20 +801,6 @@
   font-size: calc(14px*var(--app-text-scale,1));
   line-height: 20px;
   resize: none;
-}
-
-/* 输入框内右侧语音条按钮 */
-.chat-input-field .chat-input-voice-btn {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 36px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--c-text);
 }
 
 /* 兼容旧结构（线下模式栏等仍可能沿用） */
