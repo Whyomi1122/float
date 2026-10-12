@@ -4,14 +4,49 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { CallSttWarningDialog, hideCallSttWarningPermanently, isCallSttWarningHidden } from "./call-stt-warning-dialog";
 import { isAndroidBrowser } from "./voice-input-platform";
 
+// ── 弹窗内 tab 栏（合并入口用）─────────────────────────
+
+export interface RichModalTab<T extends string> {
+    id: T;
+    label: string;
+}
+
+export function RichModalTabs<T extends string>({ tabs, active, onChange }: {
+    tabs: RichModalTab<T>[];
+    active: T;
+    onChange: (id: T) => void;
+}) {
+    if (tabs.length < 2) return null;
+    return (
+        <div className="rich-modal-tabs" role="tablist">
+            {tabs.map(tab => (
+                <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab.id === active}
+                    className="rich-modal-tab"
+                    {...(tab.id === active ? { "data-active": "" } : {})}
+                    onClick={() => onChange(tab.id)}
+                >
+                    {tab.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 // ── Photo Input Modal ─────────────────────────────
 
 interface PhotoInputModalProps {
     onSend: (description: string, imageDataUrl?: string) => void;
     onClose: () => void;
+    /** 合并入口：图片组内的切换（照片墙 / 文字图片） */
+    onSwitchTab?: (tab: "photo" | "text_photo") => void;
+    tab?: "photo" | "text_photo";
 }
 
-export function PhotoInputModal({ onSend, onClose }: PhotoInputModalProps) {
+export function PhotoInputModal({ onSend, onClose, onSwitchTab, tab }: PhotoInputModalProps) {
     const [desc, setDesc] = useState("");
     const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,6 +69,13 @@ export function PhotoInputModal({ onSend, onClose }: PhotoInputModalProps) {
                 onClick={e => e.stopPropagation()}
                 className="modal-dialog"
             >
+                {tab && (
+                    <RichModalTabs
+                        tabs={[{ id: "photo", label: "照片墙" }, { id: "text_photo", label: "文字图片" }]}
+                        active={tab}
+                        onChange={(next) => onSwitchTab?.(next as "photo" | "text_photo")}
+                    />
+                )}
                 <div className="ts-16 font-semibold text-center text-[var(--c-text)]">发送照片</div>
                 <div
                     className="w-full rounded-xl flex items-center justify-center ui-placeholder-gradient overflow-hidden cursor-pointer relative"
@@ -87,9 +129,12 @@ interface RedPacketModalProps {
     isGroup?: boolean;
     onSend: (amount: number, label: string, count?: number) => void;
     onClose: () => void;
+    /** 合并入口：钱包组内的切换（红包 / 转账） */
+    onSwitchMode?: (mode: "red_packet" | "transfer") => void;
+    showTabs?: boolean;
 }
 
-export function RedPacketModal({ mode, isGroup, onSend, onClose }: RedPacketModalProps) {
+export function RedPacketModal({ mode, isGroup, onSend, onClose, onSwitchMode, showTabs }: RedPacketModalProps) {
     const [amount, setAmount] = useState("");
     const [label, setLabel] = useState("");
     const [count, setCount] = useState("1");
@@ -122,6 +167,13 @@ export function RedPacketModal({ mode, isGroup, onSend, onClose }: RedPacketModa
                     <div className="text-white ts-16 font-semibold">{title}</div>
                 </div>
                 <div className="p-5 flex flex-col gap-3.5">
+                    {showTabs && (
+                        <RichModalTabs
+                            tabs={[{ id: "red_packet", label: "红包" }, { id: "transfer", label: "转账" }]}
+                            active={mode}
+                            onChange={(next) => onSwitchMode?.(next as "red_packet" | "transfer")}
+                        />
+                    )}
                     <div>
                         <div className="ts-12 text-[var(--c-icon)] mb-1.5">金额</div>
                         <div className="flex items-center gap-2">
@@ -236,14 +288,24 @@ export function LocationInputModal({ onSend, onClose }: LocationInputModalProps)
 interface TextPhotoModalProps {
     onSend: (text: string) => void;
     onClose: () => void;
+    /** 合并入口：图片组内的切换（照片墙 / 文字图片） */
+    onSwitchTab?: (tab: "photo" | "text_photo") => void;
+    tab?: "photo" | "text_photo";
 }
 
-export function TextPhotoModal({ onSend, onClose }: TextPhotoModalProps) {
+export function TextPhotoModal({ onSend, onClose, onSwitchTab, tab }: TextPhotoModalProps) {
     const [text, setText] = useState("");
 
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div onClick={e => e.stopPropagation()} className="modal-dialog">
+                {tab && (
+                    <RichModalTabs
+                        tabs={[{ id: "photo", label: "照片墙" }, { id: "text_photo", label: "文字图片" }]}
+                        active={tab}
+                        onChange={(next) => onSwitchTab?.(next as "photo" | "text_photo")}
+                    />
+                )}
                 <div className="ts-16 font-semibold text-center text-[var(--c-text)]">文字图片</div>
                 <div className="w-full h-[100px] rounded-xl flex items-center justify-center ui-placeholder-gradient">
                     <span className="ts-13 text-[var(--c-text)] opacity-60 px-4 text-center leading-relaxed">
@@ -276,9 +338,13 @@ export function TextPhotoModal({ onSend, onClose }: TextPhotoModalProps) {
 interface SystemInstructionModalProps {
     onSend: (text: string) => void;
     onClose: () => void;
+    /** 合并入口：指令组内的切换（系统指令 / 番外模式） */
+    showTabs?: boolean;
+    theaterMode?: boolean;
+    onToggleTheaterMode?: () => void;
 }
 
-export function SystemInstructionModal({ onSend, onClose }: SystemInstructionModalProps) {
+export function SystemInstructionModal({ onSend, onClose, showTabs, theaterMode, onToggleTheaterMode }: SystemInstructionModalProps) {
     const [text, setText] = useState("");
     const trimmed = text.trim();
 
@@ -290,6 +356,24 @@ export function SystemInstructionModal({ onSend, onClose }: SystemInstructionMod
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div onClick={e => e.stopPropagation()} className="modal-dialog">
+                {showTabs && (
+                    <RichModalTabs
+                        tabs={[{ id: "instruction", label: "系统指令" }, { id: "theater", label: "番外模式" }]}
+                        active="instruction"
+                        onChange={(next) => { if (next === "theater") onToggleTheaterMode?.(); }}
+                    />
+                )}
+                {showTabs && (
+                    <button
+                        type="button"
+                        onClick={() => onToggleTheaterMode?.()}
+                        className="rich-modal-theater-toggle"
+                        {...(theaterMode ? { "data-active": "" } : {})}
+                    >
+                        <span className="rich-modal-theater-toggle-label">番外指令模式</span>
+                        <span className="rich-modal-theater-toggle-state">{theaterMode ? "已开启 · 点此关闭" : "未开启 · 点此开启"}</span>
+                    </button>
+                )}
                 <div className="ts-16 font-semibold text-center text-[var(--c-text)]">系统指令注入</div>
                 <label className="w-full flex flex-col gap-2">
                     <span className="menu-label">指令内容</span>

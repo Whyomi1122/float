@@ -847,6 +847,73 @@
   background: rgba(0, 0, 0, 0.06);
 }
 
+/* ── 合并入口弹窗内的 tab 栏 ── */
+.rich-modal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.rich-modal-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  color: var(--c-icon);
+  font-size: calc(12.5px*var(--app-text-scale,1));
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rich-modal-tab[data-active] {
+  background: var(--c-card, #fff);
+  color: var(--c-text-title);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* 指令弹窗内的「番外指令模式」开关行 */
+.rich-modal-theater-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rich-modal-theater-toggle[data-active] {
+  border-color: rgba(0, 0, 0, 0.22);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.rich-modal-theater-toggle-label {
+  font-size: calc(12.5px*var(--app-text-scale,1));
+  color: var(--c-text);
+}
+
+.rich-modal-theater-toggle-state {
+  flex: 0 0 auto;
+  font-size: calc(11px*var(--app-text-scale,1));
+  color: var(--c-icon);
+}
+
+.rich-modal-theater-toggle[data-active] .rich-modal-theater-toggle-state {
+  color: var(--c-text-title);
+}
+
 .chat-offline-toggle {
   position: relative;
 }

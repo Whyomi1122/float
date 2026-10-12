@@ -487,7 +487,7 @@ type PendingMessageJump = {
 };
 
 const TRANSIENT_MESSAGE_PREFIX = "ui-transient-";
-type RichModalKind = "photo" | "text_photo" | "red_packet" | "transfer" | "location" | "transfer_target" | "voice_msg" | "gift" | "system_instruction";
+type RichModalKind = "photo" | "text_photo" | "red_packet" | "transfer" | "location" | "transfer_target" | "voice_msg" | "gift" | "system_instruction" | "call";
 type ChatTextInputHandle = {
     appendText: (text: string, options?: { focus?: boolean }) => void;
     clear: () => void;
@@ -724,14 +724,14 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     );
     const suggestEnabled = !inputLocked && !panelOpen && !suggestClosed && inputText.trim().length > 0;
     const plusMenuItems = [
-        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>, label: "照片墙", onClick: () => onOpenRichModal("photo") },
-        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="7" y1="8" x2="17" y2="8" /><line x1="7" y1="12" x2="14" y2="12" /><line x1="7" y1="16" x2="11" y2="16" /></svg>, label: "文字图片", onClick: () => onOpenRichModal("text_photo") },
-        { icon: <AlertCircle size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "系统指令", onClick: () => onOpenRichModal("system_instruction") },
-        { icon: <Clapperboard size={22} strokeWidth={1.5} color={theaterMode ? "var(--c-icon-active)" : "var(--c-text)"} />, label: "番外指令模式", active: theaterMode, onClick: onToggleTheaterMode },
-        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>, label: "视频通话", onClick: onStartVideoCall },
-        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /></svg>, label: "语音通话", onClick: onStartVoiceCall },
-        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></svg>, label: "红包", onClick: () => onOpenRichModal("red_packet") },
-        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><text x="12" y="16" textAnchor="middle" fontSize="12" fill="var(--c-text)" stroke="none">¥</text></svg>, label: "转账", onClick: () => onOpenRichModal(isGroup ? "transfer_target" : "transfer") },
+        // 「图片」：照片墙 + 文字图片（弹窗内 tab 切换）
+        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>, label: "图片", onClick: () => onOpenRichModal("photo") },
+        // 「指令」：系统指令 + 番外指令模式（弹窗内 tab 切换；番外为开关）
+        { icon: <AlertCircle size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "指令", active: theaterMode, onClick: () => onOpenRichModal("system_instruction") },
+        // 「通话」：语音通话 + 视频通话（先弹窗选类型，再进全屏）
+        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></svg>, label: "通话", onClick: () => onOpenRichModal("call") },
+        // 「钱包」：红包 + 转账（弹窗内 tab 切换）
+        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" /><path d="M3 5v14a2 2 0 0 0 2 2h16v-5" /><path d="M18 12a2 2 0 0 0 0 4h4v-4Z" /></svg>, label: "钱包", onClick: () => onOpenRichModal("red_packet") },
         { icon: <Gift size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "礼物", onClick: () => onOpenRichModal("gift") },
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>, label: "位置", onClick: () => onOpenRichModal("location") },
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>, label: "语音条", onClick: () => onOpenRichModal("voice_msg") },
@@ -6435,12 +6435,16 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             )}
             {richModal === "text_photo" && (
                 <TextPhotoModal
+                    tab="text_photo"
+                    onSwitchTab={(next) => setRichModal(next)}
                     onSend={(text) => { setRichModal(null); sendRichMessage("image", { label: text }); }}
                     onClose={() => setRichModal(null)}
                 />
             )}
             {richModal === "photo" && (
                 <PhotoInputModal
+                    tab="photo"
+                    onSwitchTab={(next) => setRichModal(next)}
                     onSend={(desc, imageDataUrl) => { setRichModal(null); sendRichMessage("image", { label: desc }, "", imageDataUrl); }}
                     onClose={() => setRichModal(null)}
                 />
@@ -6461,6 +6465,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 <RedPacketModal
                     mode="red_packet"
                     isGroup={session.isGroup}
+                    showTabs
+                    onSwitchMode={(next) => setRichModal(next)}
                     onSend={(amount, label, count) => {
                         const sent = sendRichMessage("red_packet", { amount, label, status: "pending", count: count || 1 });
                         if (sent) setRichModal(null);
@@ -6481,6 +6487,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             {richModal === "transfer" && (
                 <RedPacketModal
                     mode="transfer"
+                    showTabs
+                    onSwitchMode={(next) => { setTransferTarget(null); setRichModal(next); }}
                     onSend={(amount, label) => {
                         if (session.isGroup && transferTarget) {
                             const sent = sendRichMessage("transfer", {
@@ -6509,12 +6517,40 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             )}
             {richModal === "system_instruction" && (
                 <SystemInstructionModal
+                    showTabs
+                    theaterMode={theaterMode}
+                    onToggleTheaterMode={() => { toggleTheaterMode(); setRichModal(null); }}
                     onSend={(text) => {
                         const sent = sendSystemInstruction(text);
                         if (sent) setRichModal(null);
                     }}
                     onClose={() => setRichModal(null)}
                 />
+            )}
+            {/* 通话：先选类型，再进全屏通话界面 */}
+            {richModal === "call" && (
+                <div className="modal-overlay" onClick={() => setRichModal(null)}>
+                    <div onClick={e => e.stopPropagation()} className="modal-dialog">
+                        <div className="ts-16 font-semibold text-center text-[var(--c-text)]">发起通话</div>
+                        <button
+                            type="button"
+                            className="ui-btn ui-btn-ghost ui-btn-bordered-ghost w-full"
+                            onClick={() => { setRichModal(null); cancelFollowUp(session.id); setCallInitiator("user"); setShowVoiceCall(true); }}
+                        >
+                            语音通话
+                        </button>
+                        <button
+                            type="button"
+                            className="ui-btn ui-btn-ghost ui-btn-bordered-ghost w-full"
+                            onClick={() => { setRichModal(null); cancelFollowUp(session.id); setCallInitiator("user"); setShowVideoCall(true); }}
+                        >
+                            视频通话
+                        </button>
+                        <div className="flex gap-3 w-full">
+                            <button onClick={() => setRichModal(null)} className="ui-btn ui-btn-ghost ui-btn-bordered-ghost flex-1">取消</button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* 思维链底部弹窗（Claude app 风格） */}
