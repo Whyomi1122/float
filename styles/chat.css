@@ -196,8 +196,8 @@
   white-space: nowrap;
 }
 .chat-list-tab.active {
-  background: var(--c-action-blue, #246bfd);
-  color: #fff;
+  background: #FFEA00;
+  color: #1a1a1a;
   font-weight: 600;
   box-shadow: none;
 }
@@ -224,19 +224,33 @@
   position: relative;
   width: 48px;
   height: 48px;
-  border-radius: 50%;
+  border-radius: 30%;
   flex-shrink: 0;
 }
+/* 黄色对勾角标（对齐参考图：黄圆底 + 黑✓，位于头像左上角） */
 .minimal-online-dot {
   position: absolute;
-  bottom: 0px;
-  right: 0px;
-  width: 8px;
-  height: 8px;
-  background: #2dd36f;
-  border: 1px solid var(--c-page-body-bg);
+  top: -3px;
+  left: -3px;
+  width: 20px;
+  height: 20px;
+  right: auto;
+  bottom: auto;
+  background: #FFEA00;
+  border: none;
   border-radius: 50%;
-  z-index: 1;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.minimal-online-dot::after {
+  content: "";
+  width: 9px;
+  height: 6px;
+  border-left: 2px solid #1a1a1a;
+  border-bottom: 2px solid #1a1a1a;
+  transform: rotate(-45deg) translate(1px, -1px);
 }
 .minimal-unread-count {
   background: var(--c-action-blue, #246bfd);

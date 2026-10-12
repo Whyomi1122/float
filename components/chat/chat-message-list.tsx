@@ -197,7 +197,7 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                             <div className="flex flex-col whitespace-nowrap">
                                 <span className="ts-16 font-bold text-[var(--c-text-title)] leading-tight">{identity?.name || "用户"}</span>
                                 <div className="flex items-center gap-1 mt-1">
-                                    <span className="w-[8px] h-[8px] rounded-full bg-[#2dd36f]"></span>
+                                    <span className="w-[8px] h-[8px] rounded-full bg-[#FFEA00]"></span>
                                     <span className="ts-10 text-[var(--c-icon)] font-medium">在线</span>
                                 </div>
                             </div>
@@ -253,7 +253,7 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
             >
                 <div className="px-5 pt-5 pb-3">
                     <div className="flex items-center justify-between mb-4 mt-2">
-                        <span className="ts-28 font-bold text-[var(--c-text-title)]">Chats</span>
+                        <span className="ts-28 font-bold text-[var(--c-text-title)]">好友</span>
                     </div>
                     <div className="chat-search-bar">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--c-icon)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -320,7 +320,6 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                                     {showMascot && (
                                         <MascotSessionItem
                                             name={mascotSettings.nickname || "AI助手"}
-                                            avatarUrl={mascotAvatarUrl}
                                             preview={getMascotLastPreview()}
                                             isThinking={mascotChat.isThinking}
                                             onSelect={onSelectMascot}
@@ -674,28 +673,50 @@ function MenuOption({ icon, label, onClick }: { icon: React.ReactNode, label: st
     );
 }
 
+function ChannelAvatar() {
+    return (
+        <svg viewBox="0 0 48 48" className="w-full h-full" aria-hidden>
+            <rect x="0" y="0" width="48" height="48" rx="15" fill="#FFEA00" />
+            <path
+                d="M24 11c-7.2 0-13 4.4-13 9.8 0 3.1 1.9 5.9 4.9 7.7-.3 1.1-1 2.6-2.2 3.6 1.7-.1 3.6-.8 5-1.8 1.6.5 3.4.7 5.3.7 7.2 0 13-4.4 13-9.8S31.2 11 24 11z"
+                fill="#1a1a1a"
+            />
+            <text
+                x="24"
+                y="24.5"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontFamily="Arial, Helvetica, sans-serif"
+                fontSize="13"
+                fontWeight="700"
+                fill="#FFEA00"
+            >
+                Ch
+            </text>
+        </svg>
+    );
+}
+
 function MascotSessionItem({
     name,
-    avatarUrl,
     preview,
     isThinking,
     onSelect,
 }: {
     name: string;
-    avatarUrl: string;
     preview: string;
     isThinking: boolean;
     onSelect: () => void;
 }) {
     return (
         <div className="minimal-list-item" onClick={onSelect}>
-            <div className="minimal-avatar-wrapper bg-white">
-                <img src={avatarUrl} className="w-full h-full object-contain pointer-events-none rounded-full p-[2px]" alt="" />
+            <div className="minimal-avatar-wrapper">
+                <ChannelAvatar />
                 <span className="minimal-online-dot" />
             </div>
             <div className="flex-1 overflow-hidden h-[48px] flex flex-col justify-center gap-1">
                 <div className="flex justify-between items-center">
-                    <span className="ts-16 font-medium text-[var(--c-text-title)] truncate">{name}</span>
+                    <span className="ts-16 font-semibold text-[var(--c-text-title)] truncate">{name}</span>
                     <span className="ts-12 text-[var(--c-icon)] font-medium">AI</span>
                 </div>
                 <div className="flex justify-between items-center gap-2">
@@ -778,7 +799,7 @@ function SessionItem({ session, onSelect, isPinned }: { session: ChatSession, on
             onClick={onSelect}
         >
             {isGroup ? (
-                <div className="minimal-avatar-wrapper grid grid-cols-2 grid-rows-2 gap-[1px] p-[2px] bg-[var(--c-card-border)] rounded-full overflow-hidden">
+                <div className="minimal-avatar-wrapper grid grid-cols-2 grid-rows-2 gap-[1px] p-[2px] bg-[var(--c-card-border)] rounded-[30%] overflow-hidden">
                     {groupAvatarItems.map((c) => (
                         <div key={c.id} className="overflow-hidden rounded-[3px] bg-[var(--c-page-body-bg)]">
                             {c.avatar ? (
@@ -795,16 +816,16 @@ function SessionItem({ session, onSelect, isPinned }: { session: ChatSession, on
             ) : (
                 <div className="minimal-avatar-wrapper">
                     {character?.avatar ? (
-                        <img src={character.avatar} className="w-full h-full object-cover pointer-events-none rounded-full" alt="" />
+                        <img src={character.avatar} className="w-full h-full object-cover pointer-events-none rounded-[30%]" alt="" />
                     ) : (
-                        <ChatFallbackAvatar className="pointer-events-none rounded-full" />
+                        <ChatFallbackAvatar className="pointer-events-none rounded-[30%]" />
                     )}
                     <span className="minimal-online-dot" />
                 </div>
             )}
             <div className="flex-1 overflow-hidden h-[48px] flex flex-col justify-center gap-1">
                 <div className="flex justify-between items-center">
-                    <span className="ts-16 font-medium text-[var(--c-text-title)] truncate">
+                    <span className="ts-16 font-semibold text-[var(--c-text-title)] truncate">
                         {isGroup ? (session.groupName || "群聊") : (session.alias || character?.name || `User_${session.contactId.slice(-4)}`)}
                     </span>
                     <span className="ts-12 text-[var(--c-icon)] font-medium">
