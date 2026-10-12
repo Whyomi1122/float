@@ -5718,7 +5718,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                             return next;
                                         });
                                     }}
-                                    className="chat-sys-msg flex items-center justify-center gap-[6px] py-[6px] px-[14px] mr-auto rounded-2xl cursor-pointer relative"
+                                    className="chat-sys-msg flex items-center justify-center gap-[6px] py-[6px] px-[14px] mx-auto rounded-2xl cursor-pointer relative"
                                     {...(activeMessageId === `vc-${vcGroup.startId}` ? { "data-active": "" } : {})}
                                 >
                                     {vcGroup.callType === "video" ? (
@@ -5747,7 +5747,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                     <div className="chat-vc-group-border">
                                         {groupMessages.map((gMsg) => (
                                             uiRole(gMsg) === "system" ? (
-                                                <div key={gMsg.id} className="flex justify-start">
+                                                <div key={gMsg.id} className="flex justify-center">
                                                     <div
                                                         onPointerDown={(e) => { e.stopPropagation(); handleMessagePointerDown(e, gMsg.id); }}
                                                         onPointerUp={(e) => handleMessagePointerUp(e)}
@@ -6037,7 +6037,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); openMessageContextMenu(msg.id, { x: e.clientX, y: e.clientY }); },
                                             } : {})}
                                             className={`chat-bubble-role-${msg.role} ${isMediaBubble ? "chat-bubble-media" : ""} ${isStandaloneHtmlPreview ? "chat-bubble-html-preview" : ""} ${renderMsg.mediaType === "music_share" ? "chat-bubble-music-share" : ""} ${renderMsg.mediaType === "gift" || renderMsg.mediaType === "image" || isStandaloneHtmlPreview ? "rounded-none" : "rounded-md"} break-words relative cursor-pointer select-none`}
-                                            style={isStandaloneHtmlPreview ? STANDALONE_CARD_BUBBLE_STYLE : undefined}
+                                            style={isStandaloneHtmlPreview ? STANDALONE_CARD_BUBBLE_STYLE : (isMediaBubble ? { background: "transparent", padding: 0, boxShadow: "none", border: "none" } : undefined)}
                                             data-ui={msg.role === "user" ? "bubble-user" : "bubble-bot"}
                                             data-msg-id={msg.id}
                                             {...(activeMessageId === msg.id ? { "data-active": "" } : {})}
