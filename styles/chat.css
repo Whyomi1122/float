@@ -722,22 +722,22 @@
   transform: scale(0.96);
 }
 
-/* ── 输入栏：单行紧凑布局（+ 表情 输入框 发送 触发回复） ── */
+/* ── 输入栏：单行紧凑布局（+ 表情 输入框 发送） ── */
 .chat-input-row {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
+  gap: 3px;
   width: 100%;
 }
 
-/* 每个图标按钮：36px 方形可点区，图标居中 */
+/* 每个图标按钮：34px 方形可点区，图标居中 */
 .chat-input-row .chat-input-icon-btn {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border-radius: 50%;
   font-size: 0;
@@ -749,8 +749,8 @@
 }
 
 .chat-input-row .chat-input-icon-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
 }
 
 /* 输入框胶囊：只包 textarea（语音条已移回加号菜单） */
@@ -761,24 +761,29 @@
   align-items: flex-end;
   gap: 2px;
   padding: 0 12px;
-  border-radius: 20px;
+  border-radius: 18px;
   background: #F1F3F5;
 }
 
-/* 一体式发送键：白字 → 深底圆形（对齐群像的黑色发送键） */
+/* 一体式发送键：深底小圆，视觉尺寸与 + / 表情图标接近 */
 .chat-input-row .chat-input-send-btn {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: none;
   border-radius: 50%;
   background: #1a1a1a;
   color: #ffffff;
   font-size: 0;
+}
+
+.chat-input-row .chat-input-send-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .chat-input-row .chat-input-send-btn:active {
@@ -792,9 +797,9 @@
 .chat-input-field .chat-input-textarea {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 36px;
+  min-height: 34px;
   max-height: 100px;
-  padding: 8px 0;
+  padding: 7px 0;
   border: none;
   outline: none;
   background: transparent;
@@ -877,41 +882,6 @@
   color: var(--c-text-title);
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-/* 指令弹窗内的「番外指令模式」开关行 */
-.rich-modal-theater-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rich-modal-theater-toggle[data-active] {
-  border-color: rgba(0, 0, 0, 0.22);
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.rich-modal-theater-toggle-label {
-  font-size: calc(12.5px*var(--app-text-scale,1));
-  color: var(--c-text);
-}
-
-.rich-modal-theater-toggle-state {
-  flex: 0 0 auto;
-  font-size: calc(11px*var(--app-text-scale,1));
-  color: var(--c-icon);
-}
-
-.rich-modal-theater-toggle[data-active] .rich-modal-theater-toggle-state {
-  color: var(--c-text-title);
 }
 
 .chat-offline-toggle {

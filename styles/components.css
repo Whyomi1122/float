@@ -40,7 +40,7 @@
   border-radius: 14px;
   padding: 24px;
   box-shadow: 0 12px 36px rgba(0,0,0,0.2);
-  animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: modalSoftRise 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -55,7 +55,7 @@
   border-radius: 14px;
   padding: 0;
   box-shadow: 0 12px 36px rgba(0,0,0,0.2);
-  animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: modalSoftRise 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -250,6 +250,21 @@
 @keyframes modalSlideUp {
   from { transform: translateY(100%); }
   to   { transform: translateY(0); }
+}
+
+/* 居中浮窗的「淡淡显现」：96% 缩放 + 上浮 8px + 轻微模糊收敛（对齐群像 softRise）。
+   不用 modalSlideUp 的「从底部滑出」，避免弹出来的生硬感。 */
+@keyframes modalSoftRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
 }
 
 @keyframes modalScaleIn {
@@ -3889,7 +3904,7 @@
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 12px 40px rgba(0,0,0,0.25);
-  animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: modalSoftRise 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .media-modal-header {
   padding: 28px 20px 20px;

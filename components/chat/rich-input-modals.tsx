@@ -358,21 +358,13 @@ export function SystemInstructionModal({ onSend, onClose, showTabs, theaterMode,
             <div onClick={e => e.stopPropagation()} className="modal-dialog">
                 {showTabs && (
                     <RichModalTabs
-                        tabs={[{ id: "instruction", label: "系统指令" }, { id: "theater", label: "番外模式" }]}
+                        tabs={[
+                            { id: "instruction", label: "系统指令" },
+                            { id: "theater", label: theaterMode ? "番外模式 · 已开启" : "番外模式" },
+                        ]}
                         active="instruction"
                         onChange={(next) => { if (next === "theater") onToggleTheaterMode?.(); }}
                     />
-                )}
-                {showTabs && (
-                    <button
-                        type="button"
-                        onClick={() => onToggleTheaterMode?.()}
-                        className="rich-modal-theater-toggle"
-                        {...(theaterMode ? { "data-active": "" } : {})}
-                    >
-                        <span className="rich-modal-theater-toggle-label">番外指令模式</span>
-                        <span className="rich-modal-theater-toggle-state">{theaterMode ? "已开启 · 点此关闭" : "未开启 · 点此开启"}</span>
-                    </button>
                 )}
                 <div className="ts-16 font-semibold text-center text-[var(--c-text)]">系统指令注入</div>
                 <label className="w-full flex flex-col gap-2">
