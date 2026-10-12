@@ -676,19 +676,20 @@ function MenuOption({ icon, label, onClick }: { icon: React.ReactNode, label: st
 function ChannelAvatar() {
     return (
         <svg viewBox="0 0 48 48" className="w-full h-full" aria-hidden>
-            <rect x="0" y="0" width="48" height="48" rx="15" fill="#FFEA00" />
+            <rect x="0" y="0" width="48" height="48" rx="14" fill="#FFEA00" />
             <path
-                d="M24 11c-7.2 0-13 4.4-13 9.8 0 3.1 1.9 5.9 4.9 7.7-.3 1.1-1 2.6-2.2 3.6 1.7-.1 3.6-.8 5-1.8 1.6.5 3.4.7 5.3.7 7.2 0 13-4.4 13-9.8S31.2 11 24 11z"
+                d="M24.5 10.5c-6.9 0-12.5 4.6-12.5 10.3 0 3.2 1.8 6 4.7 7.9-.2 1.5-.9 3.4-2.4 4.9-.4.4-.1 1 .4.9 2.6-.4 4.9-1.7 6.4-2.9 1.1.2 2.3.4 3.4.4 6.9 0 12.5-4.6 12.5-10.3S31.4 10.5 24.5 10.5z"
                 fill="#1a1a1a"
             />
             <text
-                x="24"
-                y="24.5"
+                x="24.5"
+                y="20.3"
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontFamily="Arial, Helvetica, sans-serif"
-                fontSize="13"
+                fontSize="11.5"
                 fontWeight="700"
+                letterSpacing="-0.4"
                 fill="#FFEA00"
             >
                 Ch

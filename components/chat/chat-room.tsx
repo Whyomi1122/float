@@ -5718,7 +5718,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                             return next;
                                         });
                                     }}
-                                    className="chat-sys-msg flex items-center justify-center gap-[6px] py-[6px] px-[14px] mx-auto rounded-2xl cursor-pointer relative"
+                                    className="chat-sys-msg flex items-center justify-center gap-[6px] py-[6px] px-[14px] mr-auto rounded-2xl cursor-pointer relative"
                                     {...(activeMessageId === `vc-${vcGroup.startId}` ? { "data-active": "" } : {})}
                                 >
                                     {vcGroup.callType === "video" ? (
@@ -5747,7 +5747,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                     <div className="chat-vc-group-border">
                                         {groupMessages.map((gMsg) => (
                                             uiRole(gMsg) === "system" ? (
-                                                <div key={gMsg.id} className="flex justify-center">
+                                                <div key={gMsg.id} className="flex justify-start">
                                                     <div
                                                         onPointerDown={(e) => { e.stopPropagation(); handleMessagePointerDown(e, gMsg.id); }}
                                                         onPointerUp={(e) => handleMessagePointerUp(e)}

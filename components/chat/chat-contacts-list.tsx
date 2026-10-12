@@ -227,8 +227,8 @@ export function ChatContactsList({ onCloseApp, onSelectSession, onSelectMascot, 
                         className="minimal-list-item"
                         onClick={() => pendingRequests.length > 0 && setShowRequestList(true)}
                     >
-                        <div className="w-[48px] h-[48px] rounded-full bg-[var(--c-action-blue,#246bfd)] flex items-center justify-center shrink-0">
-                            <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <div className="w-[48px] h-[48px] rounded-full bg-[#FFEA00] flex items-center justify-center shrink-0">
+                            <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
                                 <circle cx="9" cy="7" r="4" />
                                 <line x1="19" y1="8" x2="19" y2="14" />
@@ -249,7 +249,6 @@ export function ChatContactsList({ onCloseApp, onSelectSession, onSelectMascot, 
                         <div className="minimal-list-item" onClick={onSelectMascot}>
                             <div className="minimal-avatar-wrapper bg-white">
                                 <img src={mascotAvatarUrl} className="w-full h-full object-contain rounded-full p-[2px]" alt="" />
-                                <span className="minimal-online-dot" />
                             </div>
                             <div className="flex-1 overflow-hidden h-[48px] flex flex-col justify-center gap-1">
                                 <div className="ts-16 font-medium text-[var(--c-text-title)] truncate">{mascotSettings.nickname || "AI助手"}</div>

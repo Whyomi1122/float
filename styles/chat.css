@@ -230,10 +230,10 @@
 /* 黄色对勾角标（对齐参考图：黄圆底 + 黑✓，位于头像左上角） */
 .minimal-online-dot {
   position: absolute;
-  top: -3px;
-  left: -3px;
-  width: 20px;
-  height: 20px;
+  top: -2px;
+  left: -2px;
+  width: 16px;
+  height: 16px;
   right: auto;
   bottom: auto;
   background: #FFEA00;
@@ -246,10 +246,10 @@
 }
 .minimal-online-dot::after {
   content: "";
-  width: 9px;
-  height: 6px;
-  border-left: 2px solid #1a1a1a;
-  border-bottom: 2px solid #1a1a1a;
+  width: 7px;
+  height: 4px;
+  border-left: 1.6px solid #1a1a1a;
+  border-bottom: 1.6px solid #1a1a1a;
   transform: rotate(-45deg) translate(1px, -1px);
 }
 .minimal-unread-count {
@@ -659,7 +659,7 @@
   left: 0;
   right: 0;
   z-index: 10;
-  padding: 8px 16px max(8px, env(safe-area-inset-bottom, 0px));
+  padding: 8px 14px max(8px, env(safe-area-inset-bottom, 0px)) 11px;
   background: color-mix(in srgb, var(--c-input, var(--c-page-body-bg)) 55%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -740,7 +740,7 @@
 .chat-input-row {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   width: 100%;
 }
 
@@ -1528,12 +1528,25 @@
 .chat-role-badge-owner { background: #f0a020; }
 .chat-role-badge-admin { background: #4f9cf0; }
 
-/* ── Media message bubble (transparent bg) ── */
+/* ── Media message bubble (frosted glass, no colored frame) ── */
 .chat-bubble-media {
   background: transparent !important;
+  border: none !important;
   padding: 0 !important;
   box-shadow: none !important;
   overflow: visible !important;
+}
+
+/* 富媒体卡片（红包/转账/图片/语音/礼物等）：统一毛玻璃质感，杜绝沿气泡底色露出的色框 */
+.chat-red-packet-card,
+.chat-transfer-card,
+.chat-payment-request-card,
+.chat-gift-card {
+  background: rgba(255, 255, 255, 0.55);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
 }
 
 .chat-bubble-media.chat-bubble-music-share {
@@ -3110,14 +3123,14 @@
   border-bottom: 1px solid var(--c-panel-border);
 }
 
-/* ── Voice call group left border ── */
+/* ── Voice call group（去掉竖线，内容左对齐） ── */
 .chat-vc-group-border {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 4px 0 4px 12px;
-  margin-left: 20px;
-  border-left: 2px solid rgba(0,0,0,0.08);
+  padding: 4px 0;
+  margin-left: 0;
+  align-items: flex-start;
 }
 
 .chat-load-more-button {
