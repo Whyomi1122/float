@@ -50,7 +50,7 @@
   --c-transfer-gold: #fdbe5c;
   --c-transfer-bg: #fef5e7;
   --c-transfer-text: #96610a;
-  --c-overlay: rgba(0, 0, 0, 0.35);
+  --c-overlay: rgba(0, 0, 0, 0.12);
 
   /* ── 桌面系统图标专属配色（实心） ── */
   --c-desktop-icon: #ffffff;
@@ -273,7 +273,7 @@
   --c-transfer-gold: #fdbe5c;
   --c-transfer-bg: #fef5e7;
   --c-transfer-text: #96610a;
-  --c-overlay: rgba(0, 0, 0, 0.35);
+  --c-overlay: rgba(0, 0, 0, 0.12);
 }
 
 /* ── Calendar Themes（v2）──

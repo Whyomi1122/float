@@ -725,19 +725,19 @@
 /* ── 输入栏：单行紧凑布局（+ 表情 输入框 发送） ── */
 .chat-input-row {
   display: flex;
-  align-items: flex-end;
-  gap: 3px;
+  align-items: center;
+  gap: 2px;
   width: 100%;
 }
 
-/* 每个图标按钮：34px 方形可点区，图标居中 */
+/* 每个图标按钮：30px 方形可点区，图标居中（视觉上与 + / 表情更紧凑） */
 .chat-input-row .chat-input-icon-btn {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border-radius: 50%;
   font-size: 0;
@@ -758,14 +758,15 @@
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
+  min-height: 34px;
   padding: 0 12px;
   border-radius: 18px;
   background: #F1F3F5;
 }
 
-/* 一体式发送键：深底小圆，视觉尺寸与 + / 表情图标接近 */
+/* 一体式发送键：深底小圆，尺寸与 + / 表情图标一致，图标居中 */
 .chat-input-row .chat-input-send-btn {
   flex: 0 0 auto;
   display: inline-flex;
@@ -779,11 +780,13 @@
   background: #1a1a1a;
   color: #ffffff;
   font-size: 0;
+  line-height: 0;
 }
 
 .chat-input-row .chat-input-send-btn svg {
   width: 16px;
   height: 16px;
+  display: block;
 }
 
 .chat-input-row .chat-input-send-btn:active {
