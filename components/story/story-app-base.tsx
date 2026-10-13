@@ -37,6 +37,17 @@ function SolidBackIcon({ size = 17 }: { size?: number }) {
   );
 }
 
+/* 触发 AI 续写用的星芒图标，与群像一体式发送键的“空输入”态一致 */
+function SolidSparkleIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+      <path d="M20 3v4" />
+      <path d="M22 5h-4" />
+    </svg>
+  );
+}
+
 function MiniPhoneIcon({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -71,9 +82,7 @@ import {
   loadStorySessionsForOwner,
   loadStorySchemeRepository,
   pushStoryMessage,
-  resolveActiveQuickInputScheme,
   saveStorySchemeRepository,
-  STORY_DEFAULT_QUICK_INPUT_OPTIONS,
   STORY_SCHEME_REPO_EVENT,
   deleteStoryMessage,
   deleteStoryMessagesFrom,
@@ -119,7 +128,6 @@ const STORY_VOICE_CACHE_LIMIT = 24;
 const STORY_ACTIVE_CHARACTER_KEY = "story-last-active-character-id";
 const STORY_ACTIVE_TARGET_KEY = "story-last-active-target-v1";
 const STORY_ACTIVE_PAGE_MAP_KEY = "story-active-page-map-v1";
-const DEFAULT_AUTO_READING_SPEED = 36;
 
 registerKvMigration(STORY_ACTIVE_CHARACTER_KEY);
 registerKvMigration(STORY_ACTIVE_TARGET_KEY);
@@ -281,76 +289,19 @@ function StoryGeneratingIndicator({
 const StoryComposer = memo(function StoryComposer({
   isGenerating,
   appendRequest,
-  voiceEnabled,
-  voicePlaying,
-  voiceProgress,
   onSend,
   onContinue,
-  autoReadingEnabled,
-  autoReading,
-  currentReadExpanded,
-  canAutoRead,
-  onToggleAutoReading,
-  onCurrentReadControl,
   onStop,
-  onPlayNext,
-  quickInputEnabled,
-  quickInputOptions,
-  quickInputCursor,
 }: {
   isGenerating: boolean;
   appendRequest: StoryComposerAppendRequest | null;
-  voiceEnabled: boolean;
-  voicePlaying: boolean;
-  voiceProgress: { current: number; total: number };
   onSend: (text: string) => void;
   onContinue: () => void;
-  autoReadingEnabled: boolean;
-  autoReading: boolean;
-  currentReadExpanded: boolean;
-  canAutoRead: boolean;
-  onToggleAutoReading: () => void;
-  onCurrentReadControl: () => void;
   onStop: () => void;
-  onPlayNext: () => void;
-  quickInputEnabled: boolean;
-  quickInputOptions: string[];
-  quickInputCursor: "left" | "middle" | "right";
 }) {
   const [draft, setDraft] = useState("");
-  const [quickPanelOpen, setQuickPanelOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastAppendIdRef = useRef<number | null>(null);
-  // 记录输入框最近一次选区/光标：点快捷选项时按钮会抢走焦点，
-  // 这时 selectionStart 已经不可靠，用这个 ref 兜底
-  const lastSelectionRef = useRef<{ start: number; end: number } | null>(null);
-
-  const rememberSelection = (el: HTMLTextAreaElement) => {
-    lastSelectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
-  };
-
-  const insertQuickOption = (option: string) => {
-    const sel = lastSelectionRef.current;
-    const start = Math.min(sel ? sel.start : draft.length, draft.length);
-    const end = Math.max(start, Math.min(sel ? sel.end : draft.length, draft.length));
-    const nextDraft = draft.slice(0, start) + option + draft.slice(end);
-    // 光标落点：左边=插入内容之前；中间=成对符号正中（单字符视作末尾）；右边=插入内容之后
-    const caretOffset = quickInputCursor === "left"
-      ? 0
-      : quickInputCursor === "right"
-        ? option.length
-        : Math.ceil(option.length / 2);
-    const caret = start + caretOffset;
-    setDraft(nextDraft);
-    lastSelectionRef.current = { start: caret, end: caret };
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-      resizeStoryComposerTextarea(textarea);
-      textarea.focus({ preventScroll: true });
-      textarea.setSelectionRange(caret, caret);
-    });
-  };
 
   useEffect(() => {
     if (!appendRequest || appendRequest.id === lastAppendIdRef.current) return;
@@ -380,92 +331,14 @@ const StoryComposer = memo(function StoryComposer({
   };
 
   return (
-    <div className="story-composer" data-quick-input={quickInputEnabled ? "true" : undefined}>
-      {quickInputEnabled && quickPanelOpen && quickInputOptions.length > 0 ? (
-        <div className="story-quick-panel" role="toolbar" aria-label="快捷输入面板">
-          {quickInputOptions.map((option, index) => (
-            <button
-              key={`${index}-${option}`}
-              type="button"
-              className="story-quick-chip"
-              onClick={() => insertQuickOption(option)}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <button
-        type="button"
-        className="story-sequence-play"
-        data-enabled={voiceEnabled ? "true" : undefined}
-        data-playing={voicePlaying ? "true" : undefined}
-        onClick={onPlayNext}
-        disabled={voicePlaying}
-        aria-label="播放下一句角色对白"
-        title="播放下一句"
-      >
-        <span aria-hidden="true">{voicePlaying ? "…" : "▶"}</span>
-        {voiceProgress.total > 0 ? (
-          <small>{voiceProgress.current}/{voiceProgress.total}</small>
-        ) : null}
-      </button>
-      <button
-        type="button"
-        className="story-continue-btn"
-        onClick={onContinue}
-        disabled={isGenerating}
-      >
-        续写
-      </button>
-      {quickInputEnabled ? (
-        <button
-          type="button"
-          className="story-quick-input-btn"
-          data-open={quickPanelOpen ? "true" : undefined}
-          onClick={() => setQuickPanelOpen((open) => !open)}
-          aria-expanded={quickPanelOpen}
-          aria-label={quickPanelOpen ? "收起快捷输入面板" : "展开快捷输入面板"}
-        >
-          输入
-        </button>
-      ) : null}
-      {autoReadingEnabled ? (
-        <>
-          <button
-            type="button"
-            className="story-auto-read-btn"
-            data-reading={autoReading ? "true" : undefined}
-            onClick={onToggleAutoReading}
-            disabled={!autoReading && !canAutoRead}
-            aria-label={autoReading ? "停止自动阅读" : "从最新角色消息开始自动阅读"}
-          >
-            {autoReading ? "停止" : "自动"}
-          </button>
-          <button
-            type="button"
-            className="story-current-read-btn"
-            data-expanded={currentReadExpanded ? "true" : undefined}
-            onClick={onCurrentReadControl}
-            disabled={!canAutoRead}
-            aria-label={currentReadExpanded ? "从当前位置开始自动阅读" : "展开当前位置阅读按钮"}
-            title="从当前位置开始阅读"
-          >
-            <BookOpenIcon width={14} height={14} aria-hidden="true" />
-            {currentReadExpanded ? <span>从当前位置开始阅读</span> : null}
-          </button>
-        </>
-      ) : null}
+    <div className="story-composer">
       <textarea
         ref={textareaRef}
         rows={1}
         value={draft}
-        onFocus={(event) => { resizeStoryComposerTextarea(event.currentTarget); rememberSelection(event.currentTarget); }}
-        onSelect={(event) => rememberSelection(event.currentTarget)}
-        onKeyUp={(event) => rememberSelection(event.currentTarget)}
+        onFocus={(event) => { resizeStoryComposerTextarea(event.currentTarget); }}
         onChange={(event) => {
           setDraft(event.target.value);
-          rememberSelection(event.currentTarget);
           resizeStoryComposerTextarea(event.currentTarget);
         }}
         onKeyDown={(event) => {
@@ -476,15 +349,35 @@ const StoryComposer = memo(function StoryComposer({
         }}
         placeholder="你该怎么回应"
       />
-      <button
-        className={`story-send-btn${isGenerating ? " is-generating" : ""}`}
-        onClick={submit}
-        aria-label={isGenerating ? "停止剧情生成" : "发送剧情输入"}
-        title={isGenerating ? "停止剧情生成" : "发送剧情输入"}
-        disabled={!isGenerating && !draft.trim()}
-      >
-        {isGenerating ? <StopIcon width={17} height={17} /> : <PaperAirplaneIcon width={17} height={17} className="story-send-icon" />}
-      </button>
+      {/* 一体式发送键：有输入 → 发送；空输入 → 触发 AI 续写（对齐群像） */}
+      {isGenerating ? (
+        <button
+          className="story-send-btn is-generating"
+          onClick={submit}
+          aria-label="停止剧情生成"
+          title="停止剧情生成"
+        >
+          <StopIcon width={17} height={17} />
+        </button>
+      ) : draft.trim() ? (
+        <button
+          className="story-send-btn"
+          onClick={submit}
+          aria-label="发送剧情输入"
+          title="发送"
+        >
+          <PaperAirplaneIcon width={17} height={17} className="story-send-icon" />
+        </button>
+      ) : (
+        <button
+          className="story-send-btn is-trigger"
+          onClick={onContinue}
+          aria-label="触发 AI 续写"
+          title="触发 AI 续写"
+        >
+          <SolidSparkleIcon size={17} />
+        </button>
+      )}
     </div>
   );
 });
@@ -525,9 +418,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [quickStoryIndependent, setQuickStoryIndependent] = useState(false);
   const [playingVoiceSegmentId, setPlayingVoiceSegmentId] = useState<string | null>(null);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
-  const [voiceSequenceProgress, setVoiceSequenceProgress] = useState({ current: 0, total: 0 });
-  const [autoReading, setAutoReading] = useState(false);
-  const [currentReadExpanded, setCurrentReadExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const shellInnerRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
@@ -548,7 +438,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const voicePlaybackRef = useRef<{ abort: () => void } | null>(null);
   const voiceRequestIdRef = useRef(0);
   const voiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const voiceSequenceIndexRef = useRef(0);
   const miniPhoneScrollRef = useRef<HTMLDivElement | null>(null);
   const autoStartedSessionIdsRef = useRef(new Set<string>());
 
@@ -663,8 +552,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
   }, []);
 
   useEffect(() => {
-    voiceSequenceIndexRef.current = 0;
-    setVoiceSequenceProgress({ current: 0, total: 0 });
     voiceRequestIdRef.current += 1;
     voicePlaybackRef.current?.abort();
     voicePlaybackRef.current = null;
@@ -727,11 +614,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
       setReady(true);
     });
   }, []);
-
-  useEffect(() => {
-    setAutoReading(false);
-    setCurrentReadExpanded(false);
-  }, [activeSessionId]);
 
   // Listen for live CSS updates from 小卷
   useEffect(() => {
@@ -860,74 +742,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
     return messages.slice(-visibleMessageCount);
   }, [messages, visibleMessageCount]);
   const hasMoreMessages = visibleMessages.length < messages.length;
-
-  const startAutoReading = useCallback((from: "latest" | "current") => {
-    const node = scrollRef.current;
-    if (!node || messages.length === 0) return;
-    autoBottomLockRef.current = false;
-
-    if (from === "latest" && latestAssistantMessageId) {
-      const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
-        ? CSS.escape(latestAssistantMessageId)
-        : latestAssistantMessageId.replace(/["\\]/g, "\\$&");
-      const latest = node.querySelector<HTMLElement>(`[data-story-message-id="${escapedId}"]`);
-      if (latest) {
-        const nodeRect = node.getBoundingClientRect();
-        const latestRect = latest.getBoundingClientRect();
-        const target = node.scrollTop + latestRect.top - nodeRect.top - node.clientHeight / 2;
-        node.scrollTop = Math.max(0, Math.min(node.scrollHeight - node.clientHeight, Math.round(target)));
-      }
-    }
-
-    setCurrentReadExpanded(false);
-    requestAnimationFrame(() => setAutoReading(true));
-  }, [latestAssistantMessageId, messages.length]);
-
-  useEffect(() => {
-    if (!autoReading) return;
-    const node = scrollRef.current;
-    if (!node) {
-      setAutoReading(false);
-      return;
-    }
-
-    const speed = Math.max(12, Math.min(120, uiPrefs.autoReadingSpeed ?? DEFAULT_AUTO_READING_SPEED));
-    const previousScrollBehavior = node.style.getPropertyValue("scroll-behavior");
-    const previousScrollBehaviorPriority = node.style.getPropertyPriority("scroll-behavior");
-    // iOS PWA 会让 CSS smooth scrolling 和逐帧 scrollTop 互相抢位置。
-    node.style.setProperty("scroll-behavior", "auto", "important");
-    let frame = 0;
-    let previousTime = performance.now();
-    // Safari 会把不足 1px 的 scrollTop 写入取整；单独累计目标位置后再写整数，
-    // 慢速（默认每帧约 0.6px）也能稳定前进。
-    let desiredScrollTop = node.scrollTop;
-    const tick = (time: number) => {
-      const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
-      if (desiredScrollTop >= maxScrollTop - 1) {
-        node.scrollTop = maxScrollTop;
-        setAutoReading(false);
-        return;
-      }
-      const elapsed = Math.min(64, time - previousTime);
-      previousTime = time;
-      desiredScrollTop = Math.min(maxScrollTop, desiredScrollTop + (speed * elapsed) / 1000);
-      node.scrollTop = Math.floor(desiredScrollTop);
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(frame);
-      if (previousScrollBehavior) {
-        node.style.setProperty("scroll-behavior", previousScrollBehavior, previousScrollBehaviorPriority);
-      } else {
-        node.style.removeProperty("scroll-behavior");
-      }
-    };
-  }, [autoReading, uiPrefs.autoReadingSpeed]);
-
-  useEffect(() => {
-    if (!uiPrefs.autoReadingEnabled && autoReading) setAutoReading(false);
-  }, [autoReading, uiPrefs.autoReadingEnabled]);
 
   const loadMoreMessages = useCallback(() => {
     if (!hasMoreMessages) return;
@@ -1370,58 +1184,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
     void playStoryVoice(segment);
   }, [playStoryVoice]);
 
-  const collectStoryVoiceSegments = useCallback((): StoryVoiceSegment[] => {
-    const stage = scrollRef.current;
-    if (!stage) return [];
-    const assistantRows = Array.from(stage.querySelectorAll<HTMLElement>('.story-row[data-role="assistant"]'));
-    const latestRowWithDialogue = assistantRows.reverse().find((row) => row.querySelector("[data-story-voice-segment]"));
-    if (!latestRowWithDialogue) return [];
-    return Array.from(latestRowWithDialogue.querySelectorAll<HTMLElement>("[data-story-voice-segment]")).flatMap((element) => {
-      const id = element.dataset.storyVoiceSegment;
-      const encodedText = element.dataset.storyVoiceText;
-      if (!id || !encodedText) return [];
-      return [{
-        id,
-        text: decodeURIComponent(encodedText),
-        speaker: element.dataset.storyVoiceSpeaker
-          ? decodeURIComponent(element.dataset.storyVoiceSpeaker)
-          : undefined,
-      }];
-    });
-  }, []);
-
-  const handlePlayNextStoryVoice = useCallback(async () => {
-    if (!uiPrefs.voiceEnabled) {
-      showVoiceNotice("请先在剧情语音中开启语音");
-      return;
-    }
-    if (playingVoiceSegmentId) return;
-    const segments = collectStoryVoiceSegments();
-    if (segments.length === 0) {
-      showVoiceNotice("当前页面还没有可播放的角色对白");
-      return;
-    }
-
-    let index = voiceSequenceIndexRef.current;
-    if (index >= segments.length) {
-      const restart = window.confirm("已经播放完，是否从头开始？");
-      if (!restart) return;
-      index = 0;
-      voiceSequenceIndexRef.current = 0;
-    }
-    setVoiceSequenceProgress({ current: index + 1, total: segments.length });
-    const completed = await playStoryVoice(segments[index]);
-    if (!completed) return;
-
-    const nextIndex = index + 1;
-    if (nextIndex < segments.length) {
-      voiceSequenceIndexRef.current = nextIndex;
-      return;
-    }
-
-    voiceSequenceIndexRef.current = segments.length;
-  }, [collectStoryVoiceSegments, playStoryVoice, playingVoiceSegmentId, showVoiceNotice, uiPrefs.voiceEnabled]);
-
   async function handleSend(userTextInput: string) {
     const userText = userTextInput.trim();
     if (!activeSessionId || !userText || isGenerating) return;
@@ -1850,11 +1612,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
   }
 
   // 快捷输入面板：选项与光标位置来自公用仓库中当前角色选中的方案；选项全空时回落默认符号
-  const activeQuickInputScheme = resolveActiveQuickInputScheme(uiPrefs, schemeRepo);
-  const quickInputOptionsRaw = activeQuickInputScheme.options.filter((item) => item.trim());
-  const quickInputOptions = quickInputOptionsRaw.length > 0 ? quickInputOptionsRaw : STORY_DEFAULT_QUICK_INPUT_OPTIONS;
-  const quickInputCursor = activeQuickInputScheme.cursor ?? "middle";
-
   if (!ready) return null;
 
   if (characters.length === 0) {
@@ -2193,28 +1950,9 @@ export function StoryApp({ onClose }: StoryAppProps) {
       <StoryComposer
         isGenerating={isGenerating}
         appendRequest={composerAppendRequest}
-        voiceEnabled={Boolean(uiPrefs.voiceEnabled)}
-        voicePlaying={Boolean(playingVoiceSegmentId)}
-        voiceProgress={voiceSequenceProgress}
         onSend={(text) => { void handleSend(text); }}
         onContinue={() => { void handleSend("继续"); }}
-        autoReadingEnabled={Boolean(uiPrefs.autoReadingEnabled)}
-        autoReading={autoReading}
-        currentReadExpanded={currentReadExpanded}
-        canAutoRead={messages.length > 0}
-        onToggleAutoReading={() => {
-          if (autoReading) setAutoReading(false);
-          else startAutoReading("latest");
-        }}
-        onCurrentReadControl={() => {
-          if (!currentReadExpanded) setCurrentReadExpanded(true);
-          else startAutoReading("current");
-        }}
         onStop={handleStopGeneration}
-        onPlayNext={() => { void handlePlayNextStoryVoice(); }}
-        quickInputEnabled={Boolean(uiPrefs.quickInputEnabled)}
-        quickInputOptions={quickInputOptions}
-        quickInputCursor={quickInputCursor}
       />
 
       {storySettings.floatingPhoneEnabled ? (
