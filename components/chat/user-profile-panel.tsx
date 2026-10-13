@@ -1,13 +1,17 @@
 "use client";
 
-import { useState, useEffect, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import {
     loadFollowUpConfig,
     saveFollowUpConfig,
     getDefaultFollowUpConfig,
     resolveUserIdentity,
+    saveUserIdentities,
+    loadUserIdentities,
+    USER_IDENTITIES_UPDATED_EVENT,
 } from "@/lib/settings-storage";
+import { fileToUserAvatarDataUrl } from "@/lib/user-avatar-image";
 import { loadChatAppSettings, saveChatAppSettings } from "@/lib/chat-storage";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { getApiLogs, clearApiLogs, type DebugInfo } from "@/lib/chat-engine";
@@ -38,6 +42,7 @@ import { ChatFallbackAvatar } from "./chat-fallback-avatar";
 import {
     Loader2,
     Bell,
+    Camera,
     CloudUpload,
     ChevronRight,
     Clock,
@@ -161,8 +166,34 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [notifHint, setNotifHint] = useState<string | null>(null);
     const [notifChecking, setNotifChecking] = useState(false);
     const [showPushSettings, setShowPushSettings] = useState(false);
+    const profileAvatarInputRef = useRef<HTMLInputElement>(null);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
+
+    useEffect(() => {
+        const syncIdentity = () => setIdentity(resolveUserIdentity());
+        window.addEventListener(USER_IDENTITIES_UPDATED_EVENT, syncIdentity);
+        return () => window.removeEventListener(USER_IDENTITIES_UPDATED_EVENT, syncIdentity);
+    }, []);
+
+    const handleProfileAvatarChange = async (file?: File) => {
+        if (!file) return;
+        const currentIdentity = resolveUserIdentity();
+        if (!currentIdentity) {
+            window.alert("请先在设置的“用户信息”中创建用户身份");
+            return;
+        }
+        try {
+            const avatarUrl = await fileToUserAvatarDataUrl(file);
+            const identities = loadUserIdentities();
+            saveUserIdentities(identities.map(item => (
+                item.id === currentIdentity.id ? { ...item, avatarUrl } : item
+            )));
+        } catch (error) {
+            console.error("更新用户资料头像失败", error);
+            window.alert("头像读取失败，请换一张图片后重试");
+        }
+    };
     const [userStats, setUserStats] = useState({ chats: 0, moments: 0, visitors: 1234 });
     const [walletSummary, setWalletSummary] = useState(() => {
         const wallet = loadWalletState();
@@ -326,14 +357,32 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                     <div className="flex items-center gap-5 px-6 pt-2 pb-4">
                         {/* Avatar */}
                         <div className="relative shrink-0">
-                            <div className="w-[84px] h-[84px] rounded-full overflow-hidden bg-[var(--c-card)] border-2 border-white/50 shadow-sm flex items-center justify-center relative"
-                                 style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
+                            <input
+                                ref={profileAvatarInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(event) => {
+                                    void handleProfileAvatarChange(event.target.files?.[0]);
+                                    event.target.value = "";
+                                }}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => profileAvatarInputRef.current?.click()}
+                                className="relative w-[84px] h-[84px] rounded-full overflow-hidden bg-[var(--c-card)] border-2 border-white/50 shadow-sm flex items-center justify-center group"
+                                style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}
+                                aria-label="更换头像"
+                            >
                                 {identity?.avatarUrl ? (
                                     <img src={identity.avatarUrl} alt="User Avatar" className="w-full h-full object-cover" />
                                 ) : (
                                     <User size={38} color="var(--c-icon)" />
                                 )}
-                            </div>
+                                <span className="absolute bottom-0 left-0 right-0 h-6 bg-black/45 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Camera size={13} />
+                                </span>
+                            </button>
                         </div>
 
                         {/* Info & Stats */}

@@ -1187,7 +1187,10 @@ export function loadUserIdentities(): UserIdentity[] {
 export function saveUserIdentities(identities: UserIdentity[]): void {
     if (typeof window === "undefined") return;
     kvSet(USER_IDENTITIES_KEY, JSON.stringify(identities));
+    window.dispatchEvent(new CustomEvent(USER_IDENTITIES_UPDATED_EVENT));
 }
+
+export const USER_IDENTITIES_UPDATED_EVENT = "user-identities-updated";
 
 /**
  * Resolve user identity through the binding cascade:
