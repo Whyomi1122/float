@@ -38,8 +38,7 @@ function SolidBackIcon({ size = 17 }: { size?: number }) {
 }
 
 /* 触发 AI 续写用的星芒图标，与群像一体式发送键的“空输入”态一致 */
-function SolidSparkleIcon({ size = 17 }: { size?: number }) {
-  return (
+function SolidSparkleIcon({ size = 17 }: { size?: number }) {  return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
       <path d="M20 3v4" />
@@ -128,10 +127,22 @@ const STORY_VOICE_CACHE_LIMIT = 24;
 const STORY_ACTIVE_CHARACTER_KEY = "story-last-active-character-id";
 const STORY_ACTIVE_TARGET_KEY = "story-last-active-target-v1";
 const STORY_ACTIVE_PAGE_MAP_KEY = "story-active-page-map-v1";
+const FLOATING_BALL_POS_KEY = "story-floating-ball-pos-v1";
 
 registerKvMigration(STORY_ACTIVE_CHARACTER_KEY);
 registerKvMigration(STORY_ACTIVE_TARGET_KEY);
 registerKvMigration(STORY_ACTIVE_PAGE_MAP_KEY);
+registerKvMigration(FLOATING_BALL_POS_KEY);
+
+function loadFloatingBallPos(): { x: number; y: number } | null {
+  try {
+    const parsed = JSON.parse(kvGet(FLOATING_BALL_POS_KEY) || "null");
+    if (parsed && typeof parsed.x === "number" && typeof parsed.y === "number") {
+      return { x: parsed.x, y: parsed.y };
+    }
+  } catch {}
+  return null;
+}
 
 type StoryActiveTarget = { ownerType: StoryOwnerType; ownerId: string };
 
@@ -389,6 +400,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [schemeRepoVersion, setSchemeRepoVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [floatingPhoneOpen, setFloatingPhoneOpen] = useState(false);
+  const [floatingBallPos, setFloatingBallPos] = useState<{ x: number; y: number } | null>(null);
   const [floatingGroupSessionId, setFloatingGroupSessionId] = useState("");
   const [floatingChatDraft, setFloatingChatDraft] = useState("");
   const [floatingChatGenerating, setFloatingChatGenerating] = useState(false);
@@ -564,6 +576,53 @@ export function StoryApp({ onClose }: StoryAppProps) {
     if (!node) return;
     node.scrollTop = node.scrollHeight;
   }, [floatingChatGenerating, floatingChatVersion, floatingPhoneOpen]);
+
+  useEffect(() => {
+    const stored = loadFloatingBallPos();
+    if (stored) setFloatingBallPos(stored);
+  }, []);
+
+  function handleFloatingBallPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
+    const ball = event.currentTarget;
+    const host = shellInnerRef.current;
+    if (!host) return;
+    const hostRect = host.getBoundingClientRect();
+    const ballRect = ball.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originLeft = ballRect.left - hostRect.left;
+    const originTop = ballRect.top - hostRect.top;
+    let moved = false;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      const maxLeft = hostRect.width - ballRect.width;
+      const maxTop = hostRect.height - ballRect.height;
+      const nextLeft = Math.min(Math.max(originLeft + dx, 0), Math.max(maxLeft, 0));
+      const nextTop = Math.min(Math.max(originTop + dy, 0), Math.max(maxTop, 0));
+      setFloatingBallPos({ x: nextLeft, y: nextTop });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (!moved) {
+        setFloatingChatVersion((value) => value + 1);
+        setFloatingPhoneOpen(true);
+        return;
+      }
+      setFloatingBallPos((current) => {
+        if (current) kvSet(FLOATING_BALL_POS_KEY, JSON.stringify(current));
+        return current;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
 
   function activateStorySession(session: StorySession) {
     setActiveSessionId(session.id);
@@ -1956,7 +2015,13 @@ export function StoryApp({ onClose }: StoryAppProps) {
       />
 
       {storySettings.floatingPhoneEnabled ? (
-        <button className="story-floating-phone-ball" type="button" onClick={() => { setFloatingChatVersion((value) => value + 1); setFloatingPhoneOpen(true); }} aria-label="打开悬浮小手机"><MiniPhoneIcon size={18} /></button>
+        <button
+          className="story-floating-phone-ball"
+          type="button"
+          onPointerDown={handleFloatingBallPointerDown}
+          style={floatingBallPos ? { left: floatingBallPos.x, top: floatingBallPos.y, right: "auto", bottom: "auto" } : undefined}
+          aria-label="打开悬浮小手机"
+        ><MiniPhoneIcon size={18} /></button>
       ) : null}
       {floatingPhoneOpen ? (
         <div className="story-mini-phone-overlay" onClick={() => setFloatingPhoneOpen(false)}>
