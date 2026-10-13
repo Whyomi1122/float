@@ -217,6 +217,27 @@ function parseLegacyStoryVoiceMarker(inner: string): { text: string; speaker?: s
     return { speaker: separator[1].trim(), text: separator[2].trim() };
 }
 
+// 拟声词 / 语气声：这类孤立短句（「嗒。」「砰！」「唔…」）不是角色对白，
+// 不配朗读按钮，避免误触发 TTS 浪费 token。
+const ONOMATOPOEIA_PATTERN = /^(?:[啊呀哦唔嗯哼唉诶嘿哈呃咦哟喂哇哎噫嘘啧嘁嘻嘿呀呀]{1,4}|[哒嗒砰啪嘭咚铛叮哐哐咔咔嚓嚓沙沙哗哗呼啦嗖咻嗡嘀嘟滴答]{1,4})[。．.、，,～~！!？?…·\s]*$/;
+
+/**
+ * 判断一段「…」内容是否值得朗读（角色对白）。
+ * 过滤掉：空内容、纯标点/符号、拟声词/语气声、以及过短且不含实义字的碎句。
+ */
+function isSpeakableStoryDialogue(rawText: string): boolean {
+    const text = rawText.trim();
+    if (!text) return false;
+    // 去掉所有标点/空白/符号后，若没有剩余字符 → 纯符号，不朗读
+    const bare = text.replace(/[\s。．.、，,！!？?…·~～—\-—／/\\|]|[「」“”"'‘’（）()【】\[\]{}<>《》]/g, "");
+    if (!bare) return false;
+    // 拟声词 / 语气声
+    if (ONOMATOPOEIA_PATTERN.test(text)) return false;
+    // 单字（去标点后仅剩 1 个字）且非明确引述语气 → 视为拟声/语气，不朗读
+    if (bare.length < 2) return false;
+    return true;
+}
+
 function MarkdownSegment({
     content,
     scopeClass,
@@ -241,6 +262,8 @@ function MarkdownSegment({
                     ? { text: (standardInner ?? curlyInner ?? "").trim(), speaker: undefined }
                     : parseLegacyStoryVoiceMarker(legacyInner);
                 if (!parsed.text) return _whole;
+                // 拟声词/语气声/纯符号不当作对白，不加朗读按钮（也不触发 TTS）
+                if (!isSpeakableStoryDialogue(parsed.text)) return _whole;
                 const id = `${voiceIdPrefix}:${voiceIndex++}`;
                 const token = `STORYVOICEPLACEHOLDER${voicePlaceholders.length}END`;
                 const speakerAttr = parsed.speaker
