@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Eraser,
   Play,
+  Square,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -53,6 +54,12 @@ import {
 } from "@/lib/ensemble-archive";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
+import {
+  resolveVoiceConfig,
+  synthesizeSpeech,
+  playAudioBlobViaMediaElement,
+  unlockAudioPlayback,
+} from "@/lib/tts-service";
 import { fetchModelNames } from "@/lib/model-list";
 import { TYPE, LEADING } from "@/components/ensemble/ensemble-tokens";
 import {
@@ -342,12 +349,15 @@ function BodyText({
   raw,
   kind = "act",
   inset = FRAME_BODY_INSET,
+  voiceButton,
 }: {
   raw: string;
   kind?: "dialogue" | "inner" | "act";
   /** 左基准（px）。默认与**头像左沿**对齐（1008d：FRAME_BODY_INSET == FRAME_TEXT_INSET）；
       嵌在心理块内时传 0（块自己已有内衬）。 */
   inset?: number;
+  /** 可选：对白段右侧的语音播放键节点（由上层注入，BodyText 只负责挂载）。 */
+  voiceButton?: React.ReactNode;
 }) {
   const paras = (raw ?? "")
     .split(/\n+/)
@@ -381,8 +391,9 @@ function BodyText({
   return (
     <div
       className={`frame-body frame-${kind} tracking-[0.01em]`}
-      style={headStyle}
+      style={{ ...headStyle, position: "relative" }}
     >
+      {voiceButton}
       {paras.map((p, i) => {
         const shown = /^[（(][\s\S]*[）)]$/.test(p)
           ? p.replace(/^[（(]\s*/, "").replace(/\s*[）)]$/, "")
@@ -478,11 +489,20 @@ function EnsembleFrameStream({
   frames,
   cast,
   onAvatarClick,
+  onVoicePlay,
+  playingVoiceKey,
+  turnId,
 }: {
   frames: EnsembleFrame[];
   cast: EnsembleCastMember[];
   /** 点头像 → 打开该幕的状态卡（未启用状态面板时由上层忽略） */
   onAvatarClick?: (speaker: string) => void;
+  /** 点对白行的播放键 → 合成并播放该句语音。 */
+  onVoicePlay?: (key: string, text: string, speaker?: string) => void;
+  /** 正在播放的帧定位键（用于把播放键切换为「停止/加载」态）。 */
+  playingVoiceKey?: string | null;
+  /** 该幕 ID：与帧下标拼成稳定 key，供语音定位。 */
+  turnId?: string;
 }) {
   let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
   // 跟踪上一帧是否为旁白，用于给旁白加「上下各 ≥ 一整行」的大段距。
@@ -542,6 +562,38 @@ function EnsembleFrameStream({
           {speaker}
         </div>
       </div>
+    );
+  };
+
+  /** 对白行右侧的小播放键：绝对定位到正文右上。
+      · 未播放 → Play；正在合成这一句 → Loader2 转；正在播放 → Square（点击停止）。
+      · 样式刻意做得极轻，避免抢正文视线。 */
+  const renderVoiceButton = (key: string, text: string, speaker?: string) => {
+    if (!onVoicePlay || !text.trim()) return undefined;
+    const isThis = playingVoiceKey === key;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onVoicePlay(key, text, speaker);
+        }}
+        className="absolute active:scale-95 transition-transform"
+        style={{
+          top: tpx(FRAME_BODY_INSET - 4),
+          right: tpx(FRAME_TEXT_INSET - 2),
+          width: tpx(22),
+          height: tpx(22),
+          WebkitTapHighlightColor: "transparent",
+        }}
+        title={isThis ? "停止" : "朗读这句"}
+      >
+        {isThis ? (
+          <Square size={tpx(13)} strokeWidth={2.2} color="rgba(0,0,0,0.5)" />
+        ) : (
+          <Play size={tpx(13)} strokeWidth={2.2} color="rgba(0,0,0,0.28)" />
+        )}
+      </button>
     );
   };
 
@@ -679,7 +731,19 @@ function EnsembleFrameStream({
         return (
           <div key={i} style={{ marginTop: topMargin }}>
             {showName && renderBlockHead(f.speaker)}
-            <BodyText raw={f.text} kind="dialogue" />
+            <BodyText
+              raw={f.text}
+              kind="dialogue"
+              voiceButton={
+                onVoicePlay
+                  ? renderVoiceButton(
+                      `${turnId ?? ""}:${i}`,
+                      f.text,
+                      f.speaker
+                    )
+                  : undefined
+              }
+            />
           </div>
         );
       })}
@@ -1160,6 +1224,15 @@ export function EnsembleApp({
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
   const [editingTurnDraft, setEditingTurnDraft] = useState("");
 
+  // ── 对白语音朗读 ──
+  /** 正在播放/加载的帧定位键（`${turnId}:${frameIndex}`） */
+  const [playingVoiceKey, setPlayingVoiceKey] = useState<string | null>(null);
+  /** 播放链路：请求序号 + 当前播放句柄，用于打断上一句 */
+  const voiceRequestIdRef = useRef(0);
+  const voicePlaybackRef = useRef<{ promise: Promise<void>; abort: () => void } | null>(null);
+  /** 语音 blob 缓存：同一句反复点不重复请求 */
+  const ensembleVoiceCacheRef = useRef<Map<string, Blob>>(new Map());
+
   /** 统一删除确认弹窗：解决原「一点就删、无法挽回」的危险操作 */
   const [confirmState, setConfirmState] = useState<{
     title: string;
@@ -1247,6 +1320,76 @@ export function EnsembleApp({
   const visibleScripts = activeId
     ? scripts.filter((s) => !s.personaId || s.personaId === activeId)
     : scripts;
+
+  // ── 对白语音朗读：点播放键 → 解析该角色语音配置 → 合成 → 播放 ──
+  const playEnsembleVoice = useCallback(
+    async (key: string, text: string, speaker?: string) => {
+      // 再次点击同一句 → 打断停止
+      if (playingVoiceKey === key) {
+        try {
+          voicePlaybackRef.current?.abort();
+        } catch { /* ignore */ }
+        voicePlaybackRef.current = null;
+        setPlayingVoiceKey(null);
+        return;
+      }
+      // 打断上一句
+      try {
+        voicePlaybackRef.current?.abort();
+      } catch { /* ignore */ }
+      voicePlaybackRef.current = null;
+
+      const clean = text.trim();
+      if (!clean) return;
+
+      // 角色 → 语音绑定：优先按该角色名匹配 cast，取角色 id；否则回退当前面具
+      const castMember = currentScript?.cast?.find((c) => c.name === speaker);
+      const characterId = castMember?.id || activePersona?.id || "ensemble";
+      const voiceConfig = resolveVoiceConfig(characterId, "ensemble");
+      if (!voiceConfig) {
+        setToast("该角色还没绑定语音，去「设置 → 语音」里配一下");
+        window.setTimeout(() => setToast(null), 2600);
+        return;
+      }
+
+      const reqId = ++voiceRequestIdRef.current;
+      setPlayingVoiceKey(key);
+      try {
+        unlockAudioPlayback();
+        let blob = ensembleVoiceCacheRef.current.get(key);
+        if (!blob) {
+          blob = await synthesizeSpeech(clean, voiceConfig) ?? undefined;
+          if (blob) ensembleVoiceCacheRef.current.set(key, blob);
+        }
+        if (!blob) throw new Error("语音合成为空");
+        if (reqId !== voiceRequestIdRef.current) return; // 已被新请求打断
+        const handle = playAudioBlobViaMediaElement(blob);
+        voicePlaybackRef.current = handle;
+        await handle.promise;
+      } catch (err) {
+        if (reqId === voiceRequestIdRef.current) {
+          console.error("[ensemble voice] 播放失败", err);
+          setToast("语音播放失败");
+          window.setTimeout(() => setToast(null), 2600);
+        }
+      } finally {
+        if (reqId === voiceRequestIdRef.current) {
+          setPlayingVoiceKey(null);
+          voicePlaybackRef.current = null;
+        }
+      }
+    },
+    [playingVoiceKey, currentScript, activePersona, setToast]
+  );
+
+  // 卸载时打断正在播放的语音
+  useEffect(() => {
+    return () => {
+      try {
+        voicePlaybackRef.current?.abort();
+      } catch { /* ignore */ }
+    };
+  }, []);
 
   useEffect(() => {
     if (currentScript) {
@@ -3220,6 +3363,9 @@ ${lastSpeakerNote}
                             }
                           : undefined
                       }
+                      turnId={turn.id}
+                      onVoicePlay={playEnsembleVoice}
+                      playingVoiceKey={playingVoiceKey}
                     />
                   )}
 
