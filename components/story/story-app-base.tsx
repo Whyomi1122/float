@@ -1209,10 +1209,8 @@ export function StoryApp({ onClose }: StoryAppProps) {
       }
       log.push(`[${event.kind}/${event.target}]→${session ? session.id : "NULL"}`);
       if (!session) continue;
-      // 保持内容原语言；仅当出现“外语|中文”双语时才取中文那一半
-      const content = /[\u4e00-\u9fa5]/.test(event.content)
-        ? (event.content.includes("|") ? (event.content.split("|").pop() || event.content).trim() : event.content)
-        : event.content;
+      // 内容原样投递（语言随正文，不翻译、不拆解）
+      const content = event.content.trim();
       if (!content) continue;
       pushChatMessage({ sessionId: session.id, role: "assistant", content, origin: "story_online" });
       bumpChatSessionUnread(session.id, 1);

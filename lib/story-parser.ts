@@ -159,13 +159,22 @@ export function parseStoryResponse(
   }
 
   const folded = applyFoldTags(reasoningProcessed, options?.foldTags);
-  const online = extractOnlineMessages(
-    folded
-      .replace(/\r\n/g, "\n")
-      .replace(/\n{4,}/g, "\n\n\n")
-      .trim(),
-  );
-  const renderedText = online.cleaned;
+  // 只在“正文”里提取线上消息：先剥掉折叠块（思考/think 等），避免把思考里的示例也投递出去（导致重复）。
+  let foldedBodyForOnline = folded;
+  if (options?.foldTags) {
+    for (const tag of options.foldTags.split(",").map(t => t.trim()).filter(Boolean)) {
+      const escaped = escapeTagName(tag);
+      foldedBodyForOnline = foldedBodyForOnline.replace(new RegExp(`<${escaped}>[\\s\\S]*?</${escaped}>`, "gi"), "");
+    }
+  }
+  foldedBodyForOnline = foldedBodyForOnline.replace(/<!--RHR-FOLD:[\s\S]*?<!--\/RHR-FOLD-->/gi, "");
+  const online = extractOnlineMessages(foldedBodyForOnline.replace(/\r\n/g, "\n").trim());
+  // 从最终渲染文本里剥离线上消息标记（整段 folded，保证标签不会露出）
+  const cleanedRendered = folded
+    .replace(/<(online|在线消息|线上消息)((?:\s[^>]*)?)>[\s\S]*?<\/\1>/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const renderedText = cleanedRendered;
 
   return {
     rawText: trimmed,
