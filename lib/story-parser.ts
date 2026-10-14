@@ -27,8 +27,9 @@ export type ParsedStoryResponse = {
  */
 function extractOnlineMessages(text: string): { cleaned: string; events: StoryOnlineMessage[] } {
   const events: StoryOnlineMessage[] = [];
-  const rx = /<(online|在线消息|线上消息)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
-  const attrRx = /([a-zA-Z_]+|[类型目标私聊群聊])\s*[:=]\s*["“]?([^"\n>”]*?)["”]?\s*(?=[\s/]|$)/g;
+  // 注意：不能用 \b 词边界，中文标签名（在线消息）与后续空格之间 \b 不成立。
+  const rx = /<(online|在线消息|线上消息)((?:\s[^>]*)?)>([\s\S]*?)<\/\1>/gi;
+  const attrRx = /([a-zA-Z_]+|类型|目标|私聊|群聊|kind)\s*[:=]\s*["“]?([^"\n>”]*?)["”]?\s*(?=[\s/]|$)/g;
   let match: RegExpExecArray | null;
   while ((match = rx.exec(text)) !== null) {
     const attrs: Record<string, string> = {};

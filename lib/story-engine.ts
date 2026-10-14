@@ -38,13 +38,14 @@ const STORY_VOICE_FORMAT_PROMPT = `# 剧情正文格式
 
 # 线上消息投递（重要，务必执行）
 当剧情中出现「角色用手机给用户或某个群发送了一条消息」的动作时（例如：他拿起手机打字发送、屏幕上弹出一条他发来的消息、群里有人发消息），你必须在叙述之外，另起一行输出控制标记，把这条消息交给系统投递到聊天 App：
-- 私聊（角色 → 用户）：<online chat="private" to="角色名">消息内容</online>
+- 私聊（角色 → 用户）：<online chat="private" to="收件人名字">消息内容</online>（to 填收件人即用户的名字，不是你自己的名字）
 - 群聊（某个群里的消息）：<online chat="group" to="群名">消息内容</online>
 硬性要求：
-1. to 必须写角色的**准确名字**（私聊）或**群名**（群聊），不要写“我”“用户”“对方”。
+1. to：私聊填**收件人（用户/你）**的名字，群聊填**群名**；不要写“我”“用户”“对方”。
 2. 标记必须成对、闭合，属性用英文双引号，标签名与 chat/to 属性名必须完全按上面写，不要翻译成中文、不要改写。
-3. 该标记只给系统看，不会展示给用户，因此不要在正文里复述或解释它；正文该怎样叙述就怎样叙述。
-4. 只有真的发送了消息才输出；没有则完全不输出该标记，也不要输出空标记。`;
+3. 消息内容用中文书写，不要附加外语对照。
+4. 该标记只给系统看，不会展示给用户，因此不要在正文里复述或解释它；正文该怎样叙述就怎样叙述。
+5. 只有真的发送了消息才输出；没有则完全不输出该标记，也不要输出空标记。`;
 
 export type StoryGenerationOptions = {
   sessionFoldTags?: string;
@@ -248,16 +249,6 @@ export async function generateStoryCompletion(
     macroEngine,
     activeTags: ["story"],
   });
-  // [临时诊断] 定位“线上消息”投递失败：模型是否输出了标记、解析是否命中。确认后移除。
-  if (typeof console !== "undefined") {
-    const suspects = /online|在线消息|线上消息/i.test(rawOutput);
-    console.log("[online-debug] parserVersion=", STORY_PARSER_VERSION, "parsedCount=", parsed.onlineMessages?.length ?? 0, "rawHasTag=", suspects);
-    if (!parsed.onlineMessages?.length && suspects) {
-      const idx = rawOutput.search(/online|在线消息|线上消息/i);
-      console.warn("[online-debug] 原始输出片段：", rawOutput.slice(Math.max(0, idx - 60), idx + 160));
-    }
-    if (!parsed.onlineMessages?.length) console.log("[online-debug] rawOutput 全文：\n" + rawOutput);
-  }
   return {
     rawText: parsed.rawText,
     renderedText: parsed.renderedText,

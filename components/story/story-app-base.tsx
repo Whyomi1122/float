@@ -1193,16 +1193,22 @@ export function StoryApp({ onClose }: StoryAppProps) {
     for (const event of events) {
       let session: ReturnType<typeof loadChatSessions>[number] | undefined;
       if (event.kind === "group") {
+        // 群聊：to=群名，按群名匹配，兜底找含当前角色的群
         session = sessions.find((item) => item.isGroup && (item.groupName || "") === event.target)
           || sessions.find((item) => item.isGroup && (item.groupName || "").includes(event.target))
           || sessions.find((item) => item.isGroup && item.participantIds?.includes(currentCharId));
       } else {
-        const char = loadCharacters().find((item) => item.name === event.target);
-        const contactId = char?.id || (event.target === currentCharacter?.name ? currentCharId : "");
-        if (contactId) session = sessions.find((item) => !item.isGroup && item.contactId === contactId);
+        // 私聊：to=收件人（用户），角色→用户的单聊 = 当前角色的单聊会话
+        session = sessions.find((item) => !item.isGroup && item.contactId === currentCharId)
+          || sessions.find((item) => !item.isGroup && currentCharacter?.name && item.contactId === currentCharacter.id);
       }
       if (!session) continue;
-      pushChatMessage({ sessionId: session.id, role: "assistant", content: event.content, origin: "story_online" });
+      // 模型可能输出“韩语|中文”双语，只取中文那一半
+      const content = event.content.includes("|")
+        ? (event.content.split("|").pop() || event.content).trim()
+        : event.content;
+      if (!content) continue;
+      pushChatMessage({ sessionId: session.id, role: "assistant", content, origin: "story_online" });
       bumpChatSessionUnread(session.id, 1);
       delivered += 1;
     }
@@ -1210,7 +1216,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
       setFloatingChatVersion((value) => value + 1);
       showVoiceNotice(delivered === 1 ? "他给你发来一条线上消息" : `收到 ${delivered} 条线上消息`);
     }
-  }, [currentCharacter?.name, showVoiceNotice]);
+  }, [currentCharacter?.id, currentCharacter?.name, showVoiceNotice]);
 
   const playStoryVoice = useCallback(async (segment: StoryVoiceSegment): Promise<boolean> => {
     if (!activeCharacterId || !segment.text.trim()) return false;
