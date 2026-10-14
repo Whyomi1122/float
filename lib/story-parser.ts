@@ -40,13 +40,19 @@ function extractOnlineMessages(text: string): { cleaned: string; events: StoryOn
     }
     const content = match[3].trim();
     const chatRaw = (attrs.chat || attrs["类型"] || "").toLowerCase();
-    const target = attrs.to || attrs["目标"] || "";
-    const kind: StoryOnlineMessage["kind"] | null =
-      chatRaw === "group" || chatRaw === "群聊" ? "group"
-        : chatRaw === "private" || chatRaw === "私聊" ? "private"
-          : null;
-    if (!content || !target || !kind) continue;
-    events.push({ kind, target, content });
+    if (!content) continue;
+    // 新格式：私聊无属性 <online>内容</online>；群聊 <online group="群名">。
+    // 兼容旧格式：chat="private|group" / chat="私聊|群聊" + to="..."。
+    if (attrs.group || attrs["群聊"] || chatRaw === "group" || chatRaw === "群聊") {
+      const target = attrs.group || attrs.to || attrs["目标"] || "";
+      if (!target) continue;
+      events.push({ kind: "group", target, content });
+    } else if (chatRaw === "private" || chatRaw === "私聊") {
+      events.push({ kind: "private", target: attrs.to || attrs["目标"] || "", content });
+    } else {
+      // 无 chat/类型/group 属性：视为私聊（角色发给用户）
+      events.push({ kind: "private", target: "", content });
+    }
   }
   const cleaned = text.replace(rx, "").replace(/\n{3,}/g, "\n\n").trim();
   return { cleaned, events };

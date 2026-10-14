@@ -2071,7 +2071,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
                     handleFloatingChatSend();
                   }
                 }}
-                placeholder={activeGroup && !floatingChatSession ? "若没有群聊建议先建一个群聊" : "发消息…（按剧情页的发送键才会提交进剧情）"}
+                placeholder={activeGroup && !floatingChatSession ? "若没有群聊建议先建一个群聊" : "发消息…"}
                 disabled={Boolean(activeGroup && !floatingChatSession)}
               />
               <button type="button" onClick={handleFloatingChatSend} disabled={!floatingChatDraft.trim() || Boolean(activeGroup && !floatingChatSession)} aria-label="存为待发送消息">
