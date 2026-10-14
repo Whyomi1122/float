@@ -23,25 +23,29 @@ export type ParsedStoryResponse = {
 /**
  * 提取 <online chat="private" to="林深">在忙吗</online> 控制块。
  * 与折叠标签同属“只给代码看”的控制标记：解析后从 renderedText 剥离。
- * 属性 chat/to 缺失时整块忽略（不投递，但仍剥离，避免正文露出标签）。
+ * 兼容中文别名（在线消息/线上消息）与中文属性（类型/目标），属性缺失时整块忽略（不投递，但仍剥离，避免正文露出标签）。
  */
 function extractOnlineMessages(text: string): { cleaned: string; events: StoryOnlineMessage[] } {
   const events: StoryOnlineMessage[] = [];
-  const rx = /<online\b([^>]*)>([\s\S]*?)<\/online>/gi;
-  const attrRx = /([a-zA-Z_]+)\s*=\s*"([^"]*)"/g;
+  const rx = /<(online|在线消息|线上消息)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+  const attrRx = /([a-zA-Z_]+|[类型目标私聊群聊])\s*[:=]\s*["“]?([^"\n>”]*?)["”]?\s*(?=[\s/]|$)/g;
   let match: RegExpExecArray | null;
   while ((match = rx.exec(text)) !== null) {
     const attrs: Record<string, string> = {};
     let attrMatch: RegExpExecArray | null;
     attrRx.lastIndex = 0;
-    while ((attrMatch = attrRx.exec(match[1])) !== null) {
+    while ((attrMatch = attrRx.exec(match[2])) !== null) {
       attrs[attrMatch[1].toLowerCase()] = attrMatch[2].trim();
     }
-    const content = match[2].trim();
-    const chat = (attrs.chat || "").toLowerCase();
-    const target = attrs.to || "";
-    if (!content || !target || (chat !== "private" && chat !== "group")) continue;
-    events.push({ kind: chat === "group" ? "group" : "private", target, content });
+    const content = match[3].trim();
+    const chatRaw = (attrs.chat || attrs["类型"] || "").toLowerCase();
+    const target = attrs.to || attrs["目标"] || "";
+    const kind: StoryOnlineMessage["kind"] | null =
+      chatRaw === "group" || chatRaw === "群聊" ? "group"
+        : chatRaw === "private" || chatRaw === "私聊" ? "private"
+          : null;
+    if (!content || !target || !kind) continue;
+    events.push({ kind, target, content });
   }
   const cleaned = text.replace(rx, "").replace(/\n{3,}/g, "\n\n").trim();
   return { cleaned, events };
