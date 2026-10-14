@@ -68,6 +68,7 @@ import {
   getStoryRenderSignature,
   rebuildStorySessionRenderCache,
 } from "@/lib/story-engine";
+import type { StoryOnlineMessage } from "@/lib/story-parser";
 import {
   createOrGetStorySession,
   createStoryGroup,
@@ -95,7 +96,7 @@ import {
   type StoryGroup,
   type StoryOwnerType,
 } from "@/lib/story-storage";
-import { createOrGetSession, hydrateChatStorage, loadChatMessages, loadChatSessions, markChatSessionRead, pushChatMessage } from "@/lib/chat-storage";
+import { bumpChatSessionUnread, createOrGetSession, hydrateChatStorage, loadChatMessages, loadChatSessions, markChatSessionRead, pushChatMessage } from "@/lib/chat-storage";
 import { flattenCompletionResult, generateChatCompletion } from "@/lib/chat-engine";
 import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 import { parseAIResponse } from "@/lib/rich-message-parser";
@@ -1183,6 +1184,34 @@ export function StoryApp({ onClose }: StoryAppProps) {
     voiceNoticeTimerRef.current = setTimeout(() => setVoiceNotice(null), 2600);
   }, []);
 
+  // 把剧情正文里声明的“线上消息”投递到聊天 App（写消息 + 未读红点），并在剧情页弹提示。
+  // 记忆保持“一份”：消息只是写进聊天 App 的同一份记录，不再另存。
+  const deliverOnlineMessages = useCallback((events: StoryOnlineMessage[], currentCharId: string) => {
+    if (!events.length) return;
+    const sessions = loadChatSessions();
+    let delivered = 0;
+    for (const event of events) {
+      let session: ReturnType<typeof loadChatSessions>[number] | undefined;
+      if (event.kind === "group") {
+        session = sessions.find((item) => item.isGroup && (item.groupName || "") === event.target)
+          || sessions.find((item) => item.isGroup && (item.groupName || "").includes(event.target))
+          || sessions.find((item) => item.isGroup && item.participantIds?.includes(currentCharId));
+      } else {
+        const char = loadCharacters().find((item) => item.name === event.target);
+        const contactId = char?.id || (event.target === currentCharacter?.name ? currentCharId : "");
+        if (contactId) session = sessions.find((item) => !item.isGroup && item.contactId === contactId);
+      }
+      if (!session) continue;
+      pushChatMessage({ sessionId: session.id, role: "assistant", content: event.content, origin: "story_online" });
+      bumpChatSessionUnread(session.id, 1);
+      delivered += 1;
+    }
+    if (delivered > 0) {
+      setFloatingChatVersion((value) => value + 1);
+      showVoiceNotice(delivered === 1 ? "他给你发来一条线上消息" : `收到 ${delivered} 条线上消息`);
+    }
+  }, [currentCharacter?.name, showVoiceNotice]);
+
   const playStoryVoice = useCallback(async (segment: StoryVoiceSegment): Promise<boolean> => {
     if (!activeCharacterId || !segment.text.trim()) return false;
 
@@ -1291,6 +1320,11 @@ export function StoryApp({ onClose }: StoryAppProps) {
         setMessages(loadStoryMessages(sessionId)); // 按会话从存储重读，杜绝跨会话串消息
       }
       setStorageVersion((value) => value + 1);
+
+      // 剧情里角色发出的“线上消息”→ 投递到聊天 App（带未读红点 + 剧情页提示）
+      if (result.onlineMessages?.length && !currentSession?.independentStory) {
+        deliverOnlineMessages(result.onlineMessages, characterId);
+      }
 
       const memoryCharacterIds = currentSession?.participantIds?.length ? currentSession.participantIds : [characterId];
       const storyCharacters = memoryCharacterIds

@@ -2,13 +2,50 @@ import type { RegexConfig } from "./settings-types";
 import { applyAllOutputRegex, applyAllReasoningRegex } from "./llm-prompt-assembler";
 import type { MacroEngine } from "./macro-engine";
 
-export const STORY_PARSER_VERSION = 7;
+export const STORY_PARSER_VERSION = 8;
+
+/** 剧情正文里声明的“线上消息”事件（角色在聊天 App 里发出的消息）。 */
+export type StoryOnlineMessage = {
+    kind: "private" | "group";
+    /** private=角色名；group=群名 */
+    target: string;
+    content: string;
+};
 
 export type ParsedStoryResponse = {
   rawText: string;
   renderedText: string;
   summaryText: string;
+  /** <online chat="private|group" to="...">内容</online> 解析结果；控制标记不进入正文渲染。 */
+  onlineMessages: StoryOnlineMessage[];
 };
+
+/**
+ * 提取 <online chat="private" to="林深">在忙吗</online> 控制块。
+ * 与折叠标签同属“只给代码看”的控制标记：解析后从 renderedText 剥离。
+ * 属性 chat/to 缺失时整块忽略（不投递，但仍剥离，避免正文露出标签）。
+ */
+function extractOnlineMessages(text: string): { cleaned: string; events: StoryOnlineMessage[] } {
+  const events: StoryOnlineMessage[] = [];
+  const rx = /<online\b([^>]*)>([\s\S]*?)<\/online>/gi;
+  const attrRx = /([a-zA-Z_]+)\s*=\s*"([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = rx.exec(text)) !== null) {
+    const attrs: Record<string, string> = {};
+    let attrMatch: RegExpExecArray | null;
+    attrRx.lastIndex = 0;
+    while ((attrMatch = attrRx.exec(match[1])) !== null) {
+      attrs[attrMatch[1].toLowerCase()] = attrMatch[2].trim();
+    }
+    const content = match[2].trim();
+    const chat = (attrs.chat || "").toLowerCase();
+    const target = attrs.to || "";
+    if (!content || !target || (chat !== "private" && chat !== "group")) continue;
+    events.push({ kind: chat === "group" ? "group" : "private", target, content });
+  }
+  const cleaned = text.replace(rx, "").replace(/\n{3,}/g, "\n\n").trim();
+  return { cleaned, events };
+}
 
 function escapeTagName(tag: string): string {
   return tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -117,14 +154,18 @@ export function parseStoryResponse(
   }
 
   const folded = applyFoldTags(reasoningProcessed, options?.foldTags);
-  const renderedText = folded
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{4,}/g, "\n\n\n")
-    .trim();
+  const online = extractOnlineMessages(
+    folded
+      .replace(/\r\n/g, "\n")
+      .replace(/\n{4,}/g, "\n\n\n")
+      .trim(),
+  );
+  const renderedText = online.cleaned;
 
   return {
     rawText: trimmed,
     renderedText,
     summaryText,
+    onlineMessages: online.events,
   };
 }

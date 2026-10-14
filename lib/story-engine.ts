@@ -18,6 +18,7 @@ import { prepareShortTermContext } from "./short-term-assembler";
 import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from "./calendar-storage";
 import { getWeekStartIso } from "./calendar-utils";
 import { parseStoryResponse } from "./story-parser";
+import type { StoryOnlineMessage } from "./story-parser";
 import { STORY_PARSER_VERSION } from "./story-parser";
 import { loadStoryMessages, replaceStoryMessages, resolveActiveStorySchemes, type StoryCharacterSettings, type StoryMessage } from "./story-storage";
 import type { ChatMessage } from "./chat-storage";
@@ -33,6 +34,7 @@ const STORY_VOICE_FORMAT_PROMPT = `# 剧情正文格式
 - ~强调~：只强调需要突出的短语。
 - “……”：只用于物品、动作、环境等非人声发出的声音，不作为角色对白。
 - 对白标点唯一格式：无论用户或历史消息里的对话使用什么标点形式（“”、""、『』、''等），你输出的角色对白一律使用「」，不要模仿用户的标点。
+- 线上消息：当角色在剧情中「用手机/微信等发给用户或某个群一条消息」时，除正常叙述外，另用一行输出控制标记 <online chat="private" to="角色名">消息内容</online>（私聊）或 <online chat="group" to="群名">消息内容</online>（群聊）。该标记只供系统投递到聊天 App，不会展示给用户，不要在正文里解释它；若剧情中没有角色发线上消息，就不要输出。
 旁白、动作以及用户的话不得写进「」；不要解释这些格式，也不要输出额外的语音清单。`;
 
 export type StoryGenerationOptions = {
@@ -90,6 +92,8 @@ export type StoryGenerationResult = {
   rawText: string;
   renderedText: string;
   storySummary: string;
+  /** 剧情里角色发出的“线上消息”（<online> 标记），由调用方投递到聊天 App。 */
+  onlineMessages?: StoryOnlineMessage[];
   regexSignature: string;
   parserVersion: number;
   promptMessages: LLMMessage[];
@@ -237,6 +241,7 @@ export async function generateStoryCompletion(
     rawText: parsed.rawText,
     renderedText: parsed.renderedText,
     storySummary: parsed.summaryText,
+    onlineMessages: parsed.onlineMessages,
     regexSignature,
     parserVersion: STORY_PARSER_VERSION,
     promptMessages: llmMessages,

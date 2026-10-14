@@ -125,7 +125,7 @@ export type ChatMessage = {
         | "group_admin_notice"
         | "media_file"
         | `plugin:${string}`; // 聊天插件自定义消息类型（由注册该 kind 的插件渲染气泡）
-    origin?: "chat" | "reading_discuss" | "custom_app" | "custom_app_background" | "story_floating_phone";
+    origin?: "chat" | "reading_discuss" | "custom_app" | "custom_app_background" | "story_floating_phone" | "story_online";
     mediaUrl?: string;
     mediaData?: {
         amount?: number;          // 红包/转账金额
@@ -1128,6 +1128,18 @@ export function markChatSessionRead(sessionId: string): void {
     const session = _sessionsCache.find(item => item.id === sessionId);
     if (!session || session.unreadCount === 0) return;
     session.unreadCount = 0;
+    dbPutSessions([session]);
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(CHAT_APP_SETTINGS_UPDATED_EVENT, { detail: { sessionId } }));
+    }
+}
+
+/** 增加该会话的未读数（供剧情“线上消息”自动投递等外部入口调用，让聊天 App 出现红点）。 */
+export function bumpChatSessionUnread(sessionId: string, delta = 1): void {
+    if (delta <= 0) return;
+    const session = _sessionsCache.find(item => item.id === sessionId);
+    if (!session) return;
+    session.unreadCount = (session.unreadCount || 0) + delta;
     dbPutSessions([session]);
     if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent(CHAT_APP_SETTINGS_UPDATED_EVENT, { detail: { sessionId } }));
