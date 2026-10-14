@@ -431,6 +431,8 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [quickStoryIndependent, setQuickStoryIndependent] = useState(false);
   const [playingVoiceSegmentId, setPlayingVoiceSegmentId] = useState<string | null>(null);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  // [临时诊断] 线上消息投递过程，确认后移除。
+  const [onlineDebug, setOnlineDebug] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const shellInnerRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
@@ -553,6 +555,10 @@ export function StoryApp({ onClose }: StoryAppProps) {
 
   useEffect(() => {
     mountedRef.current = true;
+    // 剧情 App 需要访问聊天 App 的会话/消息（悬浮小手机、线上消息投递），启动时先 hydrate 一次。
+    void hydrateChatStorage().then(() => {
+      if (mountedRef.current) setFloatingChatVersion((value) => value + 1);
+    });
     return () => {
       mountedRef.current = false;
       voiceRequestIdRef.current += 1;
@@ -1187,31 +1193,32 @@ export function StoryApp({ onClose }: StoryAppProps) {
   // 把剧情正文里声明的“线上消息”投递到聊天 App（写消息 + 未读红点），并在剧情页弹提示。
   // 记忆保持“一份”：消息只是写进聊天 App 的同一份记录，不再另存。
   const deliverOnlineMessages = useCallback((events: StoryOnlineMessage[], currentCharId: string) => {
-    if (!events.length) return;
+    if (!events.length) { setOnlineDebug("events=0"); return; }
     const sessions = loadChatSessions();
     let delivered = 0;
+    const log: string[] = [`events=${events.length}`, `sessions=${sessions.length}`, `charId=${currentCharId}`, `charName=${currentCharacter?.name || "?"}`];
     for (const event of events) {
       let session: ReturnType<typeof loadChatSessions>[number] | undefined;
       if (event.kind === "group") {
-        // 群聊：to=群名，按群名匹配，兜底找含当前角色的群
         session = sessions.find((item) => item.isGroup && (item.groupName || "") === event.target)
           || sessions.find((item) => item.isGroup && (item.groupName || "").includes(event.target))
           || sessions.find((item) => item.isGroup && item.participantIds?.includes(currentCharId));
       } else {
-        // 私聊：to=收件人（用户），角色→用户的单聊 = 当前角色的单聊会话
         session = sessions.find((item) => !item.isGroup && item.contactId === currentCharId)
-          || sessions.find((item) => !item.isGroup && currentCharacter?.name && item.contactId === currentCharacter.id);
+          || sessions.find((item) => !item.isGroup && currentCharacter?.id && item.contactId === currentCharacter.id);
       }
+      log.push(`[${event.kind}/${event.target}]→${session ? session.id : "NULL"}`);
       if (!session) continue;
-      // 模型可能输出“韩语|中文”双语，只取中文那一半
-      const content = event.content.includes("|")
-        ? (event.content.split("|").pop() || event.content).trim()
+      // 保持内容原语言；仅当出现“外语|中文”双语时才取中文那一半
+      const content = /[\u4e00-\u9fa5]/.test(event.content)
+        ? (event.content.includes("|") ? (event.content.split("|").pop() || event.content).trim() : event.content)
         : event.content;
       if (!content) continue;
       pushChatMessage({ sessionId: session.id, role: "assistant", content, origin: "story_online" });
       bumpChatSessionUnread(session.id, 1);
       delivered += 1;
     }
+    setOnlineDebug(log.join(" ") + ` delivered=${delivered}`);
     if (delivered > 0) {
       setFloatingChatVersion((value) => value + 1);
       showVoiceNotice(delivered === 1 ? "他给你发来一条线上消息" : `收到 ${delivered} 条线上消息`);
@@ -1329,7 +1336,10 @@ export function StoryApp({ onClose }: StoryAppProps) {
 
       // 剧情里角色发出的“线上消息”→ 投递到聊天 App（带未读红点 + 剧情页提示）
       if (result.onlineMessages?.length && !currentSession?.independentStory) {
-        deliverOnlineMessages(result.onlineMessages, characterId);
+        void (async () => {
+          await hydrateChatStorage(); // 确保会话缓存已就绪，否则找不到目标会话
+          deliverOnlineMessages(result.onlineMessages!, characterId);
+        })();
       }
 
       const memoryCharacterIds = currentSession?.participantIds?.length ? currentSession.participantIds : [characterId];
@@ -2044,6 +2054,12 @@ export function StoryApp({ onClose }: StoryAppProps) {
 
       {voiceNotice ? (
         <div className="story-voice-notice" role="status">{voiceNotice}</div>
+      ) : null}
+
+      {onlineDebug ? (
+        <div style={{ position: "absolute", left: 6, right: 6, bottom: 4, zIndex: 999, fontSize: 10, lineHeight: 1.3, color: "#b91c1c", background: "rgba(255,255,255,.92)", border: "1px solid #fca5a5", borderRadius: 6, padding: "4px 6px", wordBreak: "break-all" }} onClick={() => setOnlineDebug(null)}>
+          [online-debug] {onlineDebug}（点我关闭）
+        </div>
       ) : null}
 
       <StoryComposer
