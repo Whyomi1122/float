@@ -217,7 +217,9 @@ export async function generateStoryCompletion(
   }
 
   const { apiConfig, preset: resolvedPreset, regexes, worldBooks, regexSignature, summaryTag } = resolveStoryConfigs(characterId);
-  const preset = selectStoryPresetPrompts(resolvedPreset, options?.settings?.enabledPresetPromptIds);
+  const preset = options?.settings?.disableBoundPreset
+    ? null
+    : selectStoryPresetPrompts(resolvedPreset, options?.settings?.enabledPresetPromptIds);
   const effectiveFoldTags = options?.sessionFoldTags?.trim() || DEFAULT_STORY_FOLD_TAGS;
   const effectiveContextExcludedTags = options?.sessionContextExcludedTags?.trim() || DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS;
   const llmMessages = await buildStoryPromptMessages(

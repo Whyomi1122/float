@@ -513,6 +513,7 @@ export function StorySettingsPage(props: StorySettingsPageProps) {
         />
 
         <SettingCard title="剧情预设设置" hint="建议给剧情 APP 单独制作专属预设，避免影响其他应用">
+          <ToggleRow title="不启用默认预设" detail="开启后，本角色剧情完全不走绑定的大预设（含内置默认预设），避免预设指令与剧情设置冲突；仅保留下方剧情专属设置与线上消息等系统协议。" checked={Boolean(normalized.disableBoundPreset)} onChange={(value) => patchSettings({ disableBoundPreset: value })} />
           <label className="story-settings-field"><span>当前角色专属预设名称</span><input value={normalized.presetName} onChange={(event) => patchSettings({ presetName: event.target.value })} /></label>
           <label className="story-settings-field"><span>剧情额外要求</span><textarea value={normalized.extraPrompt || ""} onChange={(event) => patchSettings({ extraPrompt: event.target.value })} placeholder="仅在当前角色的剧情生成中使用" /></label>
           <div className="story-settings-subhead"><strong>专属预设条目</strong><button className="story-settings-mini-add" type="button" onClick={() => patchSettings({ customPromptEntries: [...(normalized.customPromptEntries || []), { id: `story-entry-${Date.now()}`, name: `新条目 ${(normalized.customPromptEntries?.length || 0) + 1}`, content: "", enabled: true }] })}><PlusIcon width={13} />增加</button></div>
@@ -526,7 +527,9 @@ export function StorySettingsPage(props: StorySettingsPageProps) {
             {!normalized.customPromptEntries?.length ? <p className="story-settings-empty">暂无专属条目，可按需要增加；它们只影响当前角色的剧情。</p> : null}
           </div>
           <div className="story-settings-subhead"><strong>操作已绑定大预设条目</strong><small>{props.boundPreset?.name || "未绑定大预设"}</small></div>
-          {availablePrompts.length ? (
+          {normalized.disableBoundPreset ? (
+            <p className="story-settings-empty">已开启“不启用默认预设”，下方条目暂不生效，因此不再显示。</p>
+          ) : availablePrompts.length ? (
             <div className="story-preset-prompt-list">
               {availablePrompts.map((prompt) => (
                 <label key={prompt.identifier}>
