@@ -497,6 +497,18 @@ function pickVoiceText(raw: string): string {
     真正的字形数据在加载时通过 FontFace / @font-face 另行注册）。 */
 const ENSEMBLE_CUSTOM_FONT_FAMILY = "EnsembleCustomFont";
 
+/** 自定义字体可作用的「块」清单（勾选项）。只列剧本文本块，
+    **不含**标题栏 / 输入框 / DATE·MODEL·字数 等 UI 元信息。 */
+const ENSEMBLE_FONT_SCOPE_OPTIONS: { cls: string; label: string }[] = [
+  { cls: "frame-dialogue", label: "对白" },
+  { cls: "frame-action", label: "叙述 / 动作" },
+  { cls: "frame-narration", label: "旁白" },
+  { cls: "frame-inner", label: "心理 / 内心" },
+  { cls: "frame-name", label: "角色名" },
+];
+/** 默认作用范围（全部剧本文本块）。 */
+const ENSEMBLE_FONT_SCOPE_DEFAULT = ENSEMBLE_FONT_SCOPE_OPTIONS.map((o) => o.cls);
+
 // 帧解析缓存：同一 (content, 演员表) 只解析一次。
 // 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
 // 时间戳格式化：框底 DATE 需要精确到分钟（2026-10 起，此前只显示到日）。
@@ -1278,6 +1290,8 @@ export function EnsembleApp({
   const [fontUploadName, setFontUploadName] = useState("");
   /** 06 TYPOGRAPHY · 当前会话字号倍率（1=原始设计字） */
   const [fontScaleDraft, setFontScaleDraft] = useState(1);
+  /** 自定义字体作用范围（勾选的块 class 列表） */
+  const [fontScopesDraft, setFontScopesDraft] = useState<string[]>(ENSEMBLE_FONT_SCOPE_DEFAULT);
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
   /** 轻提示：用于「功能尚未接入」等一次性反馈；非空时 1.8s 后自动消失 */
@@ -1622,11 +1636,17 @@ export function EnsembleApp({
           return;
         }
 
-        // 2) 应用规则：**通配覆盖 .ensemble-scope 内所有元素**。
-        //    此前按 class 精确覆盖（.frame-body/.frame-narration/.frame-name）时，
-        //    对白/动作仍不生效（具体元素被其它规则或继承链挡住），故改用通配
-        //    `*` —— 只要是群像内的文字一律套用剧本字体，一劳永逸。
-        const applyCss = `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}`;
+        // 2) 应用规则：**只作用于勾选的块**（默认＝全部剧本文本块），
+        //    绝不碰标题栏 / 输入框 / DATE·MODEL·字数 等 UI。
+        //    选择器用 .ensemble-scope 下的真实 class。
+        const scopes =
+          currentScript.fontScopes && currentScript.fontScopes.length > 0
+            ? currentScript.fontScopes
+            : ENSEMBLE_FONT_SCOPE_DEFAULT;
+        const sel = scopes
+          .map((c) => `.ensemble-scope .${c}`)
+          .join(", ");
+        const applyCss = `${sel}{font-family:"${family}" !important;}`;
 
         getStyleEl().textContent = faceCss + applyCss;
 
@@ -3878,6 +3898,14 @@ ${lastSpeakerNote}
               setShowToolsSheet(false);
               if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
+                // 字体草稿：来源 / 链接 / 作用范围
+                setFontSourceDraft(currentScript.fontSource);
+                setFontUrlDraft(currentScript.fontUrl ?? "");
+                setFontScopesDraft(
+                  currentScript.fontScopes && currentScript.fontScopes.length > 0
+                    ? currentScript.fontScopes
+                    : ENSEMBLE_FONT_SCOPE_DEFAULT
+                );
                 setShowCssSheet(true);
               } else if (id === "model") {
                 openModelSheet();
@@ -3973,6 +4001,146 @@ ${lastSpeakerNote}
                 />
               </div>
 
+              {/* ── 自定义字体（原 06 TYPOGRAPHY，迁入此处）── */}
+              <div className="bg-white rounded-[16px] p-3.5 space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <div className="text-[13px] font-semibold text-[#111111]">
+                    Typeface / 字体
+                  </div>
+                  <div className="text-[11px] text-black/35">本剧本专属</div>
+                </div>
+                <div className="text-[11px] leading-relaxed text-black/45">
+                  上传字体文件或填直链，勾选要作用的「块」。不改标题栏 / 输入框等 UI。
+                </div>
+
+                {/* 方式一：上传文件 */}
+                <div className="rounded-[12px] border border-black/10 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[12px] font-medium text-[#111111]">上传字体文件</div>
+                    {fontSourceDraft === "upload" && (
+                      <span className="text-[11px] text-[#2e7d32]">
+                        ✓ 已上传{fontUploadName ? ` · ${fontUploadName}` : ""}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-black/35 mt-1">
+                    支持 .ttf / .otf / .woff / .woff2，本地保存不上传
+                  </div>
+                  <div className="mt-2.5 flex gap-2">
+                    <label className="flex-1 text-center py-2 rounded-[10px] text-[12px] border border-black/10 text-[#111111] hover:bg-black/[0.03] cursor-pointer">
+                      选择文件…
+                      <input
+                        type="file"
+                        accept=".ttf,.otf,.woff,.woff2,font/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (file) void handleEnsembleFontUpload(file);
+                        }}
+                      />
+                    </label>
+                    {fontSourceDraft === "upload" && (
+                      <button
+                        type="button"
+                        onClick={() => handleEnsembleFontClear()}
+                        className="px-3 py-2 rounded-[10px] text-[12px] border border-black/10 text-[#b42318] hover:bg-[#b42318]/5"
+                      >
+                        移除
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 方式二：填链接 */}
+                <div className="rounded-[12px] border border-black/10 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[12px] font-medium text-[#111111]">字体链接</div>
+                    {fontSourceDraft === "url" && (
+                      <span className="text-[11px] text-[#2e7d32]">✓ 使用中</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-black/35 mt-1">
+                    粘贴 .ttf / .woff2 直链（需可跨域访问）
+                  </div>
+                  <input
+                    value={fontUrlDraft}
+                    onChange={(e) => setFontUrlDraft(e.target.value)}
+                    placeholder="https://…/font.ttf"
+                    className="mt-2.5 w-full rounded-[10px] bg-black/[0.04] px-3 py-2.5 text-[12px] text-[#111111] placeholder:text-black/25 outline-none"
+                  />
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={!fontUrlDraft.trim()}
+                      onClick={() => handleEnsembleFontUseUrl(fontUrlDraft.trim())}
+                      className="flex-1 py-2 rounded-[10px] text-[12px] bg-[#111111] text-white disabled:opacity-30"
+                    >
+                      应用链接字体
+                    </button>
+                    {fontSourceDraft === "url" && (
+                      <button
+                        type="button"
+                        onClick={() => handleEnsembleFontClear()}
+                        className="px-3 py-2 rounded-[10px] text-[12px] border border-black/10 text-[#b42318] hover:bg-[#b42318]/5"
+                      >
+                        移除
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 作用范围：勾选块 */}
+                <div className="rounded-[12px] border border-black/10 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[12px] font-medium text-[#111111]">作用范围</div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFontScopesDraft(
+                          fontScopesDraft.length === ENSEMBLE_FONT_SCOPE_OPTIONS.length
+                            ? []
+                            : ENSEMBLE_FONT_SCOPE_OPTIONS.map((o) => o.cls)
+                        )
+                      }
+                      className="text-[11px] text-black/45 underline"
+                    >
+                      {fontScopesDraft.length === ENSEMBLE_FONT_SCOPE_OPTIONS.length
+                        ? "全不选"
+                        : "全选"}
+                    </button>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap gap-2">
+                    {ENSEMBLE_FONT_SCOPE_OPTIONS.map((o) => {
+                      const on = fontScopesDraft.includes(o.cls);
+                      return (
+                        <button
+                          key={o.cls}
+                          type="button"
+                          onClick={() =>
+                            setFontScopesDraft((v) =>
+                              v.includes(o.cls)
+                                ? v.filter((x) => x !== o.cls)
+                                : [...v, o.cls]
+                            )
+                          }
+                          className={`px-3 py-1.5 rounded-full text-[12px] border transition-colors ${
+                            on
+                              ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
+                              : "border-black/10 text-black/45 hover:bg-black/[0.03]"
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[11px] text-black/35 mt-2">
+                    改完点下方「应用」生效（字体与勾选会一并保存）
+                  </div>
+                </div>
+              </div>
+
               {/* 底部按钮 */}
               <div className="flex items-center gap-2.5">
                 <button
@@ -3989,7 +4157,13 @@ ${lastSpeakerNote}
                 <button
                   type="button"
                   onClick={() => {
-                    const updated = { ...currentScript, customCss: cssDraft };
+                    const updated = {
+                      ...currentScript,
+                      customCss: cssDraft,
+                      // 一并保存字体的作用范围（字体本体已在 选择文件/应用链接 时存入）
+                      fontScopes:
+                        fontScopesDraft.length > 0 ? fontScopesDraft : undefined,
+                    };
                     setCurrentScript(updated);
                     saveOrUpdateEnsembleScript(updated);
                     setScripts(loadEnsembleScripts());
@@ -5134,157 +5308,7 @@ ${lastSpeakerNote}
                     </div>
                   </div>
 
-                  {/* 06 TYPOGRAPHY · 当前会话字体 */}
-                  <div>
-                    {sectionHead(<Type size={13} strokeWidth={2} />, "TYPOGRAPHY", "06")}
-                    <div className="bg-white rounded-[16px] p-4 space-y-4">
-                      {/* 字体：上传文件 / 填链接 */}
-                      <div>
-                        <div className="flex items-baseline justify-between">
-                          <div className="text-[13px] font-semibold text-[#111111]">
-                            Typeface / 字体
-                          </div>
-                          <div className="text-[11px] text-black/35">当前会话</div>
-                        </div>
-                        <div className="text-[11px] text-black/35 mt-1">
-                          只作用于本剧本的正文 / 对白 / 旁白 / 角色名，不改全局
-                        </div>
-
-                        {/* 方式一：上传 ttf 文件 */}
-                        <div className="mt-3 rounded-[12px] border border-black/10 p-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-[12px] font-medium text-[#111111]">
-                              上传字体文件
-                            </div>
-                            {fontSourceDraft === "upload" && (
-                              <span className="text-[11px] text-[#2e7d32]">
-                                ✓ 已上传{fontUploadName ? ` · ${fontUploadName}` : ""}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-black/35 mt-1">
-                            支持 .ttf / .otf / .woff / .woff2，本地保存不上传
-                          </div>
-                          <div className="mt-2.5 flex gap-2">
-                            <label
-                              className="flex-1 text-center py-2 rounded-[10px] text-[12px] border border-black/10 text-[#111111] hover:bg-black/[0.03] cursor-pointer"
-                            >
-                              选择文件…
-                              <input
-                                type="file"
-                                accept=".ttf,.otf,.woff,.woff2,font/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  e.target.value = "";
-                                  if (file) void handleEnsembleFontUpload(file);
-                                }}
-                              />
-                            </label>
-                            {fontSourceDraft === "upload" && (
-                              <button
-                                type="button"
-                                onClick={() => handleEnsembleFontClear()}
-                                className="px-3 py-2 rounded-[10px] text-[12px] border border-black/10 text-[#b42318] hover:bg-[#b42318]/5"
-                              >
-                                移除
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* 方式二：填字体链接 */}
-                        <div className="mt-3 rounded-[12px] border border-black/10 p-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-[12px] font-medium text-[#111111]">
-                              字体链接
-                            </div>
-                            {fontSourceDraft === "url" && (
-                              <span className="text-[11px] text-[#2e7d32]">✓ 使用中</span>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-black/35 mt-1">
-                            粘贴 .ttf / .woff2 直链（需可跨域访问）
-                          </div>
-                          <input
-                            value={fontUrlDraft}
-                            onChange={(e) => setFontUrlDraft(e.target.value)}
-                            placeholder="https://…/font.ttf"
-                            className="mt-2.5 w-full rounded-[10px] bg-black/[0.04] px-3 py-2.5 text-[12px] text-[#111111] placeholder:text-black/25 outline-none"
-                          />
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              type="button"
-                              disabled={!fontUrlDraft.trim()}
-                              onClick={() => handleEnsembleFontUseUrl(fontUrlDraft.trim())}
-                              className="flex-1 py-2 rounded-[10px] text-[12px] bg-[#111111] text-white disabled:opacity-30"
-                            >
-                              应用链接字体
-                            </button>
-                            {fontSourceDraft === "url" && (
-                              <button
-                                type="button"
-                                onClick={() => handleEnsembleFontClear()}
-                                className="px-3 py-2 rounded-[10px] text-[12px] border border-black/10 text-[#b42318] hover:bg-[#b42318]/5"
-                              >
-                                移除
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 字号倍率 */}
-                      <div>
-                        <div className="flex items-baseline justify-between">
-                          <div className="text-[13px] font-semibold text-[#111111]">
-                            Size / 字号
-                          </div>
-                          <div className="text-[11px] text-black/45 font-medium tabular-nums">
-                            {fontScaleDraft.toFixed(2)}×
-                          </div>
-                        </div>
-                        <div className="text-[11px] text-black/35 mt-1">
-                          等比缩放本剧本正文层级，保持大小关系不变
-                        </div>
-                        <div className="mt-3 flex items-center gap-3">
-                          {(
-                            [
-                              [0.9, "小"],
-                              [1, "标准"],
-                              [1.15, "大"],
-                              [1.3, "特大"],
-                            ] as const
-                          ).map(([val, label]) => {
-                            const on = Math.abs(fontScaleDraft - val) < 0.001;
-                            return (
-                              <button
-                                key={label}
-                                type="button"
-                                onClick={() => setFontScaleDraft(val)}
-                                className={`flex-1 py-2 rounded-[10px] text-[12px] border transition-colors ${
-                                  on
-                                    ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
-                                    : "border-black/10 text-black/55 hover:bg-black/[0.03]"
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <input
-                          type="range"
-                          min={0.8}
-                          max={1.6}
-                          step={0.05}
-                          value={fontScaleDraft}
-                          onChange={(e) => setFontScaleDraft(Number(e.target.value))}
-                          className="mt-3 w-full accent-[#111111]"
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  {/* 06 TYPOGRAPHY（字体）已迁入「自定义 CSS」面板，见 showCssSheet。 */}
 
                   {/* 底部：SAVE DATA + 清空记录 */}
                   <button
