@@ -92,12 +92,12 @@ export type EnsembleScript = {
   /** 自定义字体在页面里注册的 font-family 名（运行时生成，供渲染层引用） */
   fontFamily?: string;
   /**
-   * 自定义字体的**作用范围**：勾选的块 class 名列表（不含点号），例如
-   *   ["frame-dialogue","frame-narration","frame-action","frame-inner","frame-name"]
-   * 缺省 = 全部剧本文本块（对白/叙述/旁白/心理/角色名）。
-   * 只影响这些块，标题栏 / 输入框 / 页脚元信息等 UI 不受影响。
+   * 自定义字体的**作用范围**：
+   *   · "story"（缺省）= 仅剧情正文（对白/叙述/旁白/心理/角色名），
+   *                     通过给 UI 区域打 data-ens-ui 后由 `:not()` 排除实现；
+   *   · "all"          = 群像内全部文字（含标题栏 / 输入框 / 页脚元信息）。
    */
-  fontScopes?: string[];
+  fontScope?: "story" | "all";
   /**
    * 当前会话字号倍率（缩放）。
    * 1 ＝ 原始设计字（14/12px 等），会**等比**放大正文/对白/旁白/角色名，

@@ -497,18 +497,6 @@ function pickVoiceText(raw: string): string {
     真正的字形数据在加载时通过 FontFace / @font-face 另行注册）。 */
 const ENSEMBLE_CUSTOM_FONT_FAMILY = "EnsembleCustomFont";
 
-/** 自定义字体可作用的「块」清单（勾选项）。只列剧本文本块，
-    **不含**标题栏 / 输入框 / DATE·MODEL·字数 等 UI 元信息。 */
-const ENSEMBLE_FONT_SCOPE_OPTIONS: { cls: string; label: string }[] = [
-  { cls: "frame-dialogue", label: "对白" },
-  { cls: "frame-action", label: "叙述 / 动作" },
-  { cls: "frame-narration", label: "旁白" },
-  { cls: "frame-inner", label: "心理 / 内心" },
-  { cls: "frame-name", label: "角色名" },
-];
-/** 默认作用范围（全部剧本文本块）。 */
-const ENSEMBLE_FONT_SCOPE_DEFAULT = ENSEMBLE_FONT_SCOPE_OPTIONS.map((o) => o.cls);
-
 // 帧解析缓存：同一 (content, 演员表) 只解析一次。
 // 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
 // 时间戳格式化：框底 DATE 需要精确到分钟（2026-10 起，此前只显示到日）。
@@ -1109,7 +1097,7 @@ function EnsembleHeader({
       className="relative z-20 shrink-0 bg-white/80 backdrop-blur-md border-b border-black/[0.06]"
       style={{ paddingTop: "var(--page-header-safe-top, 48px)" }}
     >
-      <div className="grid grid-cols-[44px_1fr_44px] items-center px-3 min-h-[42px]">
+      <div className="grid grid-cols-[44px_1fr_44px] items-center px-3 min-h-[42px]" data-ens-ui="1">
         {showBack ? (
           <button
             type="button"
@@ -1290,8 +1278,8 @@ export function EnsembleApp({
   const [fontUploadName, setFontUploadName] = useState("");
   /** 06 TYPOGRAPHY · 当前会话字号倍率（1=原始设计字） */
   const [fontScaleDraft, setFontScaleDraft] = useState(1);
-  /** 自定义字体作用范围（勾选的块 class 列表） */
-  const [fontScopesDraft, setFontScopesDraft] = useState<string[]>(ENSEMBLE_FONT_SCOPE_DEFAULT);
+  /** 自定义字体作用范围（"story"=仅剧情正文 / "all"=全部文字） */
+  const [fontScopeDraft, setFontScopeDraft] = useState<"story" | "all">("story");
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
   /** 轻提示：用于「功能尚未接入」等一次性反馈；非空时 1.8s 后自动消失 */
@@ -1636,17 +1624,15 @@ export function EnsembleApp({
           return;
         }
 
-        // 2) 应用规则：**只作用于勾选的块**（默认＝全部剧本文本块），
-        //    绝不碰标题栏 / 输入框 / DATE·MODEL·字数 等 UI。
-        //    选择器用 .ensemble-scope 下的真实 class。
-        const scopes =
-          currentScript.fontScopes && currentScript.fontScopes.length > 0
-            ? currentScript.fontScopes
-            : ENSEMBLE_FONT_SCOPE_DEFAULT;
-        const sel = scopes
-          .map((c) => `.ensemble-scope .${c}`)
-          .join(", ");
-        const applyCss = `${sel}{font-family:"${family}" !important;}`;
+        // 2) 应用规则：两档。**精确选块实测不可靠**（对白/动作/心理常漏），
+        //    故两档都走「通配」——
+        //      · all   ：.ensemble-scope 内所有元素
+        //      · story ：通配但 **排除** 打了 data-ens-ui 的 UI 区域（标题栏/
+        //                输入栏/轮次页脚元信息）及其后代 → 只留剧本文本。
+        const scopeAll = currentScript.fontScope === "all";
+        const applyCss = scopeAll
+          ? `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}`
+          : `.ensemble-scope *:not([data-ens-ui]):not([data-ens-ui] *){font-family:"${family}" !important;}`;
 
         getStyleEl().textContent = faceCss + applyCss;
 
@@ -1676,7 +1662,7 @@ export function EnsembleApp({
     return () => {
       cancelled = true;
     };
-  }, [currentScript?.id, currentScript?.fontSource, currentScript?.fontUrl, currentScript]);
+  }, [currentScript?.id, currentScript?.fontSource, currentScript?.fontUrl, currentScript?.fontScope, currentScript]);
 
 
   useEffect(() => {
@@ -3683,7 +3669,7 @@ ${lastSpeakerNote}
                       · 下方再一道虚线 + 分页（‹ 1/1 ›）在左、操作图标在右
                       · 1008 用户批注：「**用户卡片不需要这三行**」（DATE/MODEL/TOKENS）
                         → 仅 AI 幕渲染元信息行，用户投稿幕只留分页 + 操作图标。 */}
-                  <div className="px-[10px]">
+                  <div className="px-[10px]" data-ens-ui="1">
                     {!isUser && (
                       <>
                         <div
@@ -3813,6 +3799,7 @@ ${lastSpeakerNote}
           <div
             className="bg-white/80 backdrop-blur-xl border-t border-black/[0.04] px-3 py-2 shrink-0"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
+            data-ens-ui="1"
           >
             <div className="flex items-center gap-2">
               {/* 唯一的入口：+ 号 → 底部「功能」面板（旁白/配色/CSS/模型都收进去） */}
@@ -3901,11 +3888,7 @@ ${lastSpeakerNote}
                 // 字体草稿：来源 / 链接 / 作用范围
                 setFontSourceDraft(currentScript.fontSource);
                 setFontUrlDraft(currentScript.fontUrl ?? "");
-                setFontScopesDraft(
-                  currentScript.fontScopes && currentScript.fontScopes.length > 0
-                    ? currentScript.fontScopes
-                    : ENSEMBLE_FONT_SCOPE_DEFAULT
-                );
+                setFontScopeDraft(currentScript.fontScope ?? "story");
                 setShowCssSheet(true);
               } else if (id === "model") {
                 openModelSheet();
@@ -4090,53 +4073,35 @@ ${lastSpeakerNote}
                   </div>
                 </div>
 
-                {/* 作用范围：勾选块 */}
+                {/* 作用范围：两档 */}
                 <div className="rounded-[12px] border border-black/10 p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[12px] font-medium text-[#111111]">作用范围</div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFontScopesDraft(
-                          fontScopesDraft.length === ENSEMBLE_FONT_SCOPE_OPTIONS.length
-                            ? []
-                            : ENSEMBLE_FONT_SCOPE_OPTIONS.map((o) => o.cls)
-                        )
-                      }
-                      className="text-[11px] text-black/45 underline"
-                    >
-                      {fontScopesDraft.length === ENSEMBLE_FONT_SCOPE_OPTIONS.length
-                        ? "全不选"
-                        : "全选"}
-                    </button>
-                  </div>
-                  <div className="mt-2.5 flex flex-wrap gap-2">
-                    {ENSEMBLE_FONT_SCOPE_OPTIONS.map((o) => {
-                      const on = fontScopesDraft.includes(o.cls);
+                  <div className="text-[12px] font-medium text-[#111111]">作用范围</div>
+                  <div className="mt-2.5 flex gap-2">
+                    {(
+                      [
+                        ["story", "仅剧情正文"],
+                        ["all", "全部文字"],
+                      ] as const
+                    ).map(([val, label]) => {
+                      const on = fontScopeDraft === val;
                       return (
                         <button
-                          key={o.cls}
+                          key={val}
                           type="button"
-                          onClick={() =>
-                            setFontScopesDraft((v) =>
-                              v.includes(o.cls)
-                                ? v.filter((x) => x !== o.cls)
-                                : [...v, o.cls]
-                            )
-                          }
-                          className={`px-3 py-1.5 rounded-full text-[12px] border transition-colors ${
+                          onClick={() => setFontScopeDraft(val)}
+                          className={`flex-1 py-2 rounded-[10px] text-[12px] border transition-colors ${
                             on
                               ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
                               : "border-black/10 text-black/45 hover:bg-black/[0.03]"
                           }`}
                         >
-                          {o.label}
+                          {label}
                         </button>
                       );
                     })}
                   </div>
                   <div className="text-[11px] text-black/35 mt-2">
-                    改完点下方「应用」生效（字体与勾选会一并保存）
+                    「仅剧情正文」不动标题栏 / 输入框 / 页脚元信息
                   </div>
                 </div>
               </div>
@@ -4161,8 +4126,7 @@ ${lastSpeakerNote}
                       ...currentScript,
                       customCss: cssDraft,
                       // 一并保存字体的作用范围（字体本体已在 选择文件/应用链接 时存入）
-                      fontScopes:
-                        fontScopesDraft.length > 0 ? fontScopesDraft : undefined,
+                      fontScope: fontScopeDraft,
                     };
                     setCurrentScript(updated);
                     saveOrUpdateEnsembleScript(updated);
