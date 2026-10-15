@@ -81,6 +81,18 @@ export type EnsembleScript = {
    */
   customCss?: string;
   /**
+   * 当前会话字体族（font-family）。
+   * 作用于本剧本正文/对白/旁白/角色名的字体，不改变字号层级。
+   * 缺省（undefined）＝ 沿用群像默认字体栈。
+   */
+  fontFamily?: string;
+  /**
+   * 当前会话字号倍率（缩放）。
+   * 1 ＝ 原始设计字（14/12px 等），会**等比**放大正文/对白/旁白/角色名，
+   * 保持层级差不变。建议范围 0.85 ~ 1.6，缺省视为 1。
+   */
+  fontScale?: number;
+  /**
    * 模型切换：当前剧本指定的 API 配置 id。
    * 缺省则走 resolveEnsembleApiConfig 的级联兜底。
    */

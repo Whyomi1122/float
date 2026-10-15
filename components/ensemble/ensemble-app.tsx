@@ -22,6 +22,7 @@ import {
   Eraser,
   Play,
   Square,
+  Type,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -208,9 +209,23 @@ const C_NARR = "#b4b4b8"; // 旁白：更淡的灰（1005 反馈：与正文灰�
 //   曾出现「常量已改成 #b4b4b8，实机仍比正文深」——最可能是被剧本级 customCss
 //   覆盖（注入的 <style> 全文档生效且权重更高）。此处把旁白样式改为行内
 //   style 直接输出，行内优先级最高，任何外部 CSS 都无法再盖掉它。
+// ── 当前会话字号倍率（剧本级 · 06 TYPOGRAPHY）──
+//   群像字号一律由上面的常量（TYPE 档位）内联输出，本变量只对**字号**做等比缩放，
+//   以保持「对白/叙述/旁白/角色名」之间的层级比例不变。
+//   由 <EnsembleApp> 在渲染前用 syncEnsembleFontScale() 写入当前剧本的 fontScale。
+let ENS_FONT_SCALE = 1;
+/** 供主组件在每次渲染前同步当前剧本的字号倍率（1 = 原始设计字）。 */
+function syncEnsembleFontScale(scale?: number) {
+  ENS_FONT_SCALE = scale && Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+/** 字号专用：把设计字号按当前倍率缩放后再走 tpx（仅用于 fontSize）。 */
+function ts(designPx: number): string {
+  return tpx(designPx * ENS_FONT_SCALE);
+}
+
 function narrStyle(): React.CSSProperties {
   return {
-    fontSize: tpx(T_NARR),
+    fontSize: ts(T_NARR),
     color: C_NARR,
     fontWeight: 400,
     lineHeight: 1.9,
@@ -371,7 +386,7 @@ function BodyText({
   // 行内直出（而非只靠 class）：防止剧本级 customCss 用更高权重覆盖配色/字号
   const headStyle: React.CSSProperties = {
     color,
-    fontSize: tpx(size),
+    fontSize: ts(size),
     fontWeight: 400,
     lineHeight: 1.75,
     opacity: 1,
@@ -455,6 +470,17 @@ function pickVoiceText(raw: string): string {
   if (koreanLines.length > 0) return koreanLines.join(" ");
   return lines.join(" ");
 }
+
+/** 当前会话字体预设（用户可在剧本设置 06 TYPOGRAPHY 选择或自定义）。
+    空串 = 沿用群像默认字体栈。 */
+const ENSEMBLE_FONT_PRESETS: { label: string; value: string }[] = [
+  { label: "默认", value: "" },
+  { label: "宋体", value: '"Songti SC", "SimSun", "Noto Serif SC", serif' },
+  { label: "黑体", value: '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif' },
+  { label: "楷体", value: '"Kaiti SC", "KaiTi", "STKaiti", serif' },
+  { label: "圆体", value: '"Yuanti SC", "Yuanti TC", "PingFang SC", sans-serif' },
+  { label: "等宽", value: '"SF Mono", "JetBrains Mono", "Menlo", monospace' },
+];
 
 // 帧解析缓存：同一 (content, 演员表) 只解析一次。
 // 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
@@ -593,7 +619,7 @@ function EnsembleFrameStream({
         {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
         <div
           className="frame-name font-semibold tracking-wide"
-          style={{ fontSize: tpx(T_NAME), color: C_NAME, fontWeight: 600, opacity: 1 }}
+          style={{ fontSize: ts(T_NAME), color: C_NAME, fontWeight: 600, opacity: 1 }}
         >
           {speaker}
         </div>
@@ -1217,6 +1243,10 @@ export function EnsembleApp({
    */
   const [charsInput, setCharsInput] = useState("600");
   const [cssDraft, setCssDraft] = useState("");
+  /** 05 TYPOGRAPHY · 当前会话字体：字体族（空串=默认字体栈） */
+  const [fontFamilyDraft, setFontFamilyDraft] = useState("");
+  /** 05 TYPOGRAPHY · 当前会话字体：字号倍率（1=原始设计字） */
+  const [fontScaleDraft, setFontScaleDraft] = useState(1);
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
   /** 轻提示：用于「功能尚未接入」等一次性反馈；非空时 1.8s 后自动消失 */
@@ -1476,6 +1506,8 @@ export function EnsembleApp({
     setContextDraft(s.contextLimit ?? 40);
     setPovDraft(s.narrativePov ?? "third");
     setOnlineSyncDraft(s.onlineSync ?? false);
+    setFontFamilyDraft(s.fontFamily ?? "");
+    setFontScaleDraft(s.fontScale ?? 1);
     setShowToolsSheet(false);
     setShowSettingsSheet(true);
   };
@@ -2938,10 +2970,26 @@ ${lastSpeakerNote}
   // ══════════════════════════════════════════════════════
   // 视图 4：剧本剧场（对话）
   // ══════════════════════════════════════════════════════
+  // 同步「当前会话字号倍率」到模块级变量：ts() 在各内联 style 里即时读取。
+  // 必须在 return 前调用（同一渲染周期内生效）。
+  syncEnsembleFontScale(currentScript?.fontScale);
   return (
     <div className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
       {/* 字号缩放桥接已删除（2026-10）：群像内部字号一律写死，
           不再跟随全局 --app-text-scale，故无需 .ensemble-scope 的 34 行覆盖。 */}
+
+      {/* 当前会话字体（剧本级 · 06 TYPOGRAPHY）：
+          · font-family：本 App 内正文/对白/旁白/角色名统一改用剧本字体，
+            字号层级仍由各 style 常量的内联 px 决定（此处不动尺寸）。
+          · 字号倍率：由 ts() 在各内联 style 里读取模块变量实现，故此处不再需要变量。
+          缺省（未设置）＝ 默认字体栈 + 1×。 */}
+      <style jsx global>{`
+        .ensemble-scope .frame-body,
+        .ensemble-scope .frame-narr,
+        .ensemble-scope .frame-name {
+          ${currentScript?.fontFamily ? `font-family: ${currentScript.fontFamily};` : ""}
+        }
+      `}</style>
 
       {/* 剧本级自定义 CSS：仅作用于本 App 的 .ensemble-scope 命名空间 */}
       {/* 用户卡片：输入内容一律纯黑（1006 反馈 R1）。
@@ -4881,6 +4929,101 @@ ${lastSpeakerNote}
                     </div>
                   </div>
 
+                  {/* 06 TYPOGRAPHY · 当前会话字体 */}
+                  <div>
+                    {sectionHead(<Type size={13} strokeWidth={2} />, "TYPOGRAPHY", "06")}
+                    <div className="bg-white rounded-[16px] p-4 space-y-4">
+                      {/* 字体族 */}
+                      <div>
+                        <div className="flex items-baseline justify-between">
+                          <div className="text-[13px] font-semibold text-[#111111]">
+                            Typeface / 字体
+                          </div>
+                          <div className="text-[11px] text-black/35">当前会话</div>
+                        </div>
+                        <div className="text-[11px] text-black/35 mt-1">
+                          只作用于本剧本的正文 / 对白 / 旁白 / 角色名，不改全局
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {ENSEMBLE_FONT_PRESETS.map((p) => {
+                            const on = fontFamilyDraft === p.value;
+                            return (
+                              <button
+                                key={p.label}
+                                type="button"
+                                onClick={() => setFontFamilyDraft(p.value)}
+                                className={`px-3 py-1.5 rounded-[10px] text-[12px] border transition-colors ${
+                                  on
+                                    ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
+                                    : "border-black/10 text-black/55 hover:bg-black/[0.03]"
+                                }`}
+                                style={p.value ? { fontFamily: p.value } : undefined}
+                              >
+                                {p.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <input
+                          value={fontFamilyDraft}
+                          onChange={(e) => setFontFamilyDraft(e.target.value)}
+                          placeholder="或直接粘贴 font-family，如 Songti SC, serif"
+                          className="mt-3 w-full rounded-[12px] bg-black/[0.04] px-3 py-2.5 text-[12px] text-[#111111] placeholder:text-black/25 outline-none"
+                        />
+                      </div>
+
+                      {/* 字号倍率 */}
+                      <div>
+                        <div className="flex items-baseline justify-between">
+                          <div className="text-[13px] font-semibold text-[#111111]">
+                            Size / 字号
+                          </div>
+                          <div className="text-[11px] text-black/45 font-medium tabular-nums">
+                            {fontScaleDraft.toFixed(2)}×
+                          </div>
+                        </div>
+                        <div className="text-[11px] text-black/35 mt-1">
+                          等比缩放本剧本正文层级，保持大小关系不变
+                        </div>
+                        <div className="mt-3 flex items-center gap-3">
+                          {(
+                            [
+                              [0.9, "小"],
+                              [1, "标准"],
+                              [1.15, "大"],
+                              [1.3, "特大"],
+                            ] as const
+                          ).map(([val, label]) => {
+                            const on = Math.abs(fontScaleDraft - val) < 0.001;
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => setFontScaleDraft(val)}
+                                className={`flex-1 py-2 rounded-[10px] text-[12px] border transition-colors ${
+                                  on
+                                    ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
+                                    : "border-black/10 text-black/55 hover:bg-black/[0.03]"
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <input
+                          type="range"
+                          min={0.8}
+                          max={1.6}
+                          step={0.05}
+                          value={fontScaleDraft}
+                          onChange={(e) => setFontScaleDraft(Number(e.target.value))}
+                          className="mt-3 w-full accent-[#111111]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   {/* 底部：SAVE DATA + 清空记录 */}
                   <button
                     type="button"
@@ -4893,6 +5036,11 @@ ${lastSpeakerNote}
                         contextLimit: contextDraft,
                         narrativePov: povDraft,
                         onlineSync: onlineSyncDraft,
+                        fontFamily: fontFamilyDraft.trim() ? fontFamilyDraft.trim() : undefined,
+                        fontScale:
+                          Number.isFinite(fontScaleDraft) && fontScaleDraft !== 1
+                            ? Math.min(2, Math.max(0.7, fontScaleDraft))
+                            : undefined,
                       };
                       setCurrentScript(updated);
                       saveOrUpdateEnsembleScript(updated);
