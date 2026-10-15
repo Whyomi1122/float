@@ -79,6 +79,8 @@ import {
   appendEnsembleTurn,
   deleteEnsembleTurn,
   updateEnsembleTurn,
+  saveEnsembleFontData,
+  loadEnsembleFontData,
 } from "@/lib/ensemble-storage";
 import { hydrateKvDb } from "@/lib/kv-db";
 import { ensureSettingsStorageHydrated } from "@/lib/settings-storage";
@@ -471,16 +473,9 @@ function pickVoiceText(raw: string): string {
   return lines.join(" ");
 }
 
-/** 当前会话字体预设（用户可在剧本设置 06 TYPOGRAPHY 选择或自定义）。
-    空串 = 沿用群像默认字体栈。 */
-const ENSEMBLE_FONT_PRESETS: { label: string; value: string }[] = [
-  { label: "默认", value: "" },
-  { label: "宋体", value: '"Songti SC", "SimSun", "Noto Serif SC", serif' },
-  { label: "黑体", value: '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif' },
-  { label: "楷体", value: '"Kaiti SC", "KaiTi", "STKaiti", serif' },
-  { label: "圆体", value: '"Yuanti SC", "Yuanti TC", "PingFang SC", sans-serif' },
-  { label: "等宽", value: '"SF Mono", "JetBrains Mono", "Menlo", monospace' },
-];
+/** 剧本会话字体的 font-family 注册名（运行时生成，与具体剧本无关；
+    真正的字形数据在加载时通过 FontFace / @font-face 另行注册）。 */
+const ENSEMBLE_CUSTOM_FONT_FAMILY = "EnsembleCustomFont";
 
 // 帧解析缓存：同一 (content, 演员表) 只解析一次。
 // 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
@@ -1243,9 +1238,13 @@ export function EnsembleApp({
    */
   const [charsInput, setCharsInput] = useState("600");
   const [cssDraft, setCssDraft] = useState("");
-  /** 05 TYPOGRAPHY · 当前会话字体：字体族（空串=默认字体栈） */
-  const [fontFamilyDraft, setFontFamilyDraft] = useState("");
-  /** 05 TYPOGRAPHY · 当前会话字体：字号倍率（1=原始设计字） */
+  /** 06 TYPOGRAPHY · 当前会话字体来源（未自定义时为 undefined） */
+  const [fontSourceDraft, setFontSourceDraft] = useState<"upload" | "url" | undefined>(undefined);
+  /** 06 TYPOGRAPHY · 链接字体的 URL */
+  const [fontUrlDraft, setFontUrlDraft] = useState("");
+  /** 06 TYPOGRAPHY · 已上传字体的文件名（仅用于显示「已上传 · xxx.ttf」） */
+  const [fontUploadName, setFontUploadName] = useState("");
+  /** 06 TYPOGRAPHY · 当前会话字号倍率（1=原始设计字） */
   const [fontScaleDraft, setFontScaleDraft] = useState(1);
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
@@ -1456,6 +1455,129 @@ export function EnsembleApp({
     };
   }, []);
 
+  // ── 06 TYPOGRAPHY · 字体操作 ──
+  /** 上传字体文件：转 base64 → 存 KV（本剧本）→ 记来源=upload。
+      真正的注册在下面的 fontSource effect 里完成（依赖 script 状态更新）。 */
+  const handleEnsembleFontUpload = useCallback(
+    async (file: File) => {
+      if (!currentScript) return;
+      try {
+        if (file.size > 12 * 1024 * 1024) {
+          setToast("字体文件过大（>12MB）");
+          window.setTimeout(() => setToast(null), 2600);
+          return;
+        }
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        if (!dataUrl) throw new Error("读取为空");
+        saveEnsembleFontData(currentScript.id, dataUrl);
+        setFontUploadName(file.name);
+        setFontSourceDraft("upload");
+        // 立即落库到剧本，使 effect 生效
+        const updated: EnsembleScript = {
+          ...currentScript,
+          fontSource: "upload",
+          fontUrl: undefined,
+          fontFamily: ENSEMBLE_CUSTOM_FONT_FAMILY,
+          updatedAt: new Date().toISOString(),
+        };
+        setCurrentScript(updated);
+        saveOrUpdateEnsembleScript(updated);
+        setToast("字体已应用");
+        window.setTimeout(() => setToast(null), 1800);
+      } catch (err) {
+        console.warn("[ensemble] 字体上传失败", err);
+        setToast("字体上传失败");
+        window.setTimeout(() => setToast(null), 2600);
+      }
+    },
+    [currentScript, setToast]
+  );
+
+  /** 使用链接字体：记来源=url（注册在 effect 里注入 @font-face）。 */
+  const handleEnsembleFontUseUrl = useCallback(
+    (url: string) => {
+      if (!currentScript || !url) return;
+      setFontSourceDraft("url");
+      setFontUrlDraft(url);
+      setFontUploadName("");
+      const updated: EnsembleScript = {
+        ...currentScript,
+        fontSource: "url",
+        fontUrl: url,
+        fontFamily: ENSEMBLE_CUSTOM_FONT_FAMILY,
+        updatedAt: new Date().toISOString(),
+      };
+      setCurrentScript(updated);
+      saveOrUpdateEnsembleScript(updated);
+      setToast("字体已应用");
+      window.setTimeout(() => setToast(null), 1800);
+    },
+    [currentScript, setToast]
+  );
+
+  /** 清除自定义字体：删 KV 数据 + 清 source/url。 */
+  const handleEnsembleFontClear = useCallback(() => {
+    if (!currentScript) return;
+    saveEnsembleFontData(currentScript.id, null);
+    setFontSourceDraft(undefined);
+    setFontUrlDraft("");
+    setFontUploadName("");
+    const updated: EnsembleScript = {
+      ...currentScript,
+      fontSource: undefined,
+      fontUrl: undefined,
+      fontFamily: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    setCurrentScript(updated);
+    saveOrUpdateEnsembleScript(updated);
+  }, [currentScript]);
+
+  // ── 06 TYPOGRAPHY · 自定义字体的运行时注册 ──
+  // 剧本选定的字体在「进入/切换剧本」时注册进 document：
+  //   · upload：从 KV 取 base64 dataURL，用 FontFace API 注册
+  //   · url   ：注入 @font-face（src 指向远程链接）
+  // 注册名统一为 ENSEMBLE_CUSTOM_FONT_FAMILY（同一时刻只用一份字体）。
+  useEffect(() => {
+    const src = currentScript?.fontSource;
+    if (!currentScript || !src) return;
+    let cancelled = false;
+    const family = ENSEMBLE_CUSTOM_FONT_FAMILY;
+    const styleId = "ensemble-custom-font-face";
+
+    (async () => {
+      try {
+        if (src === "upload") {
+          const dataUrl = loadEnsembleFontData(currentScript.id);
+          if (!dataUrl) return;
+          const ff = new FontFace(family, `url(${dataUrl})`);
+          await ff.load();
+          if (cancelled) return;
+          document.fonts.add(ff);
+        } else if (src === "url" && currentScript.fontUrl) {
+          let el = document.getElementById(styleId) as HTMLStyleElement | null;
+          if (!el) {
+            el = document.createElement("style");
+            el.id = styleId;
+            document.head.appendChild(el);
+          }
+          el.textContent = `@font-face{font-family:"${family}";src:url("${currentScript.fontUrl}");font-display:swap;}`;
+        }
+      } catch (err) {
+        console.warn("[ensemble] 自定义字体加载失败", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentScript?.id, currentScript?.fontSource, currentScript?.fontUrl, currentScript]);
+
   useEffect(() => {
     if (currentScript) {
       // 载入剧本时先解析一次模型名，保证 MODEL 行即使未生成也有值
@@ -1506,7 +1628,9 @@ export function EnsembleApp({
     setContextDraft(s.contextLimit ?? 40);
     setPovDraft(s.narrativePov ?? "third");
     setOnlineSyncDraft(s.onlineSync ?? false);
-    setFontFamilyDraft(s.fontFamily ?? "");
+    setFontSourceDraft(s.fontSource);
+    setFontUrlDraft(s.fontUrl ?? "");
+    setFontUploadName("");
     setFontScaleDraft(s.fontScale ?? 1);
     setShowToolsSheet(false);
     setShowSettingsSheet(true);
@@ -4933,7 +5057,7 @@ ${lastSpeakerNote}
                   <div>
                     {sectionHead(<Type size={13} strokeWidth={2} />, "TYPOGRAPHY", "06")}
                     <div className="bg-white rounded-[16px] p-4 space-y-4">
-                      {/* 字体族 */}
+                      {/* 字体：上传文件 / 填链接 */}
                       <div>
                         <div className="flex items-baseline justify-between">
                           <div className="text-[13px] font-semibold text-[#111111]">
@@ -4944,32 +5068,89 @@ ${lastSpeakerNote}
                         <div className="text-[11px] text-black/35 mt-1">
                           只作用于本剧本的正文 / 对白 / 旁白 / 角色名，不改全局
                         </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {ENSEMBLE_FONT_PRESETS.map((p) => {
-                            const on = fontFamilyDraft === p.value;
-                            return (
+
+                        {/* 方式一：上传 ttf 文件 */}
+                        <div className="mt-3 rounded-[12px] border border-black/10 p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="text-[12px] font-medium text-[#111111]">
+                              上传字体文件
+                            </div>
+                            {fontSourceDraft === "upload" && (
+                              <span className="text-[11px] text-[#2e7d32]">
+                                ✓ 已上传{fontUploadName ? ` · ${fontUploadName}` : ""}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-black/35 mt-1">
+                            支持 .ttf / .otf / .woff / .woff2，本地保存不上传
+                          </div>
+                          <div className="mt-2.5 flex gap-2">
+                            <label
+                              className="flex-1 text-center py-2 rounded-[10px] text-[12px] border border-black/10 text-[#111111] hover:bg-black/[0.03] cursor-pointer"
+                            >
+                              选择文件…
+                              <input
+                                type="file"
+                                accept=".ttf,.otf,.woff,.woff2,font/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (file) void handleEnsembleFontUpload(file);
+                                }}
+                              />
+                            </label>
+                            {fontSourceDraft === "upload" && (
                               <button
-                                key={p.label}
                                 type="button"
-                                onClick={() => setFontFamilyDraft(p.value)}
-                                className={`px-3 py-1.5 rounded-[10px] text-[12px] border transition-colors ${
-                                  on
-                                    ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
-                                    : "border-black/10 text-black/55 hover:bg-black/[0.03]"
-                                }`}
-                                style={p.value ? { fontFamily: p.value } : undefined}
+                                onClick={() => handleEnsembleFontClear()}
+                                className="px-3 py-2 rounded-[10px] text-[12px] border border-black/10 text-[#b42318] hover:bg-[#b42318]/5"
                               >
-                                {p.label}
+                                移除
                               </button>
-                            );
-                          })}
+                            )}
+                          </div>
                         </div>
-                        <input
-                          value={fontFamilyDraft}
-                          onChange={(e) => setFontFamilyDraft(e.target.value)}
-                          placeholder="或直接粘贴 font-family，如 Songti SC, serif"
-                          className="mt-3 w-full rounded-[12px] bg-black/[0.04] px-3 py-2.5 text-[12px] text-[#111111] placeholder:text-black/25 outline-none"
-                        />
+
+                        {/* 方式二：填字体链接 */}
+                        <div className="mt-3 rounded-[12px] border border-black/10 p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="text-[12px] font-medium text-[#111111]">
+                              字体链接
+                            </div>
+                            {fontSourceDraft === "url" && (
+                              <span className="text-[11px] text-[#2e7d32]">✓ 使用中</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-black/35 mt-1">
+                            粘贴 .ttf / .woff2 直链（需可跨域访问）
+                          </div>
+                          <input
+                            value={fontUrlDraft}
+                            onChange={(e) => setFontUrlDraft(e.target.value)}
+                            placeholder="https://…/font.ttf"
+                            className="mt-2.5 w-full rounded-[10px] bg-black/[0.04] px-3 py-2.5 text-[12px] text-[#111111] placeholder:text-black/25 outline-none"
+                          />
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              type="button"
+                              disabled={!fontUrlDraft.trim()}
+                              onClick={() => handleEnsembleFontUseUrl(fontUrlDraft.trim())}
+                              className="flex-1 py-2 rounded-[10px] text-[12px] bg-[#111111] text-white disabled:opacity-30"
+                            >
+                              应用链接字体
+                            </button>
+                            {fontSourceDraft === "url" && (
+                              <button
+                                type="button"
+                                onClick={() => handleEnsembleFontClear()}
+                                className="px-3 py-2 rounded-[10px] text-[12px] border border-black/10 text-[#b42318] hover:bg-[#b42318]/5"
+                              >
+                                移除
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       {/* 字号倍率 */}
@@ -5036,7 +5217,12 @@ ${lastSpeakerNote}
                         contextLimit: contextDraft,
                         narrativePov: povDraft,
                         onlineSync: onlineSyncDraft,
-                        fontFamily: fontFamilyDraft.trim() ? fontFamilyDraft.trim() : undefined,
+                        fontSource: fontSourceDraft,
+                        fontUrl:
+                          fontSourceDraft === "url" && fontUrlDraft.trim()
+                            ? fontUrlDraft.trim()
+                            : undefined,
+                        fontFamily: fontSourceDraft ? ENSEMBLE_CUSTOM_FONT_FAMILY : undefined,
                         fontScale:
                           Number.isFinite(fontScaleDraft) && fontScaleDraft !== 1
                             ? Math.min(2, Math.max(0.7, fontScaleDraft))
@@ -5044,6 +5230,12 @@ ${lastSpeakerNote}
                       };
                       setCurrentScript(updated);
                       saveOrUpdateEnsembleScript(updated);
+                      // 字体源切换时同步 IndexedDB 里的字体数据：
+                      //  · 链接模式 / 清除 → 删掉本剧本曾上传的文件，避免残留
+                      //  · 上传模式 → 文件在 handleEnsembleFontUpload 里已存
+                      if (fontSourceDraft !== "upload") {
+                        saveEnsembleFontData(updated.id, null);
+                      }
                       setScripts(loadEnsembleScripts());
                       setToast("已保存");
                     }}
