@@ -660,10 +660,13 @@ function EnsembleFrameStream({
       · 未播放 → Play；播放/加载中 → Square（点击停止）。
       · 16px、极淡，避免抢正文视线；双语模式下挂在中文译句末尾。 */
   /** 该对白行是否应显示语音键：仅当说话人是剧本 cast 成员且绑定了语音。 */
-  const isVoiceEligible = (speaker?: string): boolean => {
-    if (!speaker) return false;
-    const m = cast.find((c) => c.name === speaker);
-    if (!m) return false; // 非 cast 角色（如临时配角）不显示
+  const isVoiceEligible = (speaker?: string, speakerId?: string): boolean => {
+    if (!speaker && !speakerId) return false;
+    // 必须在 cast 里能找到（先按 id，再按名字），临时配角一律不显示
+    const m = speakerId
+      ? cast.find((c) => c.id === speakerId)
+      : cast.find((c) => c.name === speaker);
+    if (!m) return false;
     return !!resolveVoiceConfig(m.id, "ensemble");
   };
 
@@ -834,7 +837,7 @@ function EnsembleFrameStream({
               kind="dialogue"
               fontFamily={fontFamily}
               voiceButton={
-                onVoicePlay && isVoiceEligible(f.speaker)
+                onVoicePlay && isVoiceEligible(f.speaker, f.speakerId)
                   ? renderVoiceButton(
                       `${turnId ?? ""}:${i}`,
                       f.text,

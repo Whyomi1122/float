@@ -5851,7 +5851,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     } : {};
 
                     return (
-                        <div key={msg.id} className="flex flex-col gap-4" {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
+                        <div key={msg.id} className={`flex flex-col ${renderMsg.mediaType && renderMsg.mediaType !== "audio" && renderMsg.mediaType !== "image" ? "gap-1.5" : "gap-4"}`} {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
                             {showTime && (
                                 <div className="flex justify-center w-full">
                                     <span className="chat-sys-msg py-[2px] px-2 rounded select-none">
@@ -6071,7 +6071,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); setExpandedThinkingId(prev => prev === msg.id ? null : msg.id); }}
-                                                className="chat-monologue-heart bg-none border-none cursor-pointer p-1 ts-14 leading-none self-start shrink-0 -mt-3 -mb-3 -ml-2"
+                                                className="chat-monologue-heart bg-none border-none cursor-pointer p-1 ts-14 leading-none self-end shrink-0 -ml-2"
                                                 {...(expandedMonologueId === msg.id ? { "data-active": "" } : {})}
                                                 title="查看折叠状态"
                                                 aria-label="查看折叠状态"

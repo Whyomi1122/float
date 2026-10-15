@@ -98,27 +98,41 @@ export function ChatArchivePanel({
                 onNotice("未配置记忆总结模型（设置 → 辅助模型）");
                 return;
             }
-            const res = await simpleLLMCall(
+            const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+                Promise.race([
+                    p,
+                    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("请求超时（60秒无响应）")), ms)),
+                ]);
+            const res = await withTimeout(simpleLLMCall(
                 apiConfig,
                 [
                     {
                         role: "system",
                         content:
-                            "你是记忆归档助手。请把下面的聊天记录提炼成一份「发生了什么」的长期档案。" +
-                            "要求：①只记录已发生的事实、双方关系变化、重要约定、情绪节点、物品/地点状态；" +
-                            "②用第三人称叙述，条理清晰，可用简短小标题和短横线分点；" +
-                            "③纯文本输出，不要使用任何 Markdown 星号（**）、井号（#）等符号；" +
-                            "④不要编造，不要写没发生的事，不要加评价和推测。只输出档案正文。",
+                            "你是记忆归档助手，负责把聊天记录整理成一份可长期存档的「剧情档案」，供角色日后回忆。\n" +
+                            "格式要求（严格遵守）：\n" +
+                            "①纯文本，不使用任何 Markdown 符号（不要 **、#、`、> 等）；\n" +
+                            "②用中文全角符号分区，可用 ───── 或 ═════ 做分隔线，用小标题【】分节；\n" +
+                            "③按时间或主题分段，每条以简短日期或场景前缀开头（如「06-06」或「当晚」），后接第三人称叙述；\n" +
+                            "④只记录已发生的事实：双方关系变化、重要约定、情绪节点、物品/地点状态、关键对白要点；\n" +
+                            "⑤不要编造、不要写未发生的事、不要加主观评价或推测。\n" +
+                            "参考格式：\n" +
+                            "═════ 历史压缩 · 起止时间 ═════\n" +
+                            "【阶段小标题】\n" +
+                            "时间 事件叙述……\n\n" +
+                            "只输出档案正文本身。",
                     },
                     { role: "user", content: transcript },
                 ],
                 { temperature: 0.3, label: "chat-archive" },
-            );
+            ), 60000);
             if (!res.content) {
                 onNotice(res.error || "提炼失败");
                 return;
             }
             setDraft(res.content.trim());
+        } catch (e) {
+            onNotice(e instanceof Error ? e.message : "提炼失败");
         } finally {
             setSummarizing(false);
         }
