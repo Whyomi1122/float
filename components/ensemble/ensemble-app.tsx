@@ -1626,28 +1626,44 @@ export function EnsembleApp({
           return;
         }
 
-        // 2) 应用规则：两档。**精确选块实测不可靠**（对白/动作/心理常漏），
-        //    故两档都走「通配」——
-        //      · all   ：.ensemble-scope 内所有元素
-        //      · story ：通配但 **排除** 打了 data-ens-ui 的 UI 区域（标题栏/
-        //                输入栏/轮次页脚元信息）及其后代 → 只留剧本文本。
+        // 2) 应用规则：两档。
+        //    · all   ：.ensemble-scope 内所有元素
+        //    · story ：**先全改，再把 UI 区域强制还原**（两规则，后写覆盖）。
+        //      不用 `*:not([data-ens-ui] *)` —— 该写法（:not 里带后代组合）在
+        //      部分移动浏览器不可靠，实测 UI 仍被改。改用「显式还原」：
+        //      `.ensemble-scope [data-ens-ui] *` 是标准后代选择器，稳。
         const scopeAll = currentScript.fontScope === "all";
+        const ENSUI_DEFAULT_FONT =
+          'ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif';
         const applyCss = scopeAll
           ? `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}`
-          : `.ensemble-scope *:not([data-ens-ui]):not([data-ens-ui] *){font-family:"${family}" !important;}`;
+          : `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}` +
+            `.ensemble-scope [data-ens-ui], .ensemble-scope [data-ens-ui] *{font-family:${ENSUI_DEFAULT_FONT} !important;}`;
 
         getStyleEl().textContent = faceCss + applyCss;
 
-        // 3) 确保字体真正加载完（url 模式靠 FontFaceSet 触发）
+        // 3) 触发加载并给反馈。
+        //    ⚠️ 不要用 `load() 返回空` 判失败 —— 远程字体的加载有网络延迟，
+        //    首次可能返回空（随后才就绪），此前就因此误报「链接不对」。
+        //    改为：await load 后**只在成功时提示**；拿不到就静默等待，
+        //    用 setTimeout + fonts.check 复查一次，仍失败才提示。
         try {
-          const loaded = await document.fonts.load(`14px "${family}"`);
-          // 自检提示（移动端看不到 console，用 toast 反馈加载结果）
-          if (!loaded || loaded.length === 0) {
-            setToast("字体未加载：链接可能不可跨域或格式不支持");
-            window.setTimeout(() => setToast(null), 4000);
-          } else {
+          await document.fonts.load(`14px "${family}"`);
+          const ok = document.fonts.check(`14px "${family}"`);
+          if (ok) {
             setToast("字体已生效");
             window.setTimeout(() => setToast(null), 1800);
+          } else {
+            // 等一拍再复查（远程字体常见）
+            window.setTimeout(() => {
+              if (document.fonts.check(`14px "${family}"`)) {
+                setToast("字体已生效");
+                window.setTimeout(() => setToast(null), 1800);
+              } else {
+                setToast("字体加载超时：请确认链接可跨域 / 文件为字体格式");
+                window.setTimeout(() => setToast(null), 4000);
+              }
+            }, 1500);
           }
         } catch (e) {
           setToast("字体加载失败：链接不可访问或非字体文件");
