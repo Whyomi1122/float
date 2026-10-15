@@ -3904,10 +3904,11 @@ ${lastSpeakerNote}
               setShowToolsSheet(false);
               if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
-                // 字体草稿：来源 / 链接 / 作用范围
+                // 字体草稿：来源 / 链接 / 作用范围 / 正文字号
                 setFontSourceDraft(currentScript.fontSource);
                 setFontUrlDraft(currentScript.fontUrl ?? "");
                 setFontScopeDraft(currentScript.fontScope ?? "story");
+                setFontSizeDraft(currentScript.fontSize ?? 14);
                 setShowCssSheet(true);
               } else if (id === "model") {
                 openModelSheet();
@@ -4175,8 +4176,13 @@ ${lastSpeakerNote}
                     const updated = {
                       ...currentScript,
                       customCss: cssDraft,
-                      // 一并保存字体的作用范围（字体本体已在 选择文件/应用链接 时存入）
+                      // 一并保存字体的作用范围与正文字号（字体本体已在
+                      // 选择文件 / 应用字体 URL 时单独存入）
                       fontScope: fontScopeDraft,
+                      fontSize:
+                        Number.isFinite(fontSizeDraft) && fontSizeDraft !== 14
+                          ? Math.min(20, Math.max(10, fontSizeDraft))
+                          : undefined,
                     };
                     setCurrentScript(updated);
                     saveOrUpdateEnsembleScript(updated);
