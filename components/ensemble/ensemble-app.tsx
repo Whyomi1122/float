@@ -876,6 +876,7 @@ function MiniSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-5 pb-5 w-full max-w-[420px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
+        data-ens-ui="1"
       >
         <div className="px-1.5 mb-3.5 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -951,6 +952,7 @@ function ConfirmDialog({
       <div
         className="bg-white rounded-2xl w-full max-w-[300px] p-5 shadow-xl border border-black/5 flex flex-col gap-4"
         onClick={(e) => e.stopPropagation()}
+        data-ens-ui="1"
       >
         <div className="space-y-1.5">
           <div className="font-semibold text-sm text-[#1a1a1a]">{title}</div>
