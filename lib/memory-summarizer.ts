@@ -2,8 +2,8 @@
 // Auto-summarization engine: summarizes short-term events into long-term memories.
 // Trigger: every N events (configurable). Short-term events are NOT deleted after summarization.
 
-import type { MemoryEntry } from "./memory-types";
-import { DEFAULT_SUMMARIZATION_PROMPT } from "./memory-types";
+import type { MemoryEntry, MemoryDraft } from "./memory-types";
+import { DEFAULT_SUMMARIZATION_PROMPT, computeContentHash } from "./memory-types";
 import {
     loadMemoryConfig,
     loadMemoryEntries,
@@ -14,6 +14,10 @@ import {
     getLastSummarizedTimestamp,
     setLastSummarizedTimestamp,
     incrementCoreMemoryCounter,
+    addMemoryDraft,
+    removeMemoryDraft,
+    addDeletedHash,
+    isHashedDeleted,
 } from "./memory-storage";
 import { resolveAuxiliaryApiConfig } from "./settings-storage";
 import { loadNativeTimeline, formatTimelineForSummarization, filterTimelineByAllowedSources } from "./short-term-assembler";
@@ -33,19 +37,11 @@ export async function maybeRunSummarization(
     characterId: string,
     characterName: string
 ): Promise<void> {
-    const config = loadMemoryConfig();
-    if (!config.autoSummarizeEnabled) return;
-
-    const counter = getEventCounter(characterId);
-    if (counter < config.summarizationEventInterval) return;
-
-    if (summarizingSet.has(characterId)) return;
-    summarizingSet.add(characterId);
-    try {
-        await runSummarizationPipeline(characterId, characterName);
-    } finally {
-        summarizingSet.delete(characterId);
-    }
+    // 归档确认制：自动记录已停用。记忆只能由用户在「归档」页手动提炼 → 确认后入库。
+    // 保留函数签名以兼容既有调用点；此处直接返回。
+    void characterId;
+    void characterName;
+    return;
 }
 
 /**
@@ -62,7 +58,7 @@ export async function runSummarizationPipeline(
         /** 手动指定总结起点（覆盖进度水位线）；force 为真时忽略 */
         sinceTimestamp?: string;
     }
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; draftId?: string }> {
     const config = loadMemoryConfig();
 
     // Resolve API from auxiliary binding
@@ -146,29 +142,91 @@ export async function runSummarizationPipeline(
             .filter((sessionId): sessionId is string => Boolean(sessionId)),
     ));
 
-    // Save as long-term memory
+    // ── 归档确认制：产出草稿，不直接入库 ──
+    // 计算内容指纹；命中墓碑（用户删过/拒过）则直接丢弃，避免「删了又冒出来」。
+    const contentHash = computeContentHash(summary);
+    if (isHashedDeleted(characterId, contentHash)) {
+        console.log("[MemorySummarizer] 命中墓碑，丢弃该总结（防复活）");
+        setLastSummarizedTimestamp(characterId, latest);
+        resetEventCounter(characterId);
+        return { success: true };
+    }
+    // 指纹去重：正式库已有同内容 → 不重复产出
+    const existing = await loadMemoryEntries(characterId);
+    const duplicated = existing.some(e => computeContentHash(e.content) === contentHash);
+    if (duplicated) {
+        console.log("[MemorySummarizer] 内容已存在（指纹去重），跳过");
+        setLastSummarizedTimestamp(characterId, latest);
+        resetEventCounter(characterId);
+        return { success: true };
+    }
+
+    const draft: MemoryDraft = {
+        id: `mem_draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        characterId,
+        characterName,
+        content: summary,
+        sourceApp: dominantSource as MemoryDraft["sourceApp"],
+        earliest,
+        latest,
+        summarizedEvents: allEntries.length,
+        sourceSessionIds,
+        embedding,
+        contentHash,
+        createdAt: new Date().toISOString(),
+    };
+    addMemoryDraft(draft);
+    // 草稿已生成，推进水位线，避免同一段素材反复产出草稿
+    setLastSummarizedTimestamp(characterId, latest);
+    resetEventCounter(characterId);
+
+    console.log(`[MemorySummarizer] 已产出归档草稿（${allEntries.length} 条素材），待用户确认`);
+    return { success: true, draftId: draft.id };
+}
+
+/**
+ * 确认归档：把草稿落库为正式长期记忆（人工确认制的唯一入库出口）。
+ */
+export async function commitMemoryDraft(
+    characterId: string,
+    draft: MemoryDraft,
+    editedContent?: string,
+): Promise<{ success: boolean; error?: string }> {
+    const config = loadMemoryConfig();
+    const content = (editedContent ?? draft.content).trim();
+    if (!content) return { success: false, error: "内容为空" };
+
+    const contentHash = computeContentHash(content);
+    if (isHashedDeleted(characterId, contentHash)) {
+        removeMemoryDraft(characterId, draft.id);
+        return { success: false, error: "该内容已被标记删除，忽略" };
+    }
+
+    const existing = await loadMemoryEntries(characterId);
+    if (existing.some(e => computeContentHash(e.content) === contentHash)) {
+        removeMemoryDraft(characterId, draft.id);
+        return { success: true };
+    }
+
     const now = new Date().toISOString();
-    const longTermEntry: MemoryEntry = {
+    const entry: MemoryEntry = {
         id: `mem_lt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         characterId,
-        sourceApp: dominantSource as MemoryEntry["sourceApp"],
+        sourceApp: draft.sourceApp as MemoryEntry["sourceApp"],
         type: "long_term",
-        content: summary,
-        embedding,
+        content,
+        embedding: draft.embedding,
         importance: 0.8,
         createdAt: now,
         updatedAt: now,
         metadata: {
-            summarizedEvents: allEntries.length,
-            timeSpan: `${earliest} ~ ${latest}`,
-            sourceSessionIds,
+            summarizedEvents: draft.summarizedEvents,
+            timeSpan: `${draft.earliest} ~ ${draft.latest}`,
+            sourceSessionIds: draft.sourceSessionIds,
         },
     };
-    await saveMemoryEntry(longTermEntry);
-
-    // Update last summarized timestamp + reset counter
-    setLastSummarizedTimestamp(characterId, latest);
-    resetEventCounter(characterId);
+    await saveMemoryEntry(entry);
+    removeMemoryDraft(characterId, draft.id);
 
     // Enforce long-term limit
     const allLongTerm = await loadMemoryEntries(characterId);
@@ -178,8 +236,14 @@ export async function runSummarizationPipeline(
     }
 
     incrementCoreMemoryCounter(characterId);
-    await maybeRunCoreMemoryPipeline(characterId, characterName);
-
-    console.log(`[MemorySummarizer] Summarized ${allEntries.length} entries → 1 long-term memory`);
+    await maybeRunCoreMemoryPipeline(characterId, draft.characterName || "");
     return { success: true };
+}
+
+/**
+ * 丢弃草稿：进墓碑，这段内容不再被总结复活。
+ */
+export function discardMemoryDraft(characterId: string, draft: MemoryDraft): void {
+    addDeletedHash(characterId, draft.contentHash);
+    removeMemoryDraft(characterId, draft.id);
 }
