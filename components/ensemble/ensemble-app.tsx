@@ -1612,14 +1612,11 @@ export function EnsembleApp({
           return;
         }
 
-        // 2) 应用规则（原生 CSS + !important，确保压过 font-sans 继承；与内联字号无关）
-        //    选择器用**实际的 class 名**：正文 .frame-body（含 frame-dialogue/inner/act）、
-        //    旁白 .frame-narration、角色名 .frame-name。
-        const applyCss =
-          `.ensemble-scope .frame-body,` +
-          `.ensemble-scope .frame-narration,` +
-          `.ensemble-scope .frame-name` +
-          `{font-family:"${family}" !important;}`;
+        // 2) 应用规则：**通配覆盖 .ensemble-scope 内所有元素**。
+        //    此前按 class 精确覆盖（.frame-body/.frame-narration/.frame-name）时，
+        //    对白/动作仍不生效（具体元素被其它规则或继承链挡住），故改用通配
+        //    `*` —— 只要是群像内的文字一律套用剧本字体，一劳永逸。
+        const applyCss = `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}`;
 
         getStyleEl().textContent = faceCss + applyCss;
 
