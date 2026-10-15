@@ -376,6 +376,7 @@ function BodyText({
   kind = "act",
   inset = FRAME_BODY_INSET,
   voiceButton,
+  fontFamily,
 }: {
   raw: string;
   kind?: "dialogue" | "inner" | "act";
@@ -384,6 +385,8 @@ function BodyText({
   inset?: number;
   /** 可选：对白段右侧的语音播放键节点（由上层注入，BodyText 只负责挂载）。 */
   voiceButton?: React.ReactNode;
+  /** 剧本级自定义字体 family（显式下传）。 */
+  fontFamily?: string;
 }) {
   const paras = (raw ?? "")
     .split(/\n+/)
@@ -402,9 +405,12 @@ function BodyText({
     lineHeight: 1.75,
     opacity: 1,
     // 剧本级自定义字体：**内联直出**（比 CSS 规则更稳，压过一切外部/继承声明）。
-    //   这也是「对白此前不生效」的修法 —— 外部 CSS 曾因权重/作用域问题漏掉对白。
-    ...(ENSEMBLE_FONT_FAMILY_ACTIVE
-      ? { fontFamily: `"${ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
+    //   优先用显式下传的 fontFamily prop，其次退回模块变量。
+    //   注意：font-family 值本身会写 `!important` —— React 的 style 不支持
+    //   `!important`，故这里仍可能被外部 `!important` 规则压住；但已同时注入
+    //   `.ensemble-scope *` 通配规则兜底。
+    ...(fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE
+      ? { fontFamily: `"${fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
       : {}),
     // 帧级内缩（1008d · 回退到截图1 口径）：
     //   **正文左基准 = 头像左基准**（FRAME_BODY_INSET == FRAME_TEXT_INSET = 30px），
@@ -563,6 +569,7 @@ function EnsembleFrameStream({
   onVoicePlay,
   playingVoiceKey,
   turnId,
+  fontFamily,
 }: {
   frames: EnsembleFrame[];
   cast: EnsembleCastMember[];
@@ -574,6 +581,8 @@ function EnsembleFrameStream({
   playingVoiceKey?: string | null;
   /** 该幕 ID：与帧下标拼成稳定 key，供语音定位。 */
   turnId?: string;
+  /** 剧本级自定义字体 family（显式下传，确定性优于模块变量）。 */
+  fontFamily?: string;
 }) {
   let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
   // 跟踪上一帧是否为旁白，用于给旁白加「上下各 ≥ 一整行」的大段距。
@@ -633,8 +642,8 @@ function EnsembleFrameStream({
             color: C_NAME,
             fontWeight: 600,
             opacity: 1,
-            ...(ENSEMBLE_FONT_FAMILY_ACTIVE
-              ? { fontFamily: `"${ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
+            ...(fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE
+              ? { fontFamily: `"${fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
               : {}),
           }}
         >
@@ -786,7 +795,7 @@ function EnsembleFrameStream({
                 borderRadius: "0 7px 7px 0",
               }}
             >
-              <BodyText raw={f.text} kind="act" inset={0} />
+              <BodyText raw={f.text} kind="act" inset={0} fontFamily={fontFamily} />
             </div>
           );
         }
@@ -801,7 +810,7 @@ function EnsembleFrameStream({
           return (
             <div key={i} className="frame-action" style={{ marginTop: tpx(topMargin) }}>
               {showName && renderBlockHead(f.speaker)}
-              <BodyText raw={f.text} kind="act" />
+              <BodyText raw={f.text} kind="act" fontFamily={fontFamily} />
             </div>
           );
         }
@@ -812,6 +821,7 @@ function EnsembleFrameStream({
             <BodyText
               raw={f.text}
               kind="dialogue"
+              fontFamily={fontFamily}
               voiceButton={
                 onVoicePlay
                   ? renderVoiceButton(
@@ -3643,6 +3653,7 @@ ${lastSpeakerNote}
                       turnId={turn.id}
                       onVoicePlay={playEnsembleVoice}
                       playingVoiceKey={playingVoiceKey}
+                      fontFamily={currentScript?.fontFamily}
                     />
                   )}
 
