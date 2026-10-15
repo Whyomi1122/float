@@ -1625,10 +1625,24 @@ export function EnsembleApp({
 
         // 3) 确保字体真正加载完（url 模式靠 FontFaceSet 触发）
         try {
-          await document.fonts.load(`14px "${family}"`);
-        } catch { /* ignore */ }
+          const loaded = await document.fonts.load(`14px "${family}"`);
+          // 自检提示（移动端看不到 console，用 toast 反馈加载结果）
+          if (!loaded || loaded.length === 0) {
+            setToast("字体未加载：链接可能不可跨域或格式不支持");
+            window.setTimeout(() => setToast(null), 4000);
+          } else {
+            setToast("字体已生效");
+            window.setTimeout(() => setToast(null), 1800);
+          }
+        } catch (e) {
+          setToast("字体加载失败：链接不可访问或非字体文件");
+          window.setTimeout(() => setToast(null), 4000);
+          console.warn("[ensemble] 字体 load 失败", e);
+        }
       } catch (err) {
         console.warn("[ensemble] 自定义字体加载失败", err);
+        setToast("字体加载失败");
+        window.setTimeout(() => setToast(null), 4000);
       }
     })();
 
@@ -3159,7 +3173,14 @@ ${lastSpeakerNote}
   syncEnsembleFontScale(currentScript?.fontScale);
   syncEnsembleFontFamily(currentScript?.fontFamily);
   return (
-    <div className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
+    <div
+      className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden"
+      style={
+        currentScript?.fontFamily
+          ? { fontFamily: `"${currentScript.fontFamily}", "Songti SC", "Noto Sans SC", system-ui, sans-serif` }
+          : undefined
+      }
+    >
       {/* 字号缩放桥接已删除（2026-10）：群像内部字号一律写死，
           不再跟随全局 --app-text-scale，故无需 .ensemble-scope 的 34 行覆盖。 */}
 
