@@ -486,7 +486,12 @@ export function parseEnsembleReply(
         speakersSeen.add(member.name);
         continue;
       }
-      // 认不出的人名 → 不当归属声明，落回普通正文
+      // 认不出的人名（如剧本里的临时配角「宋佳」）→ 仍然作为归属声明处理，
+      // 但 id 置空：①归属正确（不会把后续内容错记到上一个 cast 角色头上）
+      //            ②语音键自动不显示（非 cast 无绑定）
+      flushAllBlocks();
+      currentOwner = { name: ownerName, id: undefined, avatar: null };
+      continue;
     }
 
     // ── ① 显式旁白暗号 [旁白] ──

@@ -58,6 +58,7 @@ import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import {
   resolveVoiceConfig,
+  hasExplicitVoiceBinding,
   synthesizeSpeech,
   playAudioBlobViaMediaElement,
   unlockAudioPlayback,
@@ -659,15 +660,16 @@ function EnsembleFrameStream({
   /** 对白末尾的小播放键：**行内**贴在最后一段文字后。
       · 未播放 → Play；播放/加载中 → Square（点击停止）。
       · 16px、极淡，避免抢正文视线；双语模式下挂在中文译句末尾。 */
-  /** 该对白行是否应显示语音键：仅当说话人是剧本 cast 成员且绑定了语音。 */
+  /** 该对白行是否应显示语音键：仅当说话人是剧本 cast 成员、且该角色「显式」绑定了语音。 */
   const isVoiceEligible = (speaker?: string, speakerId?: string): boolean => {
     if (!speaker && !speakerId) return false;
-    // 必须在 cast 里能找到（先按 id，再按名字），临时配角一律不显示
+    // 必须在 cast 里能找到（先按 id，再按名字），用户方/临时配角一律不显示
     const m = speakerId
       ? cast.find((c) => c.id === speakerId)
       : cast.find((c) => c.name === speaker);
     if (!m) return false;
-    return !!resolveVoiceConfig(m.id, "ensemble");
+    // 只看该角色的「显式」语音绑定（全局默认绑定不算），确保只有真正配了音的角色才有键
+    return hasExplicitVoiceBinding(m.id, "ensemble");
   };
 
   const renderVoiceButton = (key: string, text: string, speaker?: string, speakerId?: string) => {
@@ -790,6 +792,8 @@ function EnsembleFrameStream({
         //   ① 底色块贴合文字宽度（width: fit-content），短句不再拉成通栏长条；
         //   ② 左右内衬由 12/12 收到 **6/6**（用户：「文字两边留空太大了」）；
         //   ③ 左基准对齐角色名（FRAME_BODY_INSET），与其它正文同一条线。
+        // 1015 用户口径修正：**心理块改为整行通栏**（原来 fit-content 贴文字宽度，
+        //   短句会缩成小方块；用户要求整行长方形）。
         if (f.kind === "inner") {
           return (
             <div
@@ -799,13 +803,13 @@ function EnsembleFrameStream({
                 marginTop: tpx(topMargin),
                 marginLeft: tpx(FRAME_BODY_INSET),
                 marginRight: tpx(FRAME_TEXT_INSET),
-                // 自适应核心：宽度由内容决定，上限 100% 时自动折行
-                width: "fit-content",
-                maxWidth: "100%",
+                // 整行通栏
+                width: "auto",
+                boxSizing: "border-box",
                 paddingTop: tpx(6),
                 paddingBottom: tpx(6),
-                paddingLeft: tpx(6),
-                paddingRight: tpx(6),
+                paddingLeft: tpx(12),
+                paddingRight: tpx(12),
                 background: "rgba(0,0,0,0.022)",
                 borderLeft: "2px solid rgba(0,0,0,0.10)",
                 borderRadius: "0 7px 7px 0",
