@@ -1627,18 +1627,16 @@ export function EnsembleApp({
         }
 
         // 2) 应用规则：两档。
-        //    · all   ：.ensemble-scope 内所有元素
-        //    · story ：**先全改，再把 UI 区域强制还原**（两规则，后写覆盖）。
-        //      不用 `*:not([data-ens-ui] *)` —— 该写法（:not 里带后代组合）在
-        //      部分移动浏览器不可靠，实测 UI 仍被改。改用「显式还原」：
-        //      `.ensemble-scope [data-ens-ui] *` 是标准后代选择器，稳。
+        //    · all   ：.ensemble-scope 内所有元素 → 剧本字体
+        //    · story ：**先全改，再把 UI 区域还原**（两规则，后写覆盖）。
+        //      ⚠️ 还原目标必须是**全局基础字体 `var(--app-font-family)`**
+        //      （用户设为霞鹜文楷），**不能写死系统 sans** —— 否则会把全局
+        //      文楷冲掉，导致设置页/功能页/标题栏/DATE 行退回原始字体。
         const scopeAll = currentScript.fontScope === "all";
-        const ENSUI_DEFAULT_FONT =
-          'ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif';
         const applyCss = scopeAll
           ? `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}`
           : `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}` +
-            `.ensemble-scope [data-ens-ui], .ensemble-scope [data-ens-ui] *{font-family:${ENSUI_DEFAULT_FONT} !important;}`;
+            `.ensemble-scope [data-ens-ui], .ensemble-scope [data-ens-ui] *{font-family:var(--app-font-family) !important;}`;
 
         getStyleEl().textContent = faceCss + applyCss;
 
