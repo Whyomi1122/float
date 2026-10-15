@@ -216,9 +216,15 @@ const C_NARR = "#b4b4b8"; // 旁白：更淡的灰（1005 反馈：与正文灰�
 //   以保持「对白/叙述/旁白/角色名」之间的层级比例不变。
 //   由 <EnsembleApp> 在渲染前用 syncEnsembleFontScale() 写入当前剧本的 fontScale。
 let ENS_FONT_SCALE = 1;
+/** 当前生效的自定义字体 family 名（无自定义时为 null）。由主组件渲染前同步。 */
+let ENSEMBLE_FONT_FAMILY_ACTIVE: string | null = null;
 /** 供主组件在每次渲染前同步当前剧本的字号倍率（1 = 原始设计字）。 */
 function syncEnsembleFontScale(scale?: number) {
   ENS_FONT_SCALE = scale && Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+/** 供主组件在每次渲染前同步当前剧本的字体 family（未设则 null）。 */
+function syncEnsembleFontFamily(family?: string | null) {
+  ENSEMBLE_FONT_FAMILY_ACTIVE = family && family.trim() ? family.trim() : null;
 }
 /** 字号专用：把设计字号按当前倍率缩放后再走 tpx（仅用于 fontSize）。 */
 function ts(designPx: number): string {
@@ -233,6 +239,9 @@ function narrStyle(): React.CSSProperties {
     lineHeight: 1.9,
     opacity: 1,
     fontStyle: "italic",
+    ...(ENSEMBLE_FONT_FAMILY_ACTIVE
+      ? { fontFamily: `"${ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
+      : {}),
   };
 }
 /** 头像尺寸（1008d 回退：按截图1 实测 33px；1005 定稿曾为 35px） */
@@ -392,6 +401,11 @@ function BodyText({
     fontWeight: 400,
     lineHeight: 1.75,
     opacity: 1,
+    // 剧本级自定义字体：**内联直出**（比 CSS 规则更稳，压过一切外部/继承声明）。
+    //   这也是「对白此前不生效」的修法 —— 外部 CSS 曾因权重/作用域问题漏掉对白。
+    ...(ENSEMBLE_FONT_FAMILY_ACTIVE
+      ? { fontFamily: `"${ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
+      : {}),
     // 帧级内缩（1008d · 回退到截图1 口径）：
     //   **正文左基准 = 头像左基准**（FRAME_BODY_INSET == FRAME_TEXT_INSET = 30px），
     //   第8轮曾改成「对齐角色名左沿」（55px）→ 实测截图1 并非如此，已回退。
@@ -614,7 +628,15 @@ function EnsembleFrameStream({
         {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
         <div
           className="frame-name font-semibold tracking-wide"
-          style={{ fontSize: ts(T_NAME), color: C_NAME, fontWeight: 600, opacity: 1 }}
+          style={{
+            fontSize: ts(T_NAME),
+            color: C_NAME,
+            fontWeight: 600,
+            opacity: 1,
+            ...(ENSEMBLE_FONT_FAMILY_ACTIVE
+              ? { fontFamily: `"${ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
+              : {}),
+          }}
         >
           {speaker}
         </div>
@@ -3135,6 +3157,7 @@ ${lastSpeakerNote}
   // 同步「当前会话字号倍率」到模块级变量：ts() 在各内联 style 里即时读取。
   // 必须在 return 前调用（同一渲染周期内生效）。
   syncEnsembleFontScale(currentScript?.fontScale);
+  syncEnsembleFontFamily(currentScript?.fontFamily);
   return (
     <div className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
       {/* 字号缩放桥接已删除（2026-10）：群像内部字号一律写死，
