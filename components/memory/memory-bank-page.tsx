@@ -1,13 +1,13 @@
 ﻿"use client";
 
 import { Component, useState, useEffect, useCallback, useMemo, type CSSProperties, type ReactNode } from "react";
-import { Trash2, Zap, Clock, Users, Archive, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, Inbox, type LucideIcon } from "lucide-react";
+import { Trash2, Zap, Clock, Users, Archive, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, type LucideIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { getMemoryEventSourceTag, MEMORY_SOURCE_TAG_ORDER, MemoryTimeline } from "./memory-timeline";
 import { Toggle } from "@/components/ui/form";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
-import type { MemoryEntry, MemoryConfig, MemoryDraft } from "@/lib/memory-types";
+import type { MemoryEntry, MemoryConfig } from "@/lib/memory-types";
 import { DEFAULT_CORE_MEMORY_PROMPT, DEFAULT_SUMMARIZATION_PROMPT, computeContentHash } from "@/lib/memory-types";
 import {
     loadMemoryConfig,
@@ -21,9 +21,7 @@ import {
     getLastSummarizedTimestamp,
     getLastCoreSummarizedTimestamp,
     addDeletedHash,
-    loadMemoryDrafts,
 } from "@/lib/memory-storage";
-import { commitMemoryDraft, discardMemoryDraft } from "@/lib/memory-summarizer";
 import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
 import { runSummarizationPipeline } from "@/lib/memory-summarizer";
@@ -33,7 +31,7 @@ import { generateEmbedding, resolveEmbeddingModel } from "@/lib/memory-embedding
 import { BINDING_ACCENTS } from "@/lib/ui-accent-colors";
 
 type MemoryView = "list" | "detail" | "settings";
-type MemoryTab = "short" | "shared" | "core" | "long" | "archive";
+type MemoryTab = "short" | "shared" | "core" | "long";
 type MemoryBudgetKey = "shortTermTokenBudget" | "coreMemoryTokenBudget" | "longTermTokenBudget";
 
 const MEMORY_TOKEN_BUDGET_MAX = 100000;
@@ -227,11 +225,6 @@ export function MemoryBankPage({
     const [summarizeRangeOpen, setSummarizeRangeOpen] = useState(false);
     const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
     const [activeTimelineTags, setActiveTimelineTags] = useState<Set<string>>(new Set());
-    // 归档确认制：待确认草稿
-    const [drafts, setDrafts] = useState<MemoryDraft[]>([]);
-    const [draftEditId, setDraftEditId] = useState<string | null>(null);
-    const [draftEditText, setDraftEditText] = useState("");
-    const [committing, setCommitting] = useState(false);
 
     const disabledSourceCount = MEMORY_SOURCE_OPTIONS
         .filter(source => (config.shortTermAllowedSources ?? {})[source.key] === false).length;
@@ -331,7 +324,6 @@ export function MemoryBankPage({
             setCoreEntries([]);
             setLongTermEntries([]);
         }
-        setDrafts(loadMemoryDrafts(charId));
         // Native timeline is sync (localStorage) — no await needed.
         // 只取最近一段（全量可能几万条），防止解析+渲染把 iOS Safari 内存顶爆
         const timeline = loadNativeTimeline(charId).slice(-MEMORY_TIMELINE_ENTRY_CAP);
@@ -366,33 +358,6 @@ export function MemoryBankPage({
 
     const handleSelectChar = (char: Character) => {
         onSelectChar(char.id);
-    };
-
-    const handleCommitDraft = async (draft: MemoryDraft) => {
-        if (!selectedCharId || committing) return;
-        setCommitting(true);
-        try {
-            const edited = draftEditId === draft.id ? draftEditText : draft.content;
-            const res = await commitMemoryDraft(selectedCharId, draft, edited);
-            if (res.success) {
-                showNotice("已确认归档，写入记忆");
-                setDraftEditId(null);
-                await loadDetailData(selectedCharId);
-                loadCharacterList();
-            } else {
-                showNotice(res.error || "归档失败");
-            }
-        } finally {
-            setCommitting(false);
-        }
-    };
-
-    const handleDiscardDraft = (draft: MemoryDraft) => {
-        if (!selectedCharId) return;
-        discardMemoryDraft(selectedCharId, draft);
-        setDrafts(prev => prev.filter(d => d.id !== draft.id));
-        if (draftEditId === draft.id) setDraftEditId(null);
-        showNotice("已丢弃，并加入防污染墓碑");
     };
 
     const handleDeleteEntry = async (id: string) => {
@@ -783,89 +748,6 @@ export function MemoryBankPage({
                         )
                     ) : activeTab === "core" ? (
                         renderMemoryEntries("core", coreEntries, "暂无核心记忆。长期记忆累计到设定条数后会自动提炼，也可以手动新增。")
-                    ) : activeTab === "archive" ? (
-                        /* ── 归档：待确认草稿 ── */
-                        drafts.length === 0 ? (
-                            <div className="text-center mt-10">
-                                <p className="ts-14 text-secondary">暂无待确认的归档草稿。</p>
-                                <p className="ts-12 text-secondary mt-2">在上方「手动操作 · 长期记忆手动总结」点击总结，生成草稿后会出现在这里。</p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-3">
-                                {drafts.map(draft => {
-                                    const isEditing = draftEditId === draft.id;
-                                    return (
-                                        <div key={draft.id} className="rounded-2xl p-3" style={{ background: "var(--surface-2, rgba(0,0,0,0.03))", border: "1px solid var(--border-subtle, rgba(0,0,0,0.06))" }}>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="ts-11 text-secondary">
-                                                    {sourceLabel(draft.sourceApp)} · {draft.summarizedEvents} 条素材
-                                                </span>
-                                                <span className="ts-11 text-secondary">
-                                                    {new Date(draft.createdAt).toLocaleDateString("zh-CN")}
-                                                </span>
-                                            </div>
-                                            {isEditing ? (
-                                                <textarea
-                                                    value={draftEditText}
-                                                    onChange={e => setDraftEditText(e.target.value)}
-                                                    rows={6}
-                                                    className="w-full rounded-xl p-2 ts-13"
-                                                    style={{ background: "var(--surface-1, #fff)", border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))", resize: "vertical" }}
-                                                />
-                                            ) : (
-                                                <p className="ts-13 whitespace-pre-wrap" style={{ lineHeight: 1.6 }}>{draft.content}</p>
-                                            )}
-                                            <div className="flex items-center gap-2 mt-3">
-                                                {isEditing ? (
-                                                    <>
-                                                        <button
-                                                            className="flex-1 rounded-xl py-2 ts-13"
-                                                            style={{ background: "var(--accent, #6c5ce7)", color: "#fff" }}
-                                                            disabled={committing}
-                                                            onClick={() => handleCommitDraft(draft)}
-                                                        >
-                                                            {committing ? "写入中…" : "确认归档"}
-                                                        </button>
-                                                        <button
-                                                            className="rounded-xl py-2 px-3 ts-13 text-secondary"
-                                                            style={{ background: "var(--surface-1, #fff)", border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))" }}
-                                                            onClick={() => setDraftEditId(null)}
-                                                        >
-                                                            取消编辑
-                                                        </button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <button
-                                                            className="flex-1 rounded-xl py-2 ts-13"
-                                                            style={{ background: "var(--accent, #6c5ce7)", color: "#fff" }}
-                                                            disabled={committing}
-                                                            onClick={() => handleCommitDraft(draft)}
-                                                        >
-                                                            {committing ? "写入中…" : "确认归档"}
-                                                        </button>
-                                                        <button
-                                                            className="rounded-xl py-2 px-3 ts-13"
-                                                            style={{ background: "var(--surface-1, #fff)", border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))" }}
-                                                            onClick={() => { setDraftEditId(draft.id); setDraftEditText(draft.content); }}
-                                                        >
-                                                            编辑
-                                                        </button>
-                                                        <button
-                                                            className="rounded-xl py-2 px-3 ts-13"
-                                                            style={{ background: "var(--surface-1, #fff)", border: "1px solid var(--border-subtle, rgba(0,0,0,0.1))", color: "var(--danger, #e74c3c)" }}
-                                                            onClick={() => handleDiscardDraft(draft)}
-                                                        >
-                                                            丢弃
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
                         renderMemoryEntries("long_term", longTermEntries, "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。")
@@ -879,8 +761,6 @@ export function MemoryBankPage({
                         { key: "short" as const, icon: Clock, label: "短期" },
                         { key: "shared" as const, icon: Users, label: "共享事件" },
                         { key: "long" as const, icon: Archive, label: "长期" },
-                        { key: "core" as const, icon: Archive, label: "核心" },
-                        { key: "archive" as const, icon: Inbox, label: "归档" },
                     ]).map(tab => (
                         <button
                             key={tab.key}
@@ -890,16 +770,7 @@ export function MemoryBankPage({
                                 setEntryMenuId(null);
                             }}
                         >
-                            <span style={{ position: "relative", display: "inline-flex" }}>
-                                <tab.icon size={18} />
-                                {tab.key === "archive" && drafts.length > 0 ? (
-                                    <span style={{
-                                        position: "absolute", top: -4, right: -6, minWidth: 14, height: 14, padding: "0 4px",
-                                        borderRadius: 7, background: "var(--danger, #e74c3c)", color: "#fff",
-                                        fontSize: 9, lineHeight: "14px", textAlign: "center", fontWeight: 600,
-                                    }}>{drafts.length}</span>
-                                ) : null}
-                            </span>
+                            <tab.icon size={18} />
                             <span>{tab.label}</span>
                         </button>
                     ))}
@@ -1085,23 +956,7 @@ export function MemoryBankPage({
                                     </button>
                                 </div>
                             </div>
-                            <div className="menu-item">
-                                <MemorySettingsIcon icon={Brain} color={BINDING_ACCENTS.embedding} />
-                                <div className="menu-label-group">
-                                    <span className="menu-label">核心记忆手动总结</span>
-                                    <span className="menu-desc">将长期记忆整理为核心记忆</span>
-                                </div>
-                                <div className="menu-right">
-                                    <button
-                                        className="ui-btn ui-btn-outline py-1 px-3 ts-12"
-                                        onClick={handleManualRebuildCore}
-                                        disabled={rebuildingCore}
-                                    >
-                                        <Archive size={12} className="mr-1" />
-                                        {rebuildingCore ? "处理中..." : "重建"}
-                                    </button>
-                                </div>
-                            </div>
+                            {/* 核心记忆已砍掉：隐藏「核心记忆手动总结」入口 */}
                         </div>
 
                         {summarizeRangeOpen ? (
@@ -1196,31 +1051,18 @@ export function MemoryBankPage({
                     <div className="menu-item">
                         <MemorySettingsIcon icon={Clock} color={BINDING_ACCENTS.memory} />
                         <div className="menu-label-group">
-                            <span className="menu-label">归档确认制</span>
-                            <span className="menu-desc">开启后不再自动记录：需在「归档」中手动提炼并确认，记忆才入库</span>
+                            <span className="menu-label">长期记忆自动总结</span>
+                            <span className="menu-desc">每隔一定条数自动将新事件整理为长期记忆</span>
                         </div>
                         <div className="menu-right">
-                            <Toggle checked={(config as any).archiveConfirmEnabled ?? true} onChange={(v) => {
-                                const next = { ...config, archiveConfirmEnabled: v } as MemoryConfig;
+                            <Toggle checked={config.autoSummarizeEnabled ?? true} onChange={(v) => {
+                                const next = { ...config, autoSummarizeEnabled: v };
                                 setConfig(next);
                                 saveMemoryConfig(next);
                             }} />
                         </div>
                     </div>
-                    <div className="menu-item">
-                        <MemorySettingsIcon icon={Brain} color={BINDING_ACCENTS.embedding} />
-                        <div className="menu-label-group">
-                            <span className="menu-label">核心记忆自动总结</span>
-                            <span className="menu-desc">每隔一定条数长期记忆，自动整理为核心记忆</span>
-                        </div>
-                        <div className="menu-right">
-                            <Toggle checked={config.autoBuildCoreEnabled ?? true} onChange={(v) => {
-                                const next = { ...config, autoBuildCoreEnabled: v };
-                                setConfig(next);
-                                saveMemoryConfig(next);
-                            }} />
-                        </div>
-                    </div>
+                    {/* 核心记忆已砍掉：隐藏「核心记忆自动总结」开关 */}
                     <div className="menu-item">
                         <MemorySettingsIcon icon={Search} color={BINDING_ACCENTS.embedding} />
                         <div className="menu-label-group">

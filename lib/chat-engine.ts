@@ -56,7 +56,8 @@ import { setDebugPromptSnapshot, type DebugPromptSnapshot } from "./debug-store"
 import { extractFinishReason } from "./api-helpers";
 import { fetchLlmPayload } from "./llm-http";
 import { loadMemoryConfig, incrementEventCounter } from "./memory-storage";
-import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
+import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt, retrieveArchivesForPrompt } from "./memory-service";
+import { formatArchives } from "./memory-injector";
 import { formatCoreMemories, formatLongTermMemories } from "./memory-injector";
 import { maybeRunSummarization } from "./memory-summarizer";
 import { prepareShortTermContext } from "./short-term-assembler";
@@ -1860,14 +1861,18 @@ export async function buildChatPromptMessages(
         }
     }
 
-    const [memResults, coreResults, musicLocal, musicCloud] = await Promise.all([
+    const [memResults, coreResults, archiveResults, musicLocal, musicCloud] = await Promise.all([
         retrieveMemoriesForPrompt(character.id, wbActivationContext, memConfig).catch(() => null),
         retrieveCoreMemoriesForPrompt(character.id, memConfig).catch(() => null),
+        retrieveArchivesForPrompt(character.id, memConfig).catch(() => null),
         buildMusicLocalMacro(),
         buildMusicCloudMacro(),
     ]);
 
     const longTermMemories = memResults ? formatLongTermMemories(memResults) : "";
+    const archiveBlock = archiveResults && archiveResults.length > 0
+        ? `【重要·已归档的过往事实（最高可信度，与设定同源）】\n${formatArchives(archiveResults)}`
+        : "";
     const coreMemories = coreResults ? formatCoreMemories(coreResults) : "";
     const scheduleSummary = buildCalendarScheduleMarker("character", character.id, getWeekStartIso(now));
     const currentSchedule = getCurrentCalendarScheduleForPrompt("character", character.id, now);
@@ -1912,7 +1917,9 @@ export async function buildChatPromptMessages(
         scheduleSummary,
         currentSchedule,
         coreMemories,
-        longTermMemories,
+        longTermMemories: archiveBlock
+            ? `${archiveBlock}${longTermMemories ? "\n" + longTermMemories : ""}`
+            : longTermMemories,
         worldBookActivationContext: options?.worldBookActivationContext || wbActivationContext,
         activateAllWorldBooks: options?.activateAllWorldBooks,
         recentBlocks,

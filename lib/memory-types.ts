@@ -6,7 +6,12 @@ export type MemoryEntry = {
     id: string;
     characterId: string;
     sourceApp: ContentAppId;
-    type: "long_term" | "core";
+    /**
+     * long_term = 总结管线产出的长期记忆（参考级）
+     * core      = 已废弃（2026-10-15 砍掉，不再生成）
+     * archive   = 人工确认的归档（长文档，重量级＝世界书同级）
+     */
+    type: "long_term" | "core" | "archive";
     content: string;
     embedding?: number[];
     importance: number;         // 0-1
