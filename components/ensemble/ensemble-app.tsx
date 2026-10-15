@@ -1539,35 +1539,72 @@ export function EnsembleApp({
   }, [currentScript]);
 
   // ── 06 TYPOGRAPHY · 自定义字体的运行时注册 ──
-  // 剧本选定的字体在「进入/切换剧本」时注册进 document：
-  //   · upload：从 KV 取 base64 dataURL，用 FontFace API 注册
-  //   · url   ：注入 @font-face（src 指向远程链接）
-  // 注册名统一为 ENSEMBLE_CUSTOM_FONT_FAMILY（同一时刻只用一份字体）。
+  // 剧本选定的字体在「进入/切换剧本」时注入 document.head（原生 <style>），
+  // **不用 styled-jsx** —— 因为 .frame-body 等是普通 class，不带 jsx-hash，
+  // styled-jsx 的 scoped 选择器根本不匹配（这就是此前「两种方式都不生效」的根因）。
+  //   · upload：字体数据从 KV 取 base64，用 FontFace API 注册进 document.fonts
+  //   · url   ：@font-face 的 src 指向远程链接
+  // 两者都会**同时**注入一条「应用规则」，把正文/对白/旁白/角色名的
+  // font-family 指向注册名（带 !important，压过根节点 font-sans 的继承）。
   useEffect(() => {
-    const src = currentScript?.fontSource;
-    if (!currentScript || !src) return;
-    let cancelled = false;
+    const STYLE_ID = "ensemble-custom-font";
     const family = ENSEMBLE_CUSTOM_FONT_FAMILY;
-    const styleId = "ensemble-custom-font-face";
+    const getStyleEl = (): HTMLStyleElement => {
+      let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+      if (!el) {
+        el = document.createElement("style");
+        el.id = STYLE_ID;
+        document.head.appendChild(el);
+      }
+      return el;
+    };
+
+    const src = currentScript?.fontSource;
+
+    // 未设置字体 → 清掉注入的样式与已注册的 FontFace（恢复默认字体栈）
+    if (!currentScript || !src) {
+      const el = document.getElementById(STYLE_ID);
+      if (el) el.textContent = "";
+      return;
+    }
+
+    let cancelled = false;
 
     (async () => {
       try {
+        // 1) 字体数据 / @font-face
+        let faceCss = "";
         if (src === "upload") {
           const dataUrl = loadEnsembleFontData(currentScript.id);
-          if (!dataUrl) return;
+          if (!dataUrl) {
+            console.warn("[ensemble] 上传字体数据缺失（KV 无记录）");
+            return;
+          }
           const ff = new FontFace(family, `url(${dataUrl})`);
           await ff.load();
           if (cancelled) return;
           document.fonts.add(ff);
         } else if (src === "url" && currentScript.fontUrl) {
-          let el = document.getElementById(styleId) as HTMLStyleElement | null;
-          if (!el) {
-            el = document.createElement("style");
-            el.id = styleId;
-            document.head.appendChild(el);
-          }
-          el.textContent = `@font-face{font-family:"${family}";src:url("${currentScript.fontUrl}");font-display:swap;}`;
+          faceCss = `@font-face{font-family:"${family}";src:url("${currentScript.fontUrl}");font-display:swap;}`;
+        } else {
+          return;
         }
+
+        // 2) 应用规则（原生 CSS + !important，确保压过 font-sans 继承；与内联字号无关）
+        //    选择器用**实际的 class 名**：正文 .frame-body（含 frame-dialogue/inner/act）、
+        //    旁白 .frame-narration、角色名 .frame-name。
+        const applyCss =
+          `.ensemble-scope .frame-body,` +
+          `.ensemble-scope .frame-narration,` +
+          `.ensemble-scope .frame-name` +
+          `{font-family:"${family}" !important;}`;
+
+        getStyleEl().textContent = faceCss + applyCss;
+
+        // 3) 确保字体真正加载完（url 模式靠 FontFaceSet 触发）
+        try {
+          await document.fonts.load(`14px "${family}"`);
+        } catch { /* ignore */ }
       } catch (err) {
         console.warn("[ensemble] 自定义字体加载失败", err);
       }
@@ -1577,6 +1614,7 @@ export function EnsembleApp({
       cancelled = true;
     };
   }, [currentScript?.id, currentScript?.fontSource, currentScript?.fontUrl, currentScript]);
+
 
   useEffect(() => {
     if (currentScript) {
@@ -3103,17 +3141,8 @@ ${lastSpeakerNote}
           不再跟随全局 --app-text-scale，故无需 .ensemble-scope 的 34 行覆盖。 */}
 
       {/* 当前会话字体（剧本级 · 06 TYPOGRAPHY）：
-          · font-family：本 App 内正文/对白/旁白/角色名统一改用剧本字体，
-            字号层级仍由各 style 常量的内联 px 决定（此处不动尺寸）。
-          · 字号倍率：由 ts() 在各内联 style 里读取模块变量实现，故此处不再需要变量。
-          缺省（未设置）＝ 默认字体栈 + 1×。 */}
-      <style jsx global>{`
-        .ensemble-scope .frame-body,
-        .ensemble-scope .frame-narr,
-        .ensemble-scope .frame-name {
-          ${currentScript?.fontFamily ? `font-family: ${currentScript.fontFamily};` : ""}
-        }
-      `}</style>
+          运行时以原生 <style> 注入 document.head（见上面的 fontSource effect）。
+          **不用 styled-jsx** —— .frame-body 是普通 class 不带 jsx-hash，scoped 选择器不匹配。 */}
 
       {/* 剧本级自定义 CSS：仅作用于本 App 的 .ensemble-scope 命名空间 */}
       {/* 用户卡片：输入内容一律纯黑（1006 反馈 R1）。
