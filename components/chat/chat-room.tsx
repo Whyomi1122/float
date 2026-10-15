@@ -5851,7 +5851,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     } : {};
 
                     return (
-                        <div key={msg.id} className={`flex flex-col ${renderMsg.mediaType && renderMsg.mediaType !== "audio" && renderMsg.mediaType !== "image" ? "gap-1.5" : "gap-4"}`} {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
+                        <div key={msg.id} className={`flex flex-col ${isMediaBubble && renderMsg.mediaType !== "image" ? "gap-1.5" : "gap-4"}`} {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
                             {showTime && (
                                 <div className="flex justify-center w-full">
                                     <span className="chat-sys-msg py-[2px] px-2 rounded select-none">

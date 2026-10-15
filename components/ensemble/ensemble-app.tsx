@@ -670,8 +670,10 @@ function EnsembleFrameStream({
     return !!resolveVoiceConfig(m.id, "ensemble");
   };
 
-  const renderVoiceButton = (key: string, text: string, speaker?: string) => {
+  const renderVoiceButton = (key: string, text: string, speaker?: string, speakerId?: string) => {
     if (!onVoicePlay || !text.trim()) return undefined;
+    // 双重保险：非 cast 角色一律不出语音键（含「宋佳：」这类落回正文的归属行）
+    if (!isVoiceEligible(speaker, speakerId)) return undefined;
     const isThis = playingVoiceKey === key;
     return (
       <button
@@ -841,7 +843,8 @@ function EnsembleFrameStream({
                   ? renderVoiceButton(
                       `${turnId ?? ""}:${i}`,
                       f.text,
-                      f.speaker
+                      f.speaker,
+                      f.speakerId
                     )
                   : undefined
               }
