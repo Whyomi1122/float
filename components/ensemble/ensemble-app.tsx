@@ -388,16 +388,25 @@ function BodyText({
   const inner = kind === "act" ? GAP_ACT + 3 : GAP_DIALOG + 0;
   // 括号规则（用户定稿 2026-10-04 第5轮）：**无条件剥除**包裹整行的 （），
   // 包括双语译文行。韩语对白的下一行直接写中文，不再用括号包裹。
+  // 语音键落点（用户定 方案B）：挂在**朗读行**末尾 —— 双语时即含韩文那一行，
+  // 使键与所读内容同行；整段无韩文（本就中文）时退回最后一段。
+  const voiceAnchorIndex = (() => {
+    if (!voiceButton) return -1;
+    const HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
+    const koreanIdx = paras.findIndex((p) => HANGUL.test(p));
+    if (koreanIdx >= 0) return koreanIdx;
+    return paras.length - 1;
+  })();
   return (
     <div
       className={`frame-body frame-${kind} tracking-[0.01em]`}
-      style={{ ...headStyle, position: "relative" }}
+      style={headStyle}
     >
-      {voiceButton}
       {paras.map((p, i) => {
         const shown = /^[（(][\s\S]*[）)]$/.test(p)
           ? p.replace(/^[（(]\s*/, "").replace(/\s*[）)]$/, "")
           : p;
+        const isVoiceAnchor = i === voiceAnchorIndex;
         return (
           <div
             key={i}
@@ -412,6 +421,9 @@ function BodyText({
             style={{ marginTop: i === 0 ? 0 : inner }}
           >
             {shown}
+            {/* 语音播放键：行内贴在**朗读行**末尾（方案B：双语时挂韩文行，
+                并与所读文本一致；整段中文时挂最后一段）。 */}
+            {isVoiceAnchor ? voiceButton : null}
           </div>
         );
       })}
@@ -420,6 +432,30 @@ function BodyText({
 }
 
 // ──────────────────────────────────────────────────────────────
+/**
+ * 朗读文本过滤：双语模式下**只读原文（韩语）**，跳过中文译文行。
+ *
+ * 群像双语是「韩语原文行 + 中文译文行」分行书写（见 BodyText 注释）。
+ * 规则：
+ *   · 逐行拆开，凡**含谚文（Hangul）**的行 → 属于原文，保留；
+ *   · 整段**没有任何谚文**（本来就是中文场景）→ 返回全文，读中文；
+ *   · 含谚文的行凑不齐（如只有译文漏了原文）→ 退回全文，宁可多读。
+ * 去除行尾播放键会挂的括号等，简单 trim 即可。
+ */
+function pickVoiceText(raw: string): string {
+  const text = (raw ?? "").trim();
+  if (!text) return "";
+  const lines = text
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // 谚文音节 + 字母（含古谚文/兼容字母），覆盖常见韩语
+  const HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
+  const koreanLines = lines.filter((l) => HANGUL.test(l));
+  if (koreanLines.length > 0) return koreanLines.join(" ");
+  return lines.join(" ");
+}
+
 // 帧解析缓存：同一 (content, 演员表) 只解析一次。
 // 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
 // 时间戳格式化：框底 DATE 需要精确到分钟（2026-10 起，此前只显示到日）。
@@ -565,9 +601,9 @@ function EnsembleFrameStream({
     );
   };
 
-  /** 对白行右侧的小播放键：绝对定位到正文右上。
-      · 未播放 → Play；正在合成这一句 → Loader2 转；正在播放 → Square（点击停止）。
-      · 样式刻意做得极轻，避免抢正文视线。 */
+  /** 对白末尾的小播放键：**行内**贴在最后一段文字后。
+      · 未播放 → Play；播放/加载中 → Square（点击停止）。
+      · 16px、极淡，避免抢正文视线；双语模式下挂在中文译句末尾。 */
   const renderVoiceButton = (key: string, text: string, speaker?: string) => {
     if (!onVoicePlay || !text.trim()) return undefined;
     const isThis = playingVoiceKey === key;
@@ -578,20 +614,19 @@ function EnsembleFrameStream({
           e.stopPropagation();
           onVoicePlay(key, text, speaker);
         }}
-        className="absolute active:scale-95 transition-transform"
+        className="inline-flex items-center align-middle active:scale-95 transition-transform"
         style={{
-          top: tpx(FRAME_BODY_INSET - 4),
-          right: tpx(FRAME_TEXT_INSET - 2),
-          width: tpx(22),
-          height: tpx(22),
+          marginLeft: tpx(6),
+          width: tpx(16),
+          height: tpx(16),
           WebkitTapHighlightColor: "transparent",
         }}
         title={isThis ? "停止" : "朗读这句"}
       >
         {isThis ? (
-          <Square size={tpx(13)} strokeWidth={2.2} color="rgba(0,0,0,0.5)" />
+          <Square size={tpx(11)} strokeWidth={2.2} color="rgba(0,0,0,0.45)" />
         ) : (
-          <Play size={tpx(13)} strokeWidth={2.2} color="rgba(0,0,0,0.28)" />
+          <Play size={tpx(11)} strokeWidth={2.2} color="rgba(0,0,0,0.22)" />
         )}
       </button>
     );
@@ -1339,7 +1374,7 @@ export function EnsembleApp({
       } catch { /* ignore */ }
       voicePlaybackRef.current = null;
 
-      const clean = text.trim();
+      const clean = pickVoiceText(text);
       if (!clean) return;
 
       // 角色 → 语音绑定：优先按该角色名匹配 cast，取角色 id；否则回退当前面具
