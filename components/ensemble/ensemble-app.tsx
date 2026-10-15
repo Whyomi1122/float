@@ -659,6 +659,14 @@ function EnsembleFrameStream({
   /** 对白末尾的小播放键：**行内**贴在最后一段文字后。
       · 未播放 → Play；播放/加载中 → Square（点击停止）。
       · 16px、极淡，避免抢正文视线；双语模式下挂在中文译句末尾。 */
+  /** 该对白行是否应显示语音键：仅当说话人是剧本 cast 成员且绑定了语音。 */
+  const isVoiceEligible = (speaker?: string): boolean => {
+    if (!speaker) return false;
+    const m = cast.find((c) => c.name === speaker);
+    if (!m) return false; // 非 cast 角色（如临时配角）不显示
+    return !!resolveVoiceConfig(m.id, "ensemble");
+  };
+
   const renderVoiceButton = (key: string, text: string, speaker?: string) => {
     if (!onVoicePlay || !text.trim()) return undefined;
     const isThis = playingVoiceKey === key;
@@ -826,7 +834,7 @@ function EnsembleFrameStream({
               kind="dialogue"
               fontFamily={fontFamily}
               voiceButton={
-                onVoicePlay
+                onVoicePlay && isVoiceEligible(f.speaker)
                   ? renderVoiceButton(
                       `${turnId ?? ""}:${i}`,
                       f.text,
@@ -1445,9 +1453,10 @@ export function EnsembleApp({
       const clean = pickVoiceText(text);
       if (!clean) return;
 
-      // 角色 → 语音绑定：优先按该角色名匹配 cast，取角色 id；否则回退当前面具
+      // 角色 → 语音绑定：仅按 cast 成员精确匹配（不再回退面具，避免非 cast 角色误播）
       const castMember = currentScript?.cast?.find((c) => c.name === speaker);
-      const characterId = castMember?.id || activePersona?.id || "ensemble";
+      if (!castMember) return;
+      const characterId = castMember.id;
       const voiceConfig = resolveVoiceConfig(characterId, "ensemble");
       if (!voiceConfig) {
         setToast("该角色还没绑定语音，去「设置 → 语音」里配一下");

@@ -1104,17 +1104,7 @@ export function MemoryBankPage({
                         step={MEMORY_TOKEN_BUDGET_STEP.longTermTokenBudget}
                         onChange={value => saveBudget("longTermTokenBudget", value)}
                     />
-                    <MemorySettingsSliderItem
-                        icon={Brain}
-                        color={BINDING_ACCENTS.embedding}
-                        label="核心记忆"
-                        desc="高优先级里程碑注入量"
-                        value={config.coreMemoryTokenBudget}
-                        min={MEMORY_TOKEN_BUDGET_MIN.coreMemoryTokenBudget}
-                        max={MEMORY_TOKEN_BUDGET_MAX}
-                        step={MEMORY_TOKEN_BUDGET_STEP.coreMemoryTokenBudget}
-                        onChange={value => saveBudget("coreMemoryTokenBudget", value)}
-                    />
+                    {/* 核心记忆已砍掉：隐藏「核心记忆」截断量 */}
                 </div>
 
                 {/* Summarization interval */}
@@ -1131,17 +1121,7 @@ export function MemoryBankPage({
                         step={10}
                         onChange={saveInterval}
                     />
-                    <MemorySettingsSliderItem
-                        icon={Brain}
-                        color={BINDING_ACCENTS.embedding}
-                        label="核心记忆总结间隔"
-                        desc="每 N 条长期记忆自动触发核心记忆总结"
-                        value={config.coreSummarizationInterval ?? 5}
-                        min={1}
-                        max={20}
-                        step={1}
-                        onChange={saveCoreInterval}
-                    />
+                    {/* 核心记忆已砍掉：隐藏「核心记忆总结间隔」 */}
                 </div>
 
                 {/* Summarization Prompt Editor */}
@@ -1180,40 +1160,7 @@ export function MemoryBankPage({
                     </div>
                 </div>
 
-                <p className="menu-group-desc mx-2">核心记忆提示词</p>
-                <div className="menu-group">
-                    <div className="menu-item">
-                        <MemorySettingsIcon icon={FileText} color={BINDING_ACCENTS.embedding} />
-                        <div className="menu-label-group">
-                            <span className="menu-label">核心记忆总结提示词</span>
-                            <span className="menu-desc">
-                                变量：{"{{char}}"} 角色、{"{{earliest}}"} 起始时间、{"{{latest}}"} 结束时间、{"{{events}}"} 长期记忆集合
-                            </span>
-                        </div>
-                        {!isCoreDefault && (
-                            <div className="menu-right">
-                                <button onClick={handleResetCorePrompt} className="menu-label menu-label-danger ts-12 underline">
-                                    恢复默认
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                    <div className="px-4 pb-4 flex flex-col gap-3">
-                        <textarea
-                            value={currentCorePrompt}
-                            onChange={e => setEditingCorePrompt(e.target.value)}
-                            className="ui-textarea w-full min-h-[200px] ts-14 leading-relaxed resize-y"
-                        />
-                        {isCoreModified && (
-                            <button
-                                onClick={handleSaveCorePrompt}
-                                className="ui-btn ui-btn-primary p-2.5 w-full"
-                            >
-                                <Archive size={14} className="mr-1.5" /> 保存核心记忆提词配置
-                            </button>
-                        )}
-                    </div>
-                </div>
+                {/* 核心记忆已砍掉：隐藏「核心记忆提示词」整块 */}
             </div>
         );
     }
