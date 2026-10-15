@@ -5049,6 +5049,7 @@ ${lastSpeakerNote}
                 <div
                   onClick={(e) => e.stopPropagation()}
                   className="relative bg-[#f2f2f4] rounded-[22px] w-full max-w-[440px] max-h-[82%] flex flex-col overflow-hidden shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
+                  data-ens-ui="1"
                 >
                 {/* 顶栏：毛玻璃磨砂条 + ‹ Settings / ENSEMBLE · CONFIGURATION
                     1006 反馈③：原先顶部贴边太紧、与工作区衔接突兀。

@@ -161,6 +161,7 @@ export function EnsembleToolsSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-6 pb-4 w-full max-w-[440px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
+        data-ens-ui="1"
       >
         {/* 标题区 */}
         <div className="px-1.5 mb-4">

@@ -285,7 +285,7 @@ export function EnsembleStatusCardLayer({
   }, [active, entries, storyTime, template]);
 
   return (
-    <div className="absolute inset-0 z-[56] flex flex-col" onClick={onClose}>
+    <div className="absolute inset-0 z-[56] flex flex-col" onClick={onClose} data-ens-ui="1">
       <div className="absolute inset-0 bg-black/55 backdrop-blur-[6px]" />
 
       <div className="relative flex-1 overflow-y-auto pt-14 pb-6 px-4">
