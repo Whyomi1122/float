@@ -2866,6 +2866,8 @@
   display: flex;
   align-items: flex-end;
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
   position: relative;
   overflow: visible;
 }
@@ -2879,11 +2881,11 @@
   user-select: none;
   color: rgba(0,0,0,0.15);
   transition: color 0.2s, transform 0.2s;
-  /* 绝对定位在气泡外侧右下角，不占据布局宽度（宽卡片也不会被裁掉） */
+  /* 绝对定位在气泡外侧右下角，跟随气泡自身宽度（不受内容列拉伸影响） */
   position: absolute;
   bottom: 1px;
   left: 100%;
-  margin-left: 2px;
+  margin-left: 4px;
   flex-shrink: 0;
 }
 .chat-monologue-heart[data-active] {
