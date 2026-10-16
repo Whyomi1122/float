@@ -5295,6 +5295,195 @@
   box-shadow: 0 5px 14px rgba(0, 0, 0, 0.12);
 }
 
+/* ── C1: 长期记忆筛选栏 ── */
+.mem-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 2px 4px;
+}
+
+.mem-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mem-filter-dropdown-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.mem-filter-chip {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: #fff;
+  color: var(--c-text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  font-size: calc(12px*var(--app-text-scale,1));
+  font-weight: 600;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.mem-filter-chip.is-active {
+  border-color: #000;
+  background: #000;
+  color: #fff;
+}
+
+.mem-filter-dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.mem-filter-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 61;
+  min-width: 168px;
+  max-height: 264px;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mem-filter-dropdown button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  color: var(--c-text);
+  font-size: calc(12.5px*var(--app-text-scale,1));
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.mem-filter-dropdown button:active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.mem-filter-dropdown button.is-selected {
+  background: rgba(0, 0, 0, 0.06);
+  font-weight: 700;
+}
+
+.mem-filter-dropdown button em {
+  font-style: normal;
+  font-size: calc(11px*var(--app-text-scale,1));
+  color: var(--c-text-secondary, rgba(0, 0, 0, 0.4));
+}
+
+.mem-filter-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: #fff;
+  color: var(--c-text-secondary, rgba(0, 0, 0, 0.4));
+}
+
+.mem-filter-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--c-text);
+  font-size: calc(12.5px*var(--app-text-scale,1));
+}
+
+.mem-filter-search input::placeholder {
+  color: var(--c-text-secondary, rgba(0, 0, 0, 0.35));
+}
+
+.mem-filter-search-clear {
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-text-secondary, rgba(0, 0, 0, 0.4));
+  cursor: pointer;
+}
+
+.mem-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: calc(11.5px*var(--app-text-scale,1));
+  color: var(--c-text-secondary, rgba(0, 0, 0, 0.45));
+}
+
+.mem-filter-summary button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #5B4DDB;
+  font-size: calc(11.5px*var(--app-text-scale,1));
+  font-weight: 600;
+  padding: 0;
+}
+
+.mem-entry-clear-btn.is-danger {
+  border-color: color-mix(in srgb, var(--c-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--c-danger) 8%, #fff);
+}
+
+.mem-entry-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.g-card.memory-report-card.is-batch-selected {
+  border-color: #000;
+  background: color-mix(in srgb, #000 5%, #fff);
+}
+
+.mem-batch-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.2);
+  color: #fff;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.mem-batch-check.is-checked {
+  background: #000;
+  border-color: #000;
+}
+
 .mem-empty-card {
   min-height: 180px;
   border: 1px dashed var(--c-panel-border);
@@ -5573,6 +5762,31 @@
   font-size: calc(8.1px*var(--app-text-scale,1));
   color: var(--c-icon-violet);
   margin-left: 4px;
+}
+
+/* ── C2: 短期记忆删除按钮 ── */
+.mem-tl-del-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--c-text-secondary, rgba(0, 0, 0, 0.3));
+  cursor: pointer;
+  vertical-align: middle;
+  transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.mem-tl-del-btn:hover,
+.mem-tl-del-btn:active {
+  color: var(--c-danger, #e74c5e);
+  background: color-mix(in srgb, var(--c-danger, #e74c5e) 12%, transparent);
+  transform: scale(1.1);
 }
 
 .mem-tl-bubble-body {

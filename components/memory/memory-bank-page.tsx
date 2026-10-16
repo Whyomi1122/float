@@ -1,9 +1,9 @@
 ﻿"use client";
 
 import { Component, useState, useEffect, useCallback, useMemo, type CSSProperties, type ReactNode } from "react";
-import { Trash2, Zap, Clock, Users, Archive, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, type LucideIcon } from "lucide-react";
+import { Trash2, Zap, Clock, Users, Archive, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, ChevronDown, CheckSquare, Filter, type LucideIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/modal";
-import { getMemoryEventSourceTag, MEMORY_SOURCE_TAG_ORDER, MemoryTimeline } from "./memory-timeline";
+import { getMemoryEventSourceTag, MEMORY_SOURCE_TAG_ORDER, MemoryTimeline, type TimelineDeleteTarget } from "./memory-timeline";
 import { Toggle } from "@/components/ui/form";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
@@ -15,6 +15,7 @@ import {
     loadMemoryEntriesByType,
     saveMemoryEntry,
     deleteMemoryEntry,
+    deleteMemoryEntries,
     deleteCharacterMemoriesByType,
     getAllCharacterIdsWithMemories,
     getMemoryCountByType,
@@ -22,7 +23,7 @@ import {
     getLastCoreSummarizedTimestamp,
     addDeletedHash,
 } from "@/lib/memory-storage";
-import { hydrateChatStorage } from "@/lib/chat-storage";
+import { hydrateChatStorage, deleteChatMessagesByIds } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
 import { runSummarizationPipeline } from "@/lib/memory-summarizer";
 import { runCoreMemoryPipeline } from "@/lib/core-memory-builder";
@@ -225,6 +226,12 @@ export function MemoryBankPage({
     const [summarizeRangeOpen, setSummarizeRangeOpen] = useState(false);
     const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
     const [activeTimelineTags, setActiveTimelineTags] = useState<Set<string>>(new Set());
+    // 长期记忆：筛选（来源App + 关键词）+ 批量删除
+    const [longTermSourceFilter, setLongTermSourceFilter] = useState<string>("all");
+    const [longTermKeyword, setLongTermKeyword] = useState("");
+    const [longTermFilterOpen, setLongTermFilterOpen] = useState(false);
+    const [batchMode, setBatchMode] = useState(false);
+    const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set());
 
     const disabledSourceCount = MEMORY_SOURCE_OPTIONS
         .filter(source => (config.shortTermAllowedSources ?? {})[source.key] === false).length;
@@ -380,6 +387,107 @@ export function MemoryBankPage({
         else setLongTermEntries([]);
         loadCharacterList();
     };
+
+    // ── C1: 长期记忆筛选（来源 App + 关键词）──
+    const filteredLongTermEntries = useMemo(() => {
+        const kw = longTermKeyword.trim().toLowerCase();
+        return longTermEntries.filter(entry => {
+            if (longTermSourceFilter !== "all") {
+                if (longTermSourceFilter === "__manual__") {
+                    if (!isManualMemoryEntry(entry)) return false;
+                } else if ((entry.sourceApp || "") !== longTermSourceFilter) {
+                    return false;
+                }
+            }
+            if (kw && !entry.content.toLowerCase().includes(kw)) return false;
+            return true;
+        });
+    }, [longTermEntries, longTermSourceFilter, longTermKeyword]);
+    // 来源维度计数（供筛选面板展示）
+    const longTermSourceCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const entry of longTermEntries) {
+            const key = isManualMemoryEntry(entry) ? "__manual__" : (entry.sourceApp || "unknown");
+            counts.set(key, (counts.get(key) || 0) + 1);
+        }
+        return Array.from(counts.entries());
+    }, [longTermEntries]);
+
+    const longTermFilterActive = longTermSourceFilter !== "all" || longTermKeyword.trim().length > 0;
+
+    // ── C1: 批量删除 ──
+    const exitBatchMode = () => {
+        setBatchMode(false);
+        setBatchSelectedIds(new Set());
+    };
+
+    const toggleBatchSelect = (id: string) => {
+        setBatchSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const handleBatchDelete = async () => {
+        if (!selectedCharId || batchSelectedIds.size === 0) return;
+        const ids = Array.from(batchSelectedIds);
+        // 防污染·墓碑：批量删除同样记录内容指纹
+        for (const id of ids) {
+            const target = longTermEntries.find(e => e.id === id);
+            if (target) addDeletedHash(selectedCharId, computeContentHash(target.content));
+        }
+        try {
+            await deleteMemoryEntries(ids);
+        } catch (err) {
+            console.error("[MemoryBank] Batch delete failed:", err);
+            showNotice("批量删除失败: " + String(err));
+            return;
+        }
+        setLongTermEntries(prev => prev.filter(e => !batchSelectedIds.has(e.id)));
+        setBatchSelectedIds(new Set());
+        setBatchMode(false);
+        loadCharacterList();
+        showNotice(`已删除 ${ids.length} 条记忆`);
+    };
+
+    // ── C2: 短期记忆删除 = 删除源数据 ──
+    const refreshShortTerm = useCallback(async () => {
+        if (!selectedCharId) return;
+        try {
+            const entries = await loadNativeTimeline(selectedCharId);
+            setShortTermEvents(entries);
+        } catch (err) {
+            console.error("[MemoryBank] Reload timeline failed:", err);
+        }
+    }, [selectedCharId]);
+
+    const handleTimelineDelete = useCallback(async (target: TimelineDeleteTarget) => {
+        if (!selectedCharId) return;
+        const isChatLike = target.sourceApp === "chat";
+        try {
+            if (isChatLike) {
+                // 私聊/群聊：直接删除源消息
+                const sessionId = target.sourceDetail === "group" ? target.groupSessionId : target.sessionId;
+                if (sessionId) {
+                    await deleteChatMessagesByIds(sessionId, [target.id]);
+                }
+            } else {
+                // 其他 App：写内容墓碑（保留源数据，但从记忆/注入中排除）
+                const src = shortTermEvents.find(e => e.id === target.id);
+                if (src) addDeletedHash(selectedCharId, computeContentHash(src.content));
+            }
+            // 本地先移除，立即反馈
+            setShortTermEvents(prev => prev.filter(e => e.id !== target.id));
+            // 再全量刷新，确保源数据删除后时间线一致
+            await refreshShortTerm();
+            showNotice(isChatLike ? "已删除该条消息（含源消息）" : "已从记忆中移除该条");
+        } catch (err) {
+            console.error("[MemoryBank] Timeline delete failed:", err);
+            showNotice("删除失败: " + String(err));
+        }
+    }, [selectedCharId, shortTermEvents, refreshShortTerm]);
 
     const showNotice = (msg: string) => {
         onNotice?.(msg);
@@ -611,24 +719,131 @@ export function MemoryBankPage({
 
     const renderMemoryEntries = (type: MemoryEntry["type"], entries: MemoryEntry[], emptyText: string) => {
         const label = type === "core" ? "核心记忆" : "长期记忆";
+        const isLongTerm = type === "long_term";
         return (
             <>
+                {isLongTerm && (
+                    <div className="mem-filter-bar">
+                        <div className="mem-filter-row">
+                            <div className="mem-filter-dropdown-wrap">
+                                <button
+                                    className={`mem-filter-chip${longTermSourceFilter !== "all" ? " is-active" : ""}`}
+                                    onClick={() => setLongTermFilterOpen(v => !v)}
+                                >
+                                    <Filter size={13} strokeWidth={1.8} />
+                                    <span>{longTermSourceFilter === "all" ? "全部来源" : longTermSourceFilter === "__manual__" ? "手动记录" : sourceLabel(longTermSourceFilter)}</span>
+                                    <ChevronDown size={13} strokeWidth={1.8} />
+                                </button>
+                                {longTermFilterOpen && (
+                                    <>
+                                        <button className="mem-filter-dropdown-backdrop" aria-label="关闭" onClick={() => setLongTermFilterOpen(false)} />
+                                        <div className="mem-filter-dropdown">
+                                            <button
+                                                className={longTermSourceFilter === "all" ? "is-selected" : ""}
+                                                onClick={() => { setLongTermSourceFilter("all"); setLongTermFilterOpen(false); }}
+                                            >
+                                                <span>全部来源</span>
+                                                <em>{longTermEntries.length}</em>
+                                            </button>
+                                            <button
+                                                className={longTermSourceFilter === "__manual__" ? "is-selected" : ""}
+                                                onClick={() => { setLongTermSourceFilter("__manual__"); setLongTermFilterOpen(false); }}
+                                            >
+                                                <span>手动记录</span>
+                                                <em>{longTermSourceCounts.find(([k]) => k === "__manual__")?.[1] ?? 0}</em>
+                                            </button>
+                                            {MEMORY_SOURCE_OPTIONS
+                                                .map(opt => [opt.key, longTermSourceCounts.find(([k]) => k === opt.key)?.[1] ?? 0] as const)
+                                                .filter(([, count]) => count > 0)
+                                                .map(([key, count]) => (
+                                                    <button
+                                                        key={key}
+                                                        className={longTermSourceFilter === key ? "is-selected" : ""}
+                                                        onClick={() => { setLongTermSourceFilter(key); setLongTermFilterOpen(false); }}
+                                                    >
+                                                        <span>{sourceLabel(key)}</span>
+                                                        <em>{count}</em>
+                                                    </button>
+                                                ))}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            <div className="mem-filter-search">
+                                <Search size={13} strokeWidth={1.8} />
+                                <input
+                                    type="text"
+                                    value={longTermKeyword}
+                                    placeholder="搜索内容"
+                                    onChange={e => setLongTermKeyword(e.target.value)}
+                                />
+                                {longTermKeyword && (
+                                    <button className="mem-filter-search-clear" onClick={() => setLongTermKeyword("")} aria-label="清除">
+                                        <X size={13} strokeWidth={2} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        {longTermFilterActive && (
+                            <div className="mem-filter-summary">
+                                <span>筛选出 {entries.length} 条</span>
+                                <button onClick={() => { setLongTermSourceFilter("all"); setLongTermKeyword(""); }}>
+                                    重置筛选
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                 {entries.length > 0 && (
                     <div className="mem-entry-toolbar">
-                        <button
-                            className="mem-entry-add-btn"
-                            onClick={() => openCreateMemoryEditor(type)}
-                        >
-                            <Plus size={15} strokeWidth={1.8} />
-                            <span>新增{label}</span>
-                        </button>
-                        <button
-                            className="mem-entry-clear-btn"
-                            onClick={() => setConfirmClearAll(true)}
-                        >
-                            <Trash2 size={15} strokeWidth={1.8} />
-                            <span>清除{label}</span>
-                        </button>
+                        {batchMode ? (
+                            <>
+                                <button
+                                    className="mem-entry-add-btn"
+                                    onClick={() => {
+                                        const allSelected = entries.every(e => batchSelectedIds.has(e.id));
+                                        setBatchSelectedIds(allSelected ? new Set() : new Set(entries.map(e => e.id)));
+                                    }}
+                                >
+                                    <span>{entries.every(e => batchSelectedIds.has(e.id)) ? "取消全选" : "全选"}</span>
+                                </button>
+                                <button
+                                    className="mem-entry-clear-btn is-danger"
+                                    disabled={batchSelectedIds.size === 0}
+                                    onClick={handleBatchDelete}
+                                >
+                                    <Trash2 size={15} strokeWidth={1.8} />
+                                    <span>删除 ({batchSelectedIds.size})</span>
+                                </button>
+                                <button className="mem-entry-clear-btn" onClick={exitBatchMode}>
+                                    <span>完成</span>
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    className="mem-entry-add-btn"
+                                    onClick={() => openCreateMemoryEditor(type)}
+                                >
+                                    <Plus size={15} strokeWidth={1.8} />
+                                    <span>新增{label}</span>
+                                </button>
+                                <button
+                                    className="mem-entry-clear-btn"
+                                    onClick={() => { setBatchMode(true); setBatchSelectedIds(new Set()); }}
+                                >
+                                    <CheckSquare size={15} strokeWidth={1.8} />
+                                    <span>批量</span>
+                                </button>
+                                <button
+                                    className="mem-entry-clear-btn"
+                                    onClick={() => setConfirmClearAll(true)}
+                                >
+                                    <Trash2 size={15} strokeWidth={1.8} />
+                                    <span>清除{label}</span>
+                                </button>
+                            </>
+                        )}
                     </div>
                 )}
                 {entryMenuId && (
@@ -640,18 +855,24 @@ export function MemoryBankPage({
                 )}
                 {entries.length === 0 ? (
                     <div className="mem-empty-card">
-                        <p>{emptyText}</p>
-                        <button className="mem-empty-add-btn" onClick={() => openCreateMemoryEditor(type)}>
-                            <Plus size={14} />
-                            <span>新增{label}</span>
-                        </button>
+                        <p>{longTermFilterActive && isLongTerm ? "没有符合筛选条件的记忆。" : emptyText}</p>
+                        {!(longTermFilterActive && isLongTerm) && (
+                            <button className="mem-empty-add-btn" onClick={() => openCreateMemoryEditor(type)}>
+                                <Plus size={14} />
+                                <span>新增{label}</span>
+                            </button>
+                        )}
                     </div>
                 ) : (
                     entries.map(entry => (
                         <div
                             key={entry.id}
-                            className={`g-card memory-report-card${entryMenuId === entry.id ? " is-menu-open" : ""}`}
+                            className={`g-card memory-report-card${entryMenuId === entry.id ? " is-menu-open" : ""}${batchMode && batchSelectedIds.has(entry.id) ? " is-batch-selected" : ""}`}
                             onClick={() => {
+                                if (batchMode) {
+                                    toggleBatchSelect(entry.id);
+                                    return;
+                                }
                                 if (entryMenuId) {
                                     setEntryMenuId(null);
                                     return;
@@ -662,39 +883,47 @@ export function MemoryBankPage({
                             <div className="mem-report-head">
                                 <span className="ts-11 text-secondary" style={{ letterSpacing: "1px" }}>[ DATE: {relativeTime(entry.createdAt)} ]</span>
                                 <div className="mem-report-actions">
-                                    <span className={`mem-origin-badge ${isManualMemoryEntry(entry) ? "is-manual" : ""}`}>
-                                        {isManualMemoryEntry(entry) ? "MANUAL" : "AUTO"}
-                                    </span>
-                                    <div className="mem-entry-menu-wrap">
-                                        <button
-                                            className="mem-entry-menu-btn"
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                setEntryMenuId(prev => prev === entry.id ? null : entry.id);
-                                            }}
-                                            title="更多"
-                                        >
-                                            <MoreHorizontal size={18} />
-                                        </button>
-                                        {entryMenuId === entry.id && (
-                                            <div className="mem-entry-menu" onClick={event => event.stopPropagation()}>
-                                                <button onClick={() => openEditMemoryEditor(entry)}>
-                                                    <Edit3 size={13} />
-                                                    <span>编辑</span>
-                                                </button>
+                                    {batchMode ? (
+                                        <span className={`mem-batch-check${batchSelectedIds.has(entry.id) ? " is-checked" : ""}`}>
+                                            {batchSelectedIds.has(entry.id) && <Check size={13} strokeWidth={3} />}
+                                        </span>
+                                    ) : (
+                                        <>
+                                            <span className={`mem-origin-badge ${isManualMemoryEntry(entry) ? "is-manual" : ""}`}>
+                                                {isManualMemoryEntry(entry) ? "MANUAL" : "AUTO"}
+                                            </span>
+                                            <div className="mem-entry-menu-wrap">
                                                 <button
-                                                    className="is-danger"
-                                                    onClick={() => {
-                                                        setEntryMenuId(null);
-                                                        setConfirmDeleteEntryId(entry.id);
+                                                    className="mem-entry-menu-btn"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        setEntryMenuId(prev => prev === entry.id ? null : entry.id);
                                                     }}
+                                                    title="更多"
                                                 >
-                                                    <Trash2 size={13} />
-                                                    <span>删除</span>
+                                                    <MoreHorizontal size={18} />
                                                 </button>
+                                                {entryMenuId === entry.id && (
+                                                    <div className="mem-entry-menu" onClick={event => event.stopPropagation()}>
+                                                        <button onClick={() => openEditMemoryEditor(entry)}>
+                                                            <Edit3 size={13} />
+                                                            <span>编辑</span>
+                                                        </button>
+                                                        <button
+                                                            className="is-danger"
+                                                            onClick={() => {
+                                                                setEntryMenuId(null);
+                                                                setConfirmDeleteEntryId(entry.id);
+                                                            }}
+                                                        >
+                                                            <Trash2 size={13} />
+                                                            <span>删除</span>
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                             <div className="ts-12 leading-[1.7]">
@@ -731,6 +960,7 @@ export function MemoryBankPage({
                                 events={shortTermEvents}
                                 userName={resolveUserIdentity(selectedCharId!)?.name || "用户"}
                                 activeTags={activeTimelineTags}
+                                onDeleteEntry={handleTimelineDelete}
                             />
                         </>
                     ) : activeTab === "shared" ? (
@@ -750,7 +980,7 @@ export function MemoryBankPage({
                         renderMemoryEntries("core", coreEntries, "暂无核心记忆。长期记忆累计到设定条数后会自动提炼，也可以手动新增。")
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
-                        renderMemoryEntries("long_term", longTermEntries, "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。")
+                        renderMemoryEntries("long_term", filteredLongTermEntries, "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。")
                     )}
                     </MemoryDetailBoundary>
                 </div>

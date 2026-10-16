@@ -85,7 +85,8 @@ type ParsedProjection = {
     message: string;
 };
 
-type ParsedEntry = ParsedChat | ParsedGroupChat | ParsedMoment | ParsedSystem | ParsedProjection;
+type ParsedEntryBase = ParsedChat | ParsedGroupChat | ParsedMoment | ParsedSystem | ParsedProjection;
+type ParsedEntry = ParsedEntryBase & { del?: TimelineDeleteTarget };
 
 type TimelineCluster = {
     id: string;
@@ -95,6 +96,15 @@ type TimelineCluster = {
     tags: string[];
     excerpts: string[];
     entryCount: number;
+};
+
+/** C2：删除短期记忆时定位源数据所需的信息 */
+export type TimelineDeleteTarget = {
+    id: string;
+    sourceApp: string;
+    sourceDetail?: string;
+    sessionId?: string;
+    groupSessionId?: string;
 };
 
 /* ================================================================
@@ -442,7 +452,25 @@ function formatClusterDate(cluster: TimelineCluster): string {
    Inline detail — renders the former modal content inside cards
    ================================================================ */
 
-function ClusterDetail({ cluster }: { cluster: TimelineCluster }) {
+function ClusterDetail({ cluster, onDeleteEntry }: { cluster: TimelineCluster; onDeleteEntry?: (target: TimelineDeleteTarget) => void }) {
+    // C2：删除按钮（有 onDeleteEntry 且该条带源信息时显示）
+    const renderDeleteBtn = (entry: ParsedEntry) => {
+        if (!onDeleteEntry || !entry.del) return null;
+        return (
+            <button
+                className="mem-tl-del-btn"
+                title="删除这条记忆（同时删除源数据）"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteEntry(entry.del!);
+                }}
+            >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" />
+                </svg>
+            </button>
+        );
+    };
     return (
         <div className="mem-tl-card-detail" onClick={(event) => event.stopPropagation()}>
             {(() => {
@@ -487,6 +515,7 @@ function ClusterDetail({ cluster }: { cluster: TimelineCluster }) {
                                                     {e.sender}
                                                     {e.type === "group" && <span className="mem-tl-bubble-group">{e.groupName}</span>}
                                                     <span className="mem-tl-bubble-ts">{fmtTime(e.timestamp)}</span>
+                                                    {renderDeleteBtn(e)}
                                                 </span>
                                                 <div className="chat-music-share-card">
                                                     <div className="chat-music-share-body">
@@ -514,6 +543,7 @@ function ClusterDetail({ cluster }: { cluster: TimelineCluster }) {
                                                 {e.sender}
                                                 {e.type === "group" && <span className="mem-tl-bubble-group">{e.groupName}</span>}
                                                 <span className="mem-tl-bubble-ts">{fmtTime(e.timestamp)}</span>
+                                                {renderDeleteBtn(e)}
                                             </span>
                                             <div className="mem-tl-bubble-body">
                                                 <p className="mem-tl-bubble-text">{renderWithStickers(e.message)}</p>
@@ -533,6 +563,7 @@ function ClusterDetail({ cluster }: { cluster: TimelineCluster }) {
                                         <span className="ui-status-tag" data-variant="action" style={{ marginRight: 6, fontSize: "calc(10px*var(--app-text-scale,1))" }}>{entry.label}</span>
                                         <span className="mem-tl-projection-text">{entry.message}</span>
                                         <span className="mem-tl-bubble-ts" style={{ marginLeft: 6 }}>{fmtTime(entry.timestamp)}</span>
+                                        {renderDeleteBtn(entry)}
                                     </div>
                                 );
                             })()
@@ -545,6 +576,7 @@ function ClusterDetail({ cluster }: { cluster: TimelineCluster }) {
                                         <div className="mem-tl-moment-head">
                                             <span className="mem-tl-moment-author">{entry.author}</span>
                                             <span className="mem-tl-bubble-ts">{fmtTime(entry.timestamp)}</span>
+                                            {renderDeleteBtn(entry)}
                                         </div>
                                         <p className="mem-tl-moment-text">{entry.content}</p>
                                         {entry.location && <span className="mem-tl-moment-loc">{entry.location}</span>}
@@ -616,6 +648,7 @@ type Props = {
     events: NativeTimelineEntry[];
     userName: string;
     activeTags?: ReadonlySet<string>;
+    onDeleteEntry?: (target: TimelineDeleteTarget) => void;
 };
 
 const EMPTY_ACTIVE_TAGS: ReadonlySet<string> = new Set<string>();
@@ -623,7 +656,7 @@ const EMPTY_ACTIVE_TAGS: ReadonlySet<string> = new Set<string>();
 // 每批渲染的簇数：全部一次性渲染会在重数据账号上把 DOM 撑爆
 const CLUSTER_PAGE_SIZE = 30;
 
-export function MemoryTimeline({ events, userName, activeTags = EMPTY_ACTIVE_TAGS }: Props) {
+export function MemoryTimeline({ events, userName, activeTags = EMPTY_ACTIVE_TAGS, onDeleteEntry }: Props) {
     const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
     const [visibleCount, setVisibleCount] = useState(CLUSTER_PAGE_SIZE);
 
@@ -633,7 +666,23 @@ export function MemoryTimeline({ events, userName, activeTags = EMPTY_ACTIVE_TAG
     }, [events, activeTags]);
 
     const clusters = useMemo(() => {
-        const parsed = filteredEvents.map(e => parseEntry(e, userName)).filter((e): e is ParsedEntry => e !== null);
+        const parsed = filteredEvents
+            .map(e => {
+                const p = parseEntry(e, userName);
+                if (!p) return null;
+                // C2：附加源数据定位信息，供删除时回写源 App
+                return {
+                    ...p,
+                    del: {
+                        id: e.id,
+                        sourceApp: e.sourceApp,
+                        sourceDetail: e.sourceDetail,
+                        sessionId: e.sessionId,
+                        groupSessionId: e.groupSessionId,
+                    },
+                } as ParsedEntry;
+            })
+            .filter((e): e is ParsedEntry => e !== null);
         return clusterByTimeGap(parsed);
     }, [filteredEvents, userName]);
 
@@ -687,7 +736,7 @@ export function MemoryTimeline({ events, userName, activeTags = EMPTY_ACTIVE_TAG
                                 <span className="mem-tl-card-count">{cluster.entryCount} 条记录</span>
                             </div>
                             {expanded ? (
-                                <ClusterDetail cluster={cluster} />
+                                <ClusterDetail cluster={cluster} onDeleteEntry={onDeleteEntry} />
                             ) : (
                                 <div className="mem-tl-card-excerpts">
                                     {cluster.excerpts.length > 0 ? cluster.excerpts.map((ex, i) => (

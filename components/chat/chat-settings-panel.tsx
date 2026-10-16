@@ -832,6 +832,7 @@ export function ChatSettingsPanel({
             <div className="page-menu chat-info-menu">
                 {/* Basic Info & Search */}
                 <div className="menu-group">
+                    <p className="settings-menu-section-title">会话</p>
                     <button className="menu-item" onClick={() => setEditingAlias(true)}>
                         <ChatInfoIcon icon={MessageSquare} color={CONTENT_APP_ACCENTS.chat} />
                         <div className="menu-label-group"><span className="menu-label">{session.isGroup ? "群聊名称" : "设置备注"}</span></div>
@@ -870,6 +871,7 @@ export function ChatSettingsPanel({
                 {/* Group member management */}
                 {session.isGroup && (
                     <div className="menu-group">
+                        <p className="settings-menu-section-title">群管理</p>
                         <div className="menu-item" style={{ cursor: "default" }}>
                             <ChatInfoIcon icon={Users} color={BINDING_ACCENTS.preset} />
                             <div className="menu-label-group">
@@ -948,6 +950,7 @@ export function ChatSettingsPanel({
                     一份契约 + 一份渲染，群里每个角色各出一条状态栏。 */}
                 {(
                     <div className="menu-group">
+                        <p className="settings-menu-section-title">状态栏与内心</p>
                         <div className="menu-item">
                             <ChatInfoIcon icon={Code} color={BINDING_ACCENTS.preset} />
                             <div className="menu-label-group">
@@ -999,6 +1002,7 @@ export function ChatSettingsPanel({
 
                 {/* Toggles */}
                 <div className="menu-group">
+                    <p className="settings-menu-section-title">聊天与显示</p>
                     <div className="menu-item">
                         <ChatInfoIcon icon={Pin} color={BINDING_ACCENTS.preset} />
                         <div className="menu-label-group"><span className="menu-label">置顶聊天</span></div>
@@ -1104,6 +1108,12 @@ export function ChatSettingsPanel({
                                 />
                             </div>
                         </div>
+                    </>
+                </div>
+
+                {/* Generation */}
+                <div className="menu-group">
+                    <p className="settings-menu-section-title">生成方式</p>
                         <div className="menu-item">
                             <ChatInfoIcon icon={Sparkles} color={BINDING_ACCENTS.api} />
                             <div className="menu-label-group">
@@ -1162,11 +1172,11 @@ export function ChatSettingsPanel({
                                 <ChevronRight size={16} />
                             </div>
                         </button>
-                    </>
                 </div>
 
                 {/* Backgrounds & UI */}
                 <div className="menu-group">
+                    <p className="settings-menu-section-title">通话与背景</p>
                     <label className="menu-item">
                         <ChatInfoIcon icon={ImageIcon} color={BINDING_ACCENTS.api} />
                         <div className="menu-label-group"><span className="menu-label">聊天背景</span></div>
@@ -1235,6 +1245,7 @@ export function ChatSettingsPanel({
 
                 {/* Advanced */}
                 <div className="menu-group">
+                    <p className="settings-menu-section-title">高级</p>
                     <KeyboardAutoSendDebounceItem sessionId={session.id} />
                     <button className="menu-item" onClick={() => setEditingCSS(true)}>
                         <ChatInfoIcon icon={Code} color={BINDING_ACCENTS.embedding} />
@@ -1248,6 +1259,7 @@ export function ChatSettingsPanel({
 
                 {/* Destructive Actions */}
                 <div className="menu-group">
+                    <p className="settings-menu-section-title">危险操作</p>
                     {!session.isGroup && (
                     <button className="menu-item" onClick={() => setShowConfirmDelete(true)}>
                         <ChatInfoIcon icon={UserMinus} color="var(--c-danger)" />

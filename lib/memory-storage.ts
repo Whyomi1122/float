@@ -232,6 +232,21 @@ export function setLastSummarizedTimestamp(characterId: string, ts: string): voi
     kvSet(LAST_SUMMARY_TS_PREFIX + characterId, ts);
 }
 
+// ── Per-app summarization watermarks (2026-10-16: 按 App 分开总结) ──
+// key = `${characterId}::${sourceKey}`，每个来源独立推进，互不牵连。
+const LAST_SUMMARY_TS_APP_PREFIX = "ai_phone_mem_last_sum_app_";
+registerDynamicPrefix(LAST_SUMMARY_TS_APP_PREFIX);
+
+export function getLastSummarizedTimestampPerApp(characterId: string, sourceKey: string): string | null {
+    if (typeof window === "undefined") return null;
+    return kvGet(`${LAST_SUMMARY_TS_APP_PREFIX}${characterId}::${sourceKey}`) || null;
+}
+
+export function setLastSummarizedTimestampPerApp(characterId: string, sourceKey: string, ts: string): void {
+    if (typeof window === "undefined") return;
+    kvSet(`${LAST_SUMMARY_TS_APP_PREFIX}${characterId}::${sourceKey}`, ts);
+}
+
 export function getCoreMemoryCounter(characterId: string): number {
     if (typeof window === "undefined") return 0;
     const val = kvGet(CORE_COUNTER_PREFIX + characterId);
