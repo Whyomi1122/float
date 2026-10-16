@@ -16,11 +16,20 @@ export type BuildEntry = {
 
 export const BUILD_INFO = {
     /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "216c78b",
+    commit: "PENDING",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.16-16",
+    version: "2026.10.16-17",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.16-17",
+            title: "聊天设置页改版（Preferences 风格）",
+            items: [
+                "设置页对齐 Preferences 视觉：小字分区标题（GROUP / COGNITION / VISUALS…）+ 可折叠分组（背景与媒体、自定义 CSS）",
+                "「查找聊天记录」移出设置页，改为聊天主页右上角放大镜按钮，与设置按钮并列",
+                "「归档」并入 COGNITION 分区，与状态栏、TA的电脑放在一起",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.16-16",
             title: "修复群像语音键把中文译文也读出来",

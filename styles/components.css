@@ -6126,40 +6126,79 @@
   padding: 0 10px 8px;
 }
 
-/* ── Chat settings: 群像风格分组标题 ── */
-.chat-settings-section-head {
+/* ── Chat settings: Preferences 风格分区小标题 + 折叠 ── */
+.chat-prefs-section-label {
+  margin: 0;
+  padding: 18px 8px 8px;
+  font-size: calc(11px * var(--app-text-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--c-text) 45%, transparent);
+}
+
+.chat-prefs-fold {
+  margin: 4px 0 2px;
+}
+
+.chat-prefs-fold-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 20px 6px 10px;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--c-text) 5%, transparent);
+  cursor: pointer;
+  text-align: left;
 }
 
-.chat-settings-section-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: #111;
-  color: #fff;
-  flex-shrink: 0;
+.chat-prefs-fold-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.chat-settings-section-label {
-  flex: 1;
-  font-size: calc(12px*var(--app-text-scale,1));
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
+.chat-prefs-fold-title {
+  font-size: calc(15px * var(--app-text-scale, 1));
+  font-weight: 600;
   color: var(--c-text);
 }
 
-.chat-settings-section-num {
-  font-size: calc(12px*var(--app-text-scale,1));
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: color-mix(in srgb, var(--c-text) 22%, transparent);
-  font-variant-numeric: tabular-nums;
+.chat-prefs-fold-sub {
+  font-size: calc(12px * var(--app-text-scale, 1));
+  font-style: italic;
+  color: color-mix(in srgb, var(--c-text) 45%, transparent);
+}
+
+.chat-prefs-fold-chevron {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--c-text) 40%, transparent);
+  transition: transform 0.22s ease;
+}
+
+.chat-prefs-fold-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.chat-prefs-fold-body {
+  display: flex;
+  flex-direction: column;
+  padding-top: 6px;
+  animation: chatPrefsFoldIn 0.18s ease;
+}
+
+@keyframes chatPrefsFoldIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
