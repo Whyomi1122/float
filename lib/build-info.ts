@@ -16,11 +16,19 @@ export type BuildEntry = {
 
 export const BUILD_INFO = {
     /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "3e4e6fb",
+    commit: "8b78771",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.15-5",
+    version: "2026.10.16-6",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.16-6",
+            title: "富媒体卡片间距修复（红包/转账）",
+            items: [
+                "修复聊天里红包/转账等富媒体卡片与头像的间距过远问题（收紧为 6px，与文本气泡观感一致）",
+                "注意：若使用了自定义 CSS 皮肤，请删除其中「4d 富媒体卡片间距」整段（旧的 12px margin 会与本次修复冲突）",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.15-5",
             title: "新增：版本更新提示弹窗",
