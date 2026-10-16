@@ -737,7 +737,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>, label: "位置", onClick: () => onOpenRichModal("location") },
         // 「指令」：系统指令 + 番外指令模式（弹窗内 tab 切换；番外为开关）
         { icon: <AlertCircle size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "指令", active: theaterMode, onClick: () => onOpenRichModal("system_instruction") },
-        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={offlineMode ? "var(--c-icon-active)" : "var(--c-text)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12.01" y2="18" /><line x1="3" y1="3" x2="21" y2="21" /></svg>, label: "线下", active: offlineMode, onClick: onToggleOfflineMode },
+        // 「线下」入口已隐藏（线下功能整体下线）
         ...customPlusActions.map(action => ({
             icon: action.appIconDataUrl
                 ? <span className="chat-plus-custom-app-icon" style={{ backgroundImage: `url(${action.appIconDataUrl})` }} aria-hidden="true" />
@@ -1754,7 +1754,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     useEffect(() => {
         setUserIdentity(resolveUserIdentity(session.contactId, "chat"));
         setTransientMessages([]);
-        setOfflineMode(kvGet(CHAT_OFFLINE_MODE_PREFIX + session.id) === "1");
+        // 线下功能已整体下线：强制关闭线下模式（线下入口/界面不再出现）
+        setOfflineMode(false);
         setOfflineVisibleCount(OFFLINE_INITIAL_LOAD);
         offlineTextInputRef.current?.clear();
         setPendingOfflineUserText("");
@@ -6336,18 +6337,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                             jumpToStoredMessage(messageId);
                         }}
                         onToolHistoryCleared={syncMessagesFromStorage}
-                        offlineHistoryBusy={isOfflineGenerating}
-                        onOfflineHistoryCleared={() => {
-                            setOfflineTurns([]);
-                            setOfflineVisibleCount(OFFLINE_INITIAL_LOAD);
-                            setPendingOfflineUserText("");
-                            offlineGenerationInputRef.current = "";
-                            setActiveOfflineTarget(null);
-                            setContextMenuAnchor(null);
-                            setEditingOfflineTarget(null);
-                            setEditingOfflineContent("");
-                            showChatToast("已清空线下聊天记录");
-                        }}
                         onDeleteFriend={() => onBack()}
                         onSessionDeleted={() => {
                             setShowSettings(false);

@@ -721,7 +721,7 @@ export function MemoryBankPage({
         const label = type === "core" ? "核心记忆" : "长期记忆";
         const isLongTerm = type === "long_term";
         return (
-            <>
+            <div className="mem-list-wrap">
                 {isLongTerm && (
                     <div className="mem-filter-bar">
                         <div className="mem-filter-row">
@@ -937,7 +937,7 @@ export function MemoryBankPage({
                         </div>
                     ))
                 )}
-            </>
+            </div>
         );
     };
 

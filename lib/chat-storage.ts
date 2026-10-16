@@ -651,9 +651,27 @@ function normalizeChatSessions(sessions: ChatSession[]): NormalizedSessionList {
             changed = true;
             continue;
         }
-        const item = id === session.id && contactId === session.contactId
+        let item = id === session.id && contactId === session.contactId
             ? session
             : { ...session, id, contactId };
+        // ── 写死项（不再作为设置项暴露）──
+        // 线上强制非流式；双语翻译/折叠译文/丢弃无效表情包 恒为开。
+        // 设置页已移除这些开关，这里兜底纠正历史数据（含 group session）。
+        if (
+            item.streamOnline !== false
+            || item.bilingualTranslationEnabled !== true
+            || item.collapseBilingualTranslation !== true
+            || item.discardInvalidStickers !== true
+        ) {
+            item = {
+                ...item,
+                streamOnline: false,
+                bilingualTranslationEnabled: true,
+                collapseBilingualTranslation: true,
+                discardInvalidStickers: true,
+            };
+            changed = true;
+        }
         const existing = byId.get(id);
         if (!existing) {
             byId.set(id, item);

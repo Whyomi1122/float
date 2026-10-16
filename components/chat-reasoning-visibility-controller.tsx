@@ -1,14 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { loadChatSessions, saveChatSessions, type ChatSession } from "@/lib/chat-storage";
 
-const CONTROL_ATTR = "data-chat-reasoning-visibility-control";
 const HIDDEN_ATTR = "data-chat-reasoning-hidden-by-setting";
-
-type ChatSessionWithReasoningVisibility = ChatSession & {
-  hideReasoning?: boolean;
-};
 
 function getSessionId(wrapper: HTMLElement): string | null {
   for (const className of Array.from(wrapper.classList)) {
@@ -19,23 +13,9 @@ function getSessionId(wrapper: HTMLElement): string | null {
   return null;
 }
 
-function readHidden(sessionId: string): boolean {
-  const session = loadChatSessions().find((item) => item.id === sessionId) as
-    | ChatSessionWithReasoningVisibility
-    | undefined;
-  return session?.hideReasoning === true;
-}
-
-function writeHidden(sessionId: string, hidden: boolean): void {
-  const sessions = loadChatSessions();
-  const index = sessions.findIndex((item) => item.id === sessionId);
-  if (index === -1) return;
-
-  const updated = { ...sessions[index] } as ChatSessionWithReasoningVisibility;
-  if (hidden) updated.hideReasoning = true;
-  else delete updated.hideReasoning;
-  sessions[index] = updated;
-  saveChatSessions(sessions);
+function readHidden(_sessionId: string): boolean {
+  // 「隐藏思维链」写死为常开。
+  return true;
 }
 
 function forceHide(element: HTMLElement): void {
@@ -70,112 +50,12 @@ function applyReasoningVisibility(wrapper: HTMLElement, hidden: boolean): void {
   });
 }
 
-function setToggleVisual(toggle: HTMLButtonElement, checked: boolean): void {
-  toggle.setAttribute("aria-checked", checked ? "true" : "false");
-  if (checked) toggle.setAttribute("data-checked", "");
-  else toggle.removeAttribute("data-checked");
-}
-
-function createClockIcon(): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "22");
-  svg.setAttribute("height", "22");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.75");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-
-  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-  circle.setAttribute("cx", "12");
-  circle.setAttribute("cy", "12");
-  circle.setAttribute("r", "9");
-  const hands = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  hands.setAttribute("d", "M12 7v5l3 2");
-  svg.append(circle, hands);
-  return svg;
-}
-
-function ensureSettingsControl(menu: HTMLElement, wrapper: HTMLElement, sessionId: string): void {
-  const existing = menu.querySelector<HTMLElement>(`[${CONTROL_ATTR}]`);
-  if (existing) {
-    const toggle = existing.querySelector<HTMLButtonElement>(".ui-toggle");
-    if (toggle) setToggleVisual(toggle, readHidden(sessionId));
-    return;
-  }
-
-  const cssLabel = Array.from(menu.querySelectorAll<HTMLElement>(".menu-label")).find(
-    (el) => el.textContent?.trim() === "自定义 CSS 样式",
-  );
-  const cssItem = cssLabel?.closest<HTMLElement>(".menu-item");
-  const advancedGroup = cssItem?.closest<HTMLElement>(".menu-group");
-  if (!cssItem || !advancedGroup) return;
-
-  const row = document.createElement("div");
-  row.className = "menu-item";
-  row.setAttribute(CONTROL_ATTR, "");
-
-  const icon = document.createElement("span");
-  icon.className = "chat-info-icon";
-  icon.style.setProperty("--icon-color", "var(--c-icon-active)");
-  icon.appendChild(createClockIcon());
-
-  const labels = document.createElement("div");
-  labels.className = "menu-label-group";
-  const label = document.createElement("span");
-  label.className = "menu-label";
-  label.textContent = "隐藏思维链";
-  const desc = document.createElement("span");
-  desc.className = "menu-desc";
-  desc.textContent = "开启后完全隐藏思维链入口";
-  labels.append(label, desc);
-
-  const right = document.createElement("div");
-  right.className = "menu-right";
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "ui-toggle";
-  toggle.setAttribute("role", "switch");
-  toggle.setAttribute("data-ui", "toggle");
-  const knob = document.createElement("span");
-  knob.className = "ui-toggle-knob";
-  toggle.appendChild(knob);
-  setToggleVisual(toggle, readHidden(sessionId));
-  right.appendChild(toggle);
-
-  const setHidden = (next: boolean) => {
-    writeHidden(sessionId, next);
-    setToggleVisual(toggle, next);
-    applyReasoningVisibility(wrapper, next);
-  };
-
-  toggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setHidden(!readHidden(sessionId));
-  });
-  row.addEventListener("click", () => setHidden(!readHidden(sessionId)));
-
-  row.append(icon, labels, right);
-  advancedGroup.insertBefore(row, cssItem);
-}
-
 function syncAll(): void {
   const wrappers = Array.from(document.querySelectorAll<HTMLElement>(".chat-room-wrapper"));
   wrappers.forEach((wrapper) => {
     const sessionId = getSessionId(wrapper);
     if (!sessionId) return;
     applyReasoningVisibility(wrapper, readHidden(sessionId));
-  });
-
-  // 聊天信息页通过 portal 挂在 session wrapper 外面；用 data-settings-open 找到它对应的会话。
-  const activeWrapper = wrappers.find((wrapper) => wrapper.hasAttribute("data-settings-open"));
-  if (!activeWrapper) return;
-  const sessionId = getSessionId(activeWrapper);
-  if (!sessionId) return;
-
-  document.querySelectorAll<HTMLElement>(".chat-settings-layer .chat-info-menu").forEach((menu) => {
-    ensureSettingsControl(menu, activeWrapper, sessionId);
   });
 }
 

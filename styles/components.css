@@ -5301,6 +5301,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 2px 4px;
+  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
 }
 
 .mem-filter-row {
@@ -5485,19 +5488,31 @@
 }
 
 .mem-empty-card {
-  min-height: 180px;
+  min-height: 132px;
+  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
   border: 1px dashed var(--c-panel-border);
   border-radius: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 28px 22px;
+  gap: 12px;
+  padding: 22px 20px;
   text-align: center;
   color: var(--c-text);
   font-size: calc(13px*var(--app-text-scale,1));
   line-height: 1.7;
+}
+
+.mem-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
 }
 
 .mem-empty-card p {
@@ -6110,3 +6125,41 @@
   gap: 6px;
   padding: 0 10px 8px;
 }
+
+/* ── Chat settings: 群像风格分组标题 ── */
+.chat-settings-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 6px 10px;
+}
+
+.chat-settings-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.chat-settings-section-label {
+  flex: 1;
+  font-size: calc(12px*var(--app-text-scale,1));
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--c-text);
+}
+
+.chat-settings-section-num {
+  font-size: calc(12px*var(--app-text-scale,1));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--c-text) 22%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
