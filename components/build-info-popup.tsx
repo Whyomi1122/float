@@ -43,7 +43,7 @@ export function BuildInfoPopup() {
                     <h3 className="modal-title">已更新 · {BUILD_INFO.version}</h3>
                 </div>
                 <div className="modal-body" data-ui="modal-body" style={{ maxHeight: "56vh", overflowY: "auto" }}>
-                    {BUILD_INFO.entries.map(entry => (
+                    {BUILD_INFO.entries.slice(0, 1).map(entry => (
                         <div key={entry.version} style={{ marginBottom: 14 }}>
                             <p style={{ fontWeight: 600, marginBottom: 4 }}>
                                 {entry.title}

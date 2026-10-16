@@ -16,11 +16,18 @@ export type BuildEntry = {
 
 export const BUILD_INFO = {
     /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "8b78771",
+    commit: "b773e32",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.16-6",
+    version: "2026.10.16-7",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.16-7",
+            title: "版本提示弹窗优化",
+            items: [
+                "更新弹窗现在只展示「最新一次」的更新内容，不再堆叠历史版本",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.16-6",
             title: "富媒体卡片间距修复（红包/转账）",
