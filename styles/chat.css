@@ -2859,24 +2859,32 @@
 
 /* ── Monologue heart icon ── */
 /* 气泡 + 爱心的横向行：爱心贴在气泡尾部（外侧） */
+.chat-msg-content-wrap:has(.chat-monologue-heart) {
+  overflow: visible !important;
+}
 .chat-bubble-row {
   display: flex;
   align-items: flex-end;
   min-width: 0;
+  position: relative;
+  overflow: visible;
 }
 .chat-bubble-row > .chat-bubble-role-user,
 .chat-bubble-row > .chat-bubble-role-assistant {
   min-width: 0;
+  overflow: visible;
 }
 .chat-monologue-heart {
   -webkit-user-select: none;
   user-select: none;
   color: rgba(0,0,0,0.15);
   transition: color 0.2s, transform 0.2s;
-  /* 在气泡外侧、贴气泡底部；跟随气泡/卡片本身的尾部 */
-  align-self: flex-end;
+  /* 绝对定位在气泡外侧右下角，不占据布局宽度（宽卡片也不会被裁掉） */
+  position: absolute;
+  bottom: 1px;
+  left: 100%;
+  margin-left: 2px;
   flex-shrink: 0;
-  margin: 0 0 1px 4px;
 }
 .chat-monologue-heart[data-active] {
   color: #e74c5e;

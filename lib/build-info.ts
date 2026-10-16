@@ -16,11 +16,19 @@ export type BuildEntry = {
 
 export const BUILD_INFO = {
     /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "5f012b5",
+    commit: "fc6f717",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.16-9",
+    version: "2026.10.16-10",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.16-10",
+            title: "修复爱心按钮消失 & 富媒体竖向间距",
+            items: [
+                "修复：卡片较宽时，爱心按钮（查看折叠状态）被裁掉而消失的问题",
+                "修复：用户消息与下方富媒体卡片之间的竖向间距过近，现与普通消息一致",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.16-9",
             title: "爱心按钮移到卡片/气泡外侧",
