@@ -178,8 +178,6 @@ import {
 } from "@/lib/bilingual-prompt-defaults";
 import { ChatFallbackAvatar } from "./chat-fallback-avatar";
 import { MessageBubble, isStandaloneHtmlPreviewContent } from "./message-bubble";
-import { ScreenEffectSettingsModal } from "./screen-effect-settings-modal";
-
 type ChatSettingsPanelProps = {
     session: ChatSession;
     onClose: () => void;
@@ -281,9 +279,14 @@ function ChatInfoIcon({ icon: Icon, color }: { icon: LucideIcon; color: string }
     );
 }
 
-/** 分组标题（参考群像 App 设置页）：黑色圆角图标 + 大写字距标题 + 序号徽标 */
-function PrefsSection({ label }: { label: string }) {
-    return <p className="chat-prefs-section-label">{label}</p>;
+/** 白卡片分区：英文小标题贴在卡顶里面 */
+function PrefsSection({ label, children, danger }: { label: string; children: React.ReactNode; danger?: boolean }) {
+    return (
+        <section className={`chat-prefs-card${danger ? " is-danger" : ""}`}>
+            <p className={`chat-prefs-section-label${danger ? " is-danger" : ""}`}>{label}</p>
+            {children}
+        </section>
+    );
 }
 
 function PrefsFold({
@@ -438,7 +441,6 @@ export function ChatSettingsPanel({
     const [editingAlias, setEditingAlias] = useState(false);
     const [editingBilingualPrompt, setEditingBilingualPrompt] = useState(false);
     const [editingCSS, setEditingCSS] = useState(false);
-    const [showScreenEffects, setShowScreenEffects] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [openFold, setOpenFold] = useState<string | null>(null);
     // TA 的电脑：翻看角色云端电脑（连接了角色电脑才显示入口）
@@ -848,11 +850,19 @@ export function ChatSettingsPanel({
     const displayedSearchMessages = searchMode ? searchResults : searchHistoryMessages;
 
     return (
-        <PageShell title="聊天信息" onBack={onClose} className="absolute inset-0 z-[100]">
-            <div className="page-menu chat-info-menu">
+        <PageShell
+            title={
+                <span className="chat-prefs-page-title">
+                    <span className="chat-prefs-page-title-main">Preferences</span>
+                    <span className="chat-prefs-page-title-sub">系统偏好设置</span>
+                </span>
+            }
+            onBack={onClose}
+            className="absolute inset-0 z-[100]"
+        >
+            <div className="page-menu chat-info-menu chat-prefs-menu">
                 {session.isGroup && (
-                    <div className="menu-group">
-                        <PrefsSection label="SESSION" />
+                    <PrefsSection label="SESSION">
                         <button className="menu-item" onClick={() => setEditingAlias(true)}>
                             <ChatInfoIcon icon={MessageSquare} color={CONTENT_APP_ACCENTS.chat} />
                             <div className="menu-label-group">
@@ -864,13 +874,12 @@ export function ChatSettingsPanel({
                                 <ChevronRight size={16} />
                             </div>
                         </button>
-                    </div>
+                    </PrefsSection>
                 )}
 
                 {/* Group member management */}
                 {session.isGroup && (
-                    <div className="menu-group">
-                        <PrefsSection label="GROUP" />
+                    <PrefsSection label="GROUP">
                         <div className="menu-item" style={{ cursor: "default" }}>
                             <ChatInfoIcon icon={Users} color={BINDING_ACCENTS.preset} />
                             <div className="menu-label-group">
@@ -941,13 +950,11 @@ export function ChatSettingsPanel({
                                 </div>
                             </button>
                         )}
-                    </div>
+                    </PrefsSection>
                 )}
 
-                <div className="menu-group">
-                    <PrefsSection label="COGNITION" />
+                <PrefsSection label="COGNITION">
                     <div className="menu-item">
-                        <ChatInfoIcon icon={Code} color={BINDING_ACCENTS.preset} />
                         <div className="menu-label-group">
                             <span className="menu-label">原生状态栏</span>
                             <span className="menu-desc">{statusPresetSupported ? "Status Bar · 状态值与内心默认输出" : "当前预设未声明状态区宏，仅默认预设支持"}</span>
@@ -968,7 +975,6 @@ export function ChatSettingsPanel({
                     </div>
                     {statusPresetSupported && statusRegion.mode !== "native" && (
                         <div className="menu-item cursor-pointer" onClick={openStatusRegionDialog}>
-                            <ChatInfoIcon icon={Sparkles} color={BINDING_ACCENTS.preset} />
                             <div className="menu-label-group">
                                 <span className="menu-label">自定义状态栏</span>
                                 <span className="menu-desc">{isCustomStatusRegionActive(statusRegion)
@@ -994,7 +1000,6 @@ export function ChatSettingsPanel({
                     )}
                     {!session.isGroup && (
                         <button className="menu-item" onClick={() => setShowArchive(true)}>
-                            <ChatInfoIcon icon={Archive} color={BINDING_ACCENTS.memory} />
                             <div className="menu-label-group">
                                 <span className="menu-label">归档</span>
                                 <span className="menu-desc">Archive · 把聊天提炼成长期档案，写入 TA 的记忆</span>
@@ -1004,7 +1009,6 @@ export function ChatSettingsPanel({
                     )}
                     {!session.isGroup && isAgentComputerConfigured() && (
                         <button className="menu-item" onClick={() => setShowComputer(true)}>
-                            <ChatInfoIcon icon={Laptop} color={BINDING_ACCENTS.memory} />
                             <div className="menu-label-group">
                                 <span className="menu-label">TA 的电脑</span>
                                 <span className="menu-desc">Computer · 看看 TA 在自己电脑上存了什么</span>
@@ -1012,10 +1016,41 @@ export function ChatSettingsPanel({
                             <div className="menu-right"><ChevronRight size={16} /></div>
                         </button>
                     )}
-                </div>
+                    <div className="menu-item">
+                        <div className="menu-label-group">
+                            <span className="menu-label">传入最近图片数</span>
+                            <span className="menu-desc">Vision · 进入模型视觉上下文的最近图片数量</span>
+                        </div>
+                        <div className="menu-right gap-2">
+                            <button
+                                type="button"
+                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
+                                onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit - 1)}
+                                disabled={visionImagePromptLimit <= 0}
+                            >
+                                -
+                            </button>
+                            <input
+                                type="number"
+                                min={0}
+                                max={MAX_VISION_IMAGE_PROMPT_LIMIT}
+                                value={visionImagePromptLimit}
+                                onChange={e => updateVisionImagePromptLimit(e.target.value)}
+                                className="ui-input h-8 w-14 text-center"
+                            />
+                            <button
+                                type="button"
+                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
+                                onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit + 1)}
+                                disabled={visionImagePromptLimit >= MAX_VISION_IMAGE_PROMPT_LIMIT}
+                            >
+                                +
+                            </button>
+                        </div>
+                    </div>
+                </PrefsSection>
 
-                <div className="menu-group">
-                    <PrefsSection label="VISUALS" />
+                <PrefsSection label="VISUALS">
                     <PrefsFold
                         open={openFold === "visuals"}
                         onToggle={() => toggleFold("visuals")}
@@ -1023,7 +1058,6 @@ export function ChatSettingsPanel({
                         subtitle="Backgrounds · 聊天背景 / 视频通话 / 语音通话"
                     >
                         <label className="menu-item">
-                            <ChatInfoIcon icon={ImageIcon} color={BINDING_ACCENTS.api} />
                             <div className="menu-label-group"><span className="menu-label">聊天背景</span></div>
                             <div className="menu-right">
                                 {backgroundImage && <><span className="menu-desc mr-1">已设置</span><button className="menu-desc mr-1 text-[var(--c-danger)]" onClick={e => { e.preventDefault(); setBackgroundImage(""); updateSession({ backgroundImage: "" }); }}>清除</button></>}
@@ -1034,7 +1068,6 @@ export function ChatSettingsPanel({
                         {session.isGroup ? (
                             <>
                                 <div className="menu-item" style={{ cursor: "default" }}>
-                                    <ChatInfoIcon icon={Video} color={BINDING_ACCENTS.voice} />
                                     <div className="menu-label-group"><span className="menu-label">视频通话背景</span></div>
                                 </div>
                                 {groupChars.map(c => c && (
@@ -1068,7 +1101,6 @@ export function ChatSettingsPanel({
                             </>
                         ) : (
                             <label className="menu-item">
-                                <ChatInfoIcon icon={Video} color={BINDING_ACCENTS.voice} />
                                 <div className="menu-label-group"><span className="menu-label">视频通话背景</span></div>
                                 <div className="menu-right">
                                     {videoBackground && <><span className="menu-desc mr-1">已设置</span><button className="menu-desc mr-1 text-[var(--c-danger)]" onClick={e => { e.preventDefault(); setVideoBackground(""); updateSession({ videoBackground: "" }); }}>清除</button></>}
@@ -1078,7 +1110,6 @@ export function ChatSettingsPanel({
                             </label>
                         )}
                         <label className="menu-item">
-                            <ChatInfoIcon icon={Mic} color={BINDING_ACCENTS.voice} />
                             <div className="menu-label-group"><span className="menu-label">语音通话背景</span></div>
                             <div className="menu-right">
                                 {voiceBackground && <><span className="menu-desc mr-1">已设置</span><button className="menu-desc mr-1 text-[var(--c-danger)]" onClick={e => { e.preventDefault(); setVoiceBackground(""); updateSession({ voiceBackground: "" }); }}>清除</button></>}
@@ -1087,53 +1118,6 @@ export function ChatSettingsPanel({
                             <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setVoiceBackground, "voiceBackground")} className="hidden" />
                         </label>
                     </PrefsFold>
-                    <div className="menu-item">
-                        <ChatInfoIcon icon={ImageIcon} color={BINDING_ACCENTS.api} />
-                        <div className="menu-label-group">
-                            <span className="menu-label">传入最近图片数</span>
-                            <span className="menu-desc">Vision · 进入模型视觉上下文的最近图片数量</span>
-                        </div>
-                        <div className="menu-right gap-2">
-                            <button
-                                type="button"
-                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
-                                onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit - 1)}
-                                disabled={visionImagePromptLimit <= 0}
-                            >
-                                -
-                            </button>
-                            <input
-                                type="number"
-                                min={0}
-                                max={MAX_VISION_IMAGE_PROMPT_LIMIT}
-                                value={visionImagePromptLimit}
-                                onChange={e => updateVisionImagePromptLimit(e.target.value)}
-                                className="ui-input h-8 w-14 text-center"
-                            />
-                            <button
-                                type="button"
-                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
-                                onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit + 1)}
-                                disabled={visionImagePromptLimit >= MAX_VISION_IMAGE_PROMPT_LIMIT}
-                            >
-                                +
-                            </button>
-                        </div>
-                    </div>
-                    <button className="menu-item" onClick={() => setShowScreenEffects(true)}>
-                        <ChatInfoIcon icon={Sparkles} color={BINDING_ACCENTS.preset} />
-                        <div className="menu-label-group">
-                            <span className="menu-label">全屏特效</span>
-                            <span className="menu-desc">Effects · 触发词播放表情雨/礼花</span>
-                        </div>
-                        <div className="menu-right">
-                            <ChevronRight size={16} />
-                        </div>
-                    </button>
-                </div>
-
-                <div className="menu-group">
-                    <PrefsSection label="IDENTITY & UI" />
                     <PrefsFold
                         open={openFold === "css"}
                         onToggle={() => toggleFold("css")}
@@ -1141,7 +1125,6 @@ export function ChatSettingsPanel({
                         subtitle="Custom Style Override"
                     >
                         <button className="menu-item" onClick={() => setEditingCSS(true)}>
-                            <ChatInfoIcon icon={Code} color={BINDING_ACCENTS.embedding} />
                             <div className="menu-label-group">
                                 <span className="menu-label">自定义 CSS 样式</span>
                                 <span className="menu-desc">Session CSS</span>
@@ -1152,45 +1135,26 @@ export function ChatSettingsPanel({
                             </div>
                         </button>
                     </PrefsFold>
-                </div>
+                </PrefsSection>
 
-                <div className="menu-group">
-                    <PrefsSection label="DANGER ZONE" />
-                    {!session.isGroup && (
-                    <button className="menu-item" onClick={() => setShowConfirmDelete(true)}>
-                        <ChatInfoIcon icon={UserMinus} color="var(--c-danger)" />
-                        <div className="menu-label-group"><span className="menu-label menu-label-danger">删除好友</span></div>
-                    </button>
-                    )}
-                    <button className="menu-item" onClick={() => setShowConfirmClearTools(true)}>
-                        <ChatInfoIcon icon={Code} color="var(--c-danger)" />
-                        <div className="menu-label-group">
-                            <span className="menu-label menu-label-danger">清理原生tool调用历史</span>
-                            <span className="menu-desc">切换到文本协议 API 前使用</span>
-                        </div>
-                    </button>
-                    <button className="menu-item" onClick={() => setShowConfirmClear(true)}>
-                        <ChatInfoIcon icon={Trash2} color="var(--c-danger)" />
-                        <div className="menu-label-group">
-                            <span className="menu-label menu-label-danger">清空聊天记录</span>
-                            <span className="menu-desc">CLEAR HISTORY</span>
-                        </div>
-                    </button>
-                    <button
-                        className="menu-item"
-                        onClick={() => setShowConfirmDeleteSession(true)}
-                    >
-                        <ChatInfoIcon icon={Trash2} color="var(--c-danger)" />
-                        <div className="menu-label-group">
-                            <span className="menu-label menu-label-danger">删除会话</span>
-                            <span className="menu-desc">
-                                {session.isGroup
-                                    ? "解散并移除该群聊，聊天记录一并删除"
-                                    : "移除该会话及聊天记录，好友保留"}
-                            </span>
-                        </div>
-                    </button>
-                </div>
+                <PrefsSection label="DANGER ZONE" danger>
+                    <div className="chat-prefs-danger-list">
+                        {!session.isGroup && (
+                            <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmDelete(true)}>
+                                删除好友
+                            </button>
+                        )}
+                        <button type="button" className="chat-prefs-danger-pill is-ghost" onClick={() => setShowConfirmClearTools(true)}>
+                            清理原生 tool 调用历史
+                        </button>
+                        <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmClear(true)}>
+                            清空聊天记录
+                        </button>
+                        <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmDeleteSession(true)}>
+                            {session.isGroup ? "解散群聊" : "删除会话"}
+                        </button>
+                    </div>
+                </PrefsSection>
 
             </div>
 
@@ -1355,9 +1319,6 @@ export function ChatSettingsPanel({
                     </div>
                 </div>
             )}
-
-            {/* Modal: Screen Effects */}
-            {showScreenEffects && <ScreenEffectSettingsModal onClose={() => setShowScreenEffects(false)} />}
 
             {/* Modal: Confirm Clear History */}
             {showConfirmClear && (
