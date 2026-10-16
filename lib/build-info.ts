@@ -16,11 +16,19 @@ export type BuildEntry = {
 
 export const BUILD_INFO = {
     /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "6c00a7a",
+    commit: "3e4e6fb",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.15-4",
+    version: "2026.10.15-5",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.15-5",
+            title: "新增：版本更新提示弹窗",
+            items: [
+                "进入 float 时会弹窗提示本版本更新了什么（版本变化才弹，看过后不再打扰）",
+                "弹窗底部显示当前构建 commit，方便和 Vercel 部署核对",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.15-4",
             title: "语音键修复 · 心理块整行 · 富媒体卡片间距",
