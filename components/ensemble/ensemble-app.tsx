@@ -429,15 +429,10 @@ function BodyText({
   const inner = kind === "act" ? GAP_ACT + 3 : GAP_DIALOG + 0;
   // 括号规则（用户定稿 2026-10-04 第5轮）：**无条件剥除**包裹整行的 （），
   // 包括双语译文行。韩语对白的下一行直接写中文，不再用括号包裹。
-  // 语音键落点（用户定 方案B）：挂在**朗读行**末尾 —— 双语时即含韩文那一行，
-  // 使键与所读内容同行；整段无韩文（本就中文）时退回最后一段。
-  const voiceAnchorIndex = (() => {
-    if (!voiceButton) return -1;
-    const HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
-    const koreanIdx = paras.findIndex((p) => HANGUL.test(p));
-    if (koreanIdx >= 0) return koreanIdx;
-    return paras.length - 1;
-  })();
+  // 语音键落点（用户定 方案B）：挂在**朗读行**末尾，使键与所读内容同行。
+  // 2026-10-16 修正（V1）：双语真实格式是「原文行在前、译文行在后」，
+  //   朗读的是**首段原文**，故键一律挂**首段**，不再盲找含谚文(Hangul)的行。
+  const voiceAnchorIndex = voiceButton ? 0 : -1;
   return (
     <div
       className={`frame-body frame-${kind} tracking-[0.01em]`}
@@ -462,8 +457,8 @@ function BodyText({
             style={{ marginTop: i === 0 ? 0 : inner }}
           >
             {shown}
-            {/* 语音播放键：行内贴在**朗读行**末尾（方案B：双语时挂韩文行，
-                并与所读文本一致；整段中文时挂最后一段）。 */}
+            {/* 语音播放键：行内贴在**朗读行**末尾（方案B：挂首段原文，
+                与所读文本一致）。 */}
             {isVoiceAnchor ? voiceButton : null}
           </div>
         );
@@ -474,13 +469,15 @@ function BodyText({
 
 // ──────────────────────────────────────────────────────────────
 /**
- * 朗读文本过滤：双语模式下**只读原文（韩语）**，跳过中文译文行。
+ * 朗读文本过滤：双语模式下**只读原文**，即**首行**。
  *
- * 群像双语是「韩语原文行 + 中文译文行」分行书写（见 BodyText 注释）。
- * 规则：
- *   · 逐行拆开，凡**含谚文（Hangul）**的行 → 属于原文，保留；
- *   · 整段**没有任何谚文**（本来就是中文场景）→ 返回全文，读中文；
- *   · 含谚文的行凑不齐（如只有译文漏了原文）→ 退回全文，宁可多读。
+ * 群像双语是「原文行 + 译文行」分行书写（见 BodyText 注释），
+ * 原文行在前、译文行在后（韩语对白下一行写中文；反向亦然）。
+ * 故朗读文本 = **第一行（原文）**。
+ *
+ * 2026-10-16 修正（V1）：原实现盲取「含谚文(Hangul)的行」当原文，
+ *   但原文可能是中文（此时含谚文的那行其实是韩文译文）→ 会读错成译文。
+ *   改为**取首行**，与显示端「原文行在前」一致。
  * 去除行尾播放键会挂的括号等，简单 trim 即可。
  */
 function pickVoiceText(raw: string): string {
@@ -490,11 +487,8 @@ function pickVoiceText(raw: string): string {
     .split(/\n+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  // 谚文音节 + 字母（含古谚文/兼容字母），覆盖常见韩语
-  const HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
-  const koreanLines = lines.filter((l) => HANGUL.test(l));
-  if (koreanLines.length > 0) return koreanLines.join(" ");
-  return lines.join(" ");
+  if (lines.length === 0) return "";
+  return lines[0];
 }
 
 /** 剧本会话字体的 font-family 注册名（运行时生成，与具体剧本无关；
