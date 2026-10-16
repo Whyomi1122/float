@@ -6067,21 +6067,21 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 onActionSelect={(text) => chatTextInputRef.current?.appendText(text)}
                                                 defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                             />
+                                            {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setExpandedThinkingId(prev => prev === msg.id ? null : msg.id); }}
+                                                    className="chat-monologue-heart bg-none border-none cursor-pointer p-1 ts-14 leading-none"
+                                                    {...(expandedMonologueId === msg.id ? { "data-active": "" } : {})}
+                                                    title="查看折叠状态"
+                                                    aria-label="查看折叠状态"
+                                                >
+                                                    <svg viewBox="0 0 16 16" width="14" height="14" style={{display:"block"}}>
+                                                        <path d="M8 14s-6-4-6-8c0-2.5 1.5-4 3.5-4 1 0 2 .5 2.5 1.5C8.5 2.5 9.5 2 10.5 2 12.5 2 14 3.5 14 6c0 4-6 8-6 8z" fill="currentColor"/>
+                                                    </svg>
+                                                </button>
+                                            )}
                                         </div>
                                         </div>}
-                                        {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); setExpandedThinkingId(prev => prev === msg.id ? null : msg.id); }}
-                                                className="chat-monologue-heart bg-none border-none cursor-pointer p-1 ts-14 leading-none self-end shrink-0 -ml-2"
-                                                {...(expandedMonologueId === msg.id ? { "data-active": "" } : {})}
-                                                title="查看折叠状态"
-                                                aria-label="查看折叠状态"
-                                            >
-                                                <svg viewBox="0 0 16 16" width="14" height="14" style={{display:"block"}}>
-                                                    <path d="M8 14s-6-4-6-8c0-2.5 1.5-4 3.5-4 1 0 2 .5 2.5 1.5C8.5 2.5 9.5 2 10.5 2 12.5 2 14 3.5 14 6c0 4-6 8-6 8z" fill="currentColor"/>
-                                                </svg>
-                                            </button>
-                                        )}
                                         {msg.role === "user" && !isEmptyBubble && (
                                             <div className="chat-msg-avatar w-[40px] h-[40px] rounded-[20px] bg-[var(--c-page-body-bg)] shrink-0 flex items-center justify-center overflow-hidden">
                                                 {userIdentity?.avatarUrl ? (

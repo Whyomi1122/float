@@ -16,11 +16,19 @@ export type BuildEntry = {
 
 export const BUILD_INFO = {
     /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "736e93d",
+    commit: "8816d27",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.16-7",
+    version: "2026.10.16-8",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.16-8",
+            title: "爱心按钮移到卡片尾部 + 富媒体间距对齐",
+            items: [
+                "爱心按钮（查看折叠状态）现在固定在气泡/卡片自身的尾部右下角，不再飘到整行底部",
+                "富媒体卡片与头像的间距，调整为与文本气泡完全一致",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.16-7",
             title: "版本提示弹窗优化",

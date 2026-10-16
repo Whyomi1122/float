@@ -1536,9 +1536,9 @@
   box-shadow: none !important;
   overflow: visible !important;
 }
-/* 富媒体消息行：头像 ↔ 卡片间距收紧到 6px（文本气泡仍是 12px） */
+/* 富媒体消息行：头像 ↔ 卡片间距与文本气泡一致（12px） */
 .chat-msg-wrapper[data-media] {
-  gap: 6px !important;
+  gap: 12px !important;
 }
 /* 防御：任何包含富媒体卡片的用户/角色气泡都不露底色（兼容 :has 的浏览器） */
 .chat-bubble-role-user:has(> .chat-red-packet-card),
@@ -2864,6 +2864,19 @@
   user-select: none;
   color: rgba(0,0,0,0.15);
   transition: color 0.2s, transform 0.2s;
+  /* 固定在气泡尾部（右下角），跟随卡片/气泡本身而非整行底部 */
+  position: absolute;
+  right: -18px;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 2;
+}
+/* 用户气泡在右侧，爱心贴其左下角（镜像） */
+.chat-bubble-role-user .chat-monologue-heart {
+  right: auto;
+  left: -18px;
 }
 .chat-monologue-heart[data-active] {
   color: #e74c5e;
