@@ -6022,6 +6022,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                             {session.isGroup && msg.role !== "user" && (
                                                 <span className="chat-group-sender-name">{msg.senderName || ""}{renderGroupRoleBadge(msg.senderCharacterId)}</span>
                                             )}
+                                            <div className="chat-bubble-row">
                                             <div
                                             {...(editingMessageId !== msg.id ? {
                                                 onPointerDown: (e: React.PointerEvent) => { e.stopPropagation(); handleMessagePointerDown(e, msg.id); },
@@ -6067,19 +6068,20 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 onActionSelect={(text) => chatTextInputRef.current?.appendText(text)}
                                                 defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                             />
-                                            {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setExpandedThinkingId(prev => prev === msg.id ? null : msg.id); }}
-                                                    className="chat-monologue-heart bg-none border-none cursor-pointer p-1 ts-14 leading-none"
-                                                    {...(expandedMonologueId === msg.id ? { "data-active": "" } : {})}
-                                                    title="查看折叠状态"
-                                                    aria-label="查看折叠状态"
-                                                >
-                                                    <svg viewBox="0 0 16 16" width="14" height="14" style={{display:"block"}}>
-                                                        <path d="M8 14s-6-4-6-8c0-2.5 1.5-4 3.5-4 1 0 2 .5 2.5 1.5C8.5 2.5 9.5 2 10.5 2 12.5 2 14 3.5 14 6c0 4-6 8-6 8z" fill="currentColor"/>
-                                                    </svg>
-                                                </button>
-                                            )}
+                                        </div>
+                                        {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setExpandedThinkingId(prev => prev === msg.id ? null : msg.id); }}
+                                                className="chat-monologue-heart bg-none border-none cursor-pointer p-1 ts-14 leading-none shrink-0"
+                                                {...(expandedMonologueId === msg.id ? { "data-active": "" } : {})}
+                                                title="查看折叠状态"
+                                                aria-label="查看折叠状态"
+                                            >
+                                                <svg viewBox="0 0 16 16" width="14" height="14" style={{display:"block"}}>
+                                                    <path d="M8 14s-6-4-6-8c0-2.5 1.5-4 3.5-4 1 0 2 .5 2.5 1.5C8.5 2.5 9.5 2 10.5 2 12.5 2 14 3.5 14 6c0 4-6 8-6 8z" fill="currentColor"/>
+                                                </svg>
+                                            </button>
+                                        )}
                                         </div>
                                         </div>}
                                         {msg.role === "user" && !isEmptyBubble && (
