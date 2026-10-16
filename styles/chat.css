@@ -1536,6 +1536,10 @@
   box-shadow: none !important;
   overflow: visible !important;
 }
+/* 富媒体消息行：头像 ↔ 卡片间距收紧到 6px（文本气泡仍是 12px） */
+.chat-msg-wrapper[data-media] {
+  gap: 6px !important;
+}
 /* 防御：任何包含富媒体卡片的用户/角色气泡都不露底色（兼容 :has 的浏览器） */
 .chat-bubble-role-user:has(> .chat-red-packet-card),
 .chat-bubble-role-user:has(> .chat-transfer-card),

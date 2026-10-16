@@ -5879,6 +5879,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                 id={`message-${msg.id}`}
                                 className="chat-msg-wrapper"
                                 data-role={uiRole(msg)}
+                                {...(isMediaBubble ? { "data-media": "" } : {})}
                                 {...(isEmptyBubble && renderMsg.reasoningText ? { "data-reasoning-empty": "" } : {})}
                                 {...(isConsecutive ? { "data-consecutive": "" } : {})}
                                 {...(activeMessageId === msg.id ? { "data-active": "" } : {})}
