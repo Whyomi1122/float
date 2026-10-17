@@ -89,7 +89,6 @@ function ProfileSettingsIcon({ icon: Icon, color }: { icon: LucideIcon; color: s
 
 function ProfileSettingsSliderItem({
     label,
-    desc,
     value,
     valueLabel,
     min,
@@ -98,7 +97,6 @@ function ProfileSettingsSliderItem({
     onChange,
 }: {
     label: string;
-    desc?: string;
     value: number;
     valueLabel: string;
     min: number;
@@ -106,24 +104,41 @@ function ProfileSettingsSliderItem({
     step: number;
     onChange: (value: number) => void;
 }) {
-    return (
-        <div className="menu-item profile-slider-item">
-            <div className="profile-slider-header">
-                <div className="menu-label-group">
-                    <span className="menu-label">{label}</span>
-                    {desc && <span className="menu-desc">{desc}</span>}
-                </div>
+    // 收起态只显示一条细轨；点击后才展开为可拖动的滑杆，避免滚动页面时误触
+    const [active, setActive] = useState(false);
+    const pct = Math.max(0, Math.min(100, Math.round(((value - min) / Math.max(1, max - min)) * 100)));
+    if (!active) {
+        return (
+            <div className="menu-item profile-slider-item">
+                <span className="profile-slider-label">{label}</span>
+                <button
+                    type="button"
+                    className="profile-slider-mini"
+                    aria-label={`${label}：${valueLabel}`}
+                    onClick={() => setActive(true)}
+                >
+                    <span className="profile-slider-mini-fill" style={{ width: `${pct}%` }} />
+                </button>
                 <span className="profile-slider-current">{valueLabel}</span>
             </div>
+        );
+    }
+    return (
+        <div className="menu-item profile-slider-item is-active">
+            <span className="profile-slider-label">{label}</span>
             <input
                 type="range"
                 min={min}
                 max={max}
                 step={step}
                 value={value}
+                autoFocus
                 onChange={event => onChange(Number(event.target.value))}
+                onBlur={() => setActive(false)}
+                onPointerUp={() => setActive(false)}
                 className="ui-slider profile-settings-slider"
             />
+            <span className="profile-slider-current">{valueLabel}</span>
         </div>
     );
 }
@@ -610,7 +625,6 @@ function FollowUpSettingsEditor({ onBack }: { onBack: () => void }) {
                     </div>
                     <ProfileSettingsSliderItem
                         label="焦虑阈值"
-                        desc={`低于 ${config.anxietyThreshold} 时不触发追发`}
                         value={config.anxietyThreshold}
                         valueLabel={`${config.anxietyThreshold}%`}
                         min={0}
@@ -620,7 +634,6 @@ function FollowUpSettingsEditor({ onBack }: { onBack: () => void }) {
                     />
                     <ProfileSettingsSliderItem
                         label="最短等待"
-                        desc="焦虑=100 时使用"
                         value={config.anxietyMinDelay}
                         valueLabel={`${config.anxietyMinDelay}秒`}
                         min={30}
@@ -630,7 +643,6 @@ function FollowUpSettingsEditor({ onBack }: { onBack: () => void }) {
                     />
                     <ProfileSettingsSliderItem
                         label="最长等待"
-                        desc="焦虑=阈值时使用，需不小于最短等待"
                         value={config.anxietyMaxDelay}
                         valueLabel={`${config.anxietyMaxDelay}秒`}
                         min={60}
@@ -938,7 +950,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                 <div className="menu-group">
                     <ProfileSettingsSliderItem
                         label="最短发帖间隔"
-                        desc="自动发帖等待时间下限"
                         value={config.postIntervalMinHours}
                         valueLabel={`${config.postIntervalMinHours}小时`}
                         min={6}
@@ -948,7 +959,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                     />
                     <ProfileSettingsSliderItem
                         label="最长发帖间隔"
-                        desc="自动发帖等待时间上限"
                         value={config.postIntervalMaxHours}
                         valueLabel={`${config.postIntervalMaxHours}小时`}
                         min={12}
@@ -961,7 +971,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                 <div className="menu-group">
                     <ProfileSettingsSliderItem
                         label="首条评论延迟"
-                        desc="发布后第一条评论的等待时间"
                         value={config.firstCommentDelaySec}
                         valueLabel={`${config.firstCommentDelaySec}秒`}
                         min={30}
@@ -971,7 +980,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                     />
                     <ProfileSettingsSliderItem
                         label="后续评论间隔"
-                        desc="连续评论之间的等待时间"
                         value={config.commentGapSec}
                         valueLabel={`${config.commentGapSec}秒`}
                         min={30}
@@ -984,7 +992,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                 <div className="menu-group">
                     <ProfileSettingsSliderItem
                         label="评论概率"
-                        desc="角色看到动态后发表评论的概率"
                         value={Math.round(config.commentProb * 100)}
                         valueLabel={`${Math.round(config.commentProb * 100)}%`}
                         min={0}
@@ -994,7 +1001,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                     />
                     <ProfileSettingsSliderItem
                         label="点赞概率"
-                        desc="角色看到动态后点赞的概率"
                         value={Math.round(config.likeProb * 100)}
                         valueLabel={`${Math.round(config.likeProb * 100)}%`}
                         min={0}
@@ -1007,7 +1013,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                 <div className="menu-group">
                     <ProfileSettingsSliderItem
                         label="NPC互动延迟"
-                        desc="NPC 对朋友圈产生互动的延迟"
                         value={config.npcReactionDelayMin}
                         valueLabel={`${config.npcReactionDelayMin}分钟`}
                         min={1}
@@ -1017,7 +1022,6 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                     />
                     <ProfileSettingsSliderItem
                         label="角色回复NPC评论延迟"
-                        desc="角色回复 NPC 评论前的等待时间"
                         value={config.replyDelaySec}
                         valueLabel={`${config.replyDelaySec}秒`}
                         min={20}

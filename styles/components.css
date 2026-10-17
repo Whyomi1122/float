@@ -3240,31 +3240,69 @@
 }
 
 .profile-settings-menu .profile-slider-item {
-  align-items: stretch;
-  flex-direction: column;
+  align-items: center;
+  flex-direction: row;
   gap: 12px;
+  min-height: 58px;
+  padding-top: 9px;
+  padding-bottom: 9px;
   cursor: default;
 }
 
-.profile-slider-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
+.profile-slider-label {
+  flex: 0 0 auto;
+  font-size: calc(13.5px*var(--app-text-scale,1));
+  font-weight: 600;
+  color: var(--c-text-title);
+  white-space: nowrap;
 }
 
 .profile-slider-current {
-  min-width: 64px;
+  min-width: 56px;
   text-align: right;
   font-size: calc(11.7px*var(--app-text-scale,1));
   font-variant-numeric: tabular-nums;
   color: var(--c-text);
+  flex: 0 0 auto;
 }
 
 .profile-settings-slider {
-  flex: 0 0 auto;
-  margin-left: 48px;
-  width: calc(100% - 48px);
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  touch-action: pan-y;
+}
+
+/* 收起态：一根细轨道，点击才展开滑杆，避免滚动页面时误触 */
+.profile-slider-mini {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.profile-slider-mini::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-text) 13%, transparent);
+  transform: translateY(-50%);
+}
+.profile-slider-mini-fill {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-text) 45%, transparent);
 }
 
 .profile-settings-menu .chat-contact-list {
