@@ -1007,7 +1007,7 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         label="最短发帖间隔"
                         value={config.postIntervalMinHours}
                         valueLabel={`${config.postIntervalMinHours}小时`}
-                        min={2}
+                        min={1}
                         max={24}
                         step={1}
                         onChange={v => update({ postIntervalMinHours: Math.min(v, config.postIntervalMaxHours) })}
