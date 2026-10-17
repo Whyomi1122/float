@@ -56,6 +56,7 @@ import { ChatArchivePanel } from "@/components/chat/chat-archive-panel";
 // 预览用的默认示例数据：契约没有自带示例时兜底，字段与下面的微博模板对应
 const STATUS_REGION_STARTER_PREVIEW = "名字=林晚\n认证=美食探店博主 · 深夜觅食团成员\n简介=白天写方案，晚上寻宵夜｜私信不回工作请走邮箱\n关注=132\n粉丝=8.7万\n帖子=23分钟前|谁懂啊，加班到十点，楼下面馆居然还给我留了最后一碗牛肉面🥹 #深夜食堂# 老板说看我常来……突然就不想跳槽了|🍜🌃✨|56|203|1.2万\n评论=小奶糖|这就是深夜的意义吧|赞 231\n评论=风住了|老板收留我当洗碗工吧，只求管饭|赞 89\n评论=momo不吃香菜|蹲一个面馆定位！|赞 156";
 
+// 聊天信息 / 聊天页设置里的图标底色：低饱和浅色圆片（与截图一致）
 const STATUS_REGION_STARTER_CONTRACT = [
     "【逻辑】你在维护自己的微博主页。每行一个字段，用=分隔，除格式列出的字段外不要输出其他内容；帖子与评论要符合当前剧情与你的心境，网友评论可玩梗。按生成的内容整块用 [状态栏]...[/状态栏] 包裹输出。",
     "【格式】",
@@ -309,7 +310,7 @@ function PrefsFold({
                     <span className="chat-prefs-fold-title">{title}</span>
                     {subtitle && <span className="chat-prefs-fold-sub">{subtitle}</span>}
                 </span>
-                <ChevronDown size={18} className={`chat-prefs-fold-chevron${open ? " is-open" : ""}`} />
+                <ChevronRight size={18} className="chat-prefs-fold-chevron" />
             </button>
             {open && <div className="chat-prefs-fold-body">{children}</div>}
         </div>
@@ -852,10 +853,7 @@ export function ChatSettingsPanel({
     return (
         <PageShell
             title={
-                <span className="chat-prefs-page-title">
-                    <span className="chat-prefs-page-title-main">Preferences</span>
-                    <span className="chat-prefs-page-title-sub">系统偏好设置</span>
-                </span>
+                <span className="chat-prefs-page-title">聊天页设置</span>
             }
             onBack={onClose}
             className="absolute inset-0 z-[100]"
@@ -1055,7 +1053,6 @@ export function ChatSettingsPanel({
                         open={openFold === "visuals"}
                         onToggle={() => toggleFold("visuals")}
                         title="聊天背景与通话"
-                        subtitle="Backgrounds · 聊天背景 / 视频通话 / 语音通话"
                     >
                         <label className="menu-item">
                             <div className="menu-label-group"><span className="menu-label">聊天背景</span></div>
@@ -1122,7 +1119,6 @@ export function ChatSettingsPanel({
                         open={openFold === "css"}
                         onToggle={() => toggleFold("css")}
                         title="界面美化 (CSS)"
-                        subtitle="Custom Style Override"
                     >
                         <button className="menu-item" onClick={() => setEditingCSS(true)}>
                             <div className="menu-label-group">
@@ -1140,18 +1136,38 @@ export function ChatSettingsPanel({
                 <PrefsSection label="DANGER ZONE" danger>
                     <div className="chat-prefs-danger-list">
                         {!session.isGroup && (
-                            <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmDelete(true)}>
-                                删除好友
+                            <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmDelete(true)}>
+                                <ChatInfoIcon icon={UserMinus} color="#ef4444" />
+                                <span className="menu-label-group">
+                                    <span className="menu-label is-danger">删除好友</span>
+                                    <span className="menu-desc">移除好友关系，聊天记录一并清除</span>
+                                </span>
+                                <span className="menu-right"><ChevronRight size={16} /></span>
                             </button>
                         )}
-                        <button type="button" className="chat-prefs-danger-pill is-ghost" onClick={() => setShowConfirmClearTools(true)}>
-                            清理原生 tool 调用历史
+                        <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmClearTools(true)}>
+                            <ChatInfoIcon icon={Code} color="#ef4444" />
+                            <span className="menu-label-group">
+                                <span className="menu-label is-danger">清理原生 tool 调用历史</span>
+                                <span className="menu-desc">切换到文本协议 API 前使用</span>
+                            </span>
+                            <span className="menu-right"><ChevronRight size={16} /></span>
                         </button>
-                        <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmClear(true)}>
-                            清空聊天记录
+                        <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmClear(true)}>
+                            <ChatInfoIcon icon={Trash2} color="#ef4444" />
+                            <span className="menu-label-group">
+                                <span className="menu-label is-danger">清空聊天记录</span>
+                                <span className="menu-desc">清空该会话的全部消息，好友保留</span>
+                            </span>
+                            <span className="menu-right"><ChevronRight size={16} /></span>
                         </button>
-                        <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmDeleteSession(true)}>
-                            {session.isGroup ? "解散群聊" : "删除会话"}
+                        <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmDeleteSession(true)}>
+                            <ChatInfoIcon icon={Trash2} color="#ef4444" />
+                            <span className="menu-label-group">
+                                <span className="menu-label is-danger">{session.isGroup ? "解散群聊" : "删除会话"}</span>
+                                <span className="menu-desc">{session.isGroup ? "解散该群聊，成员好友保留" : "移除该会话及聊天记录，好友保留"}</span>
+                            </span>
+                            <span className="menu-right"><ChevronRight size={16} /></span>
                         </button>
                     </div>
                 </PrefsSection>

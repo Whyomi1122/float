@@ -6132,10 +6132,12 @@
 
 /* ── Chat settings: Preferences 白卡分区 + 行内折叠 ── */
 .chat-prefs-page-title {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1.15;
+  display: block;
+  font-size: calc(17px * var(--app-text-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--c-text);
+  line-height: 1.2;
 }
 .chat-prefs-page-title-main {
   font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Songti SC", serif;
@@ -6183,13 +6185,13 @@
   min-height: 64px;
 }
 .chat-prefs-card .menu-item + .menu-item {
-  border-top: 1px solid rgba(224, 224, 224, 0.75);
+  border-top: 1px solid color-mix(in srgb, var(--c-card-border) 55%, transparent);
 }
 
 .chat-prefs-fold + .chat-prefs-fold,
 .chat-prefs-card .menu-item + .chat-prefs-fold,
 .chat-prefs-fold + .menu-item {
-  border-top: 1px solid rgba(224, 224, 224, 0.75);
+  border-top: 1px solid color-mix(in srgb, var(--c-card-border) 55%, transparent);
 }
 
 .chat-prefs-fold-head {
@@ -6233,8 +6235,8 @@
   transition: transform 0.22s ease;
 }
 
-.chat-prefs-fold-chevron.is-open {
-  transform: rotate(180deg);
+.chat-prefs-fold.is-open .chat-prefs-fold-chevron {
+  transform: rotate(90deg);
 }
 
 .chat-prefs-fold-body {
@@ -6249,7 +6251,7 @@
   padding-bottom: 6px;
 }
 .chat-prefs-fold-body .menu-item + .menu-item {
-  border-top: 1px solid rgba(224, 224, 224, 0.55);
+  border-top: 1px solid color-mix(in srgb, var(--c-card-border) 40%, transparent);
 }
 
 @keyframes chatPrefsFoldIn {
@@ -6260,21 +6262,57 @@
 .chat-prefs-danger-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 4px 0 12px;
+  padding: 2px 0 10px;
 }
-.chat-prefs-danger-pill {
-  height: 42px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--c-danger) 28%, transparent);
+.chat-prefs-danger-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 2px;
+  border: none;
   background: transparent;
-  color: var(--c-danger);
-  font-size: calc(14px * var(--app-text-scale, 1));
-  font-weight: 600;
+  text-align: left;
   cursor: pointer;
 }
-.chat-prefs-danger-pill.is-ghost {
-  border-color: color-mix(in srgb, var(--c-text) 12%, transparent);
-  color: color-mix(in srgb, var(--c-danger) 82%, var(--c-text));
+.chat-prefs-danger-row + .chat-prefs-danger-row {
+  border-top: 1px solid color-mix(in srgb, var(--c-card-border) 55%, transparent);
+}
+.chat-prefs-danger-row .menu-label-group {
+  flex: 1;
+  min-width: 0;
+}
+.chat-prefs-danger-row .menu-right {
+  color: color-mix(in srgb, var(--c-text) 26%, transparent);
+  display: flex;
+  align-items: center;
+}
+.chat-prefs-danger-row:active {
+  opacity: 0.6;
+}
+
+/* DANGER ZONE 操作行图标：浅色圆片（与截图一致） */
+.chat-prefs-card .chat-info-icon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 本页开关（仅聊天页设置）：低饱和“kkt 黄” */
+.chat-prefs-card [role="switch"][aria-checked="true"] {
+  background: #F2D93A;
+}
+
+/* 数字调节器：收窄 + 大圆角 */
+.chat-prefs-card .chat-count-stepper input,
+.chat-prefs-card .chat-prefs-stepper input {
+  width: 52px;
+  height: 34px;
+  border-radius: 12px;
+  text-align: center;
 }
 
