@@ -1022,7 +1022,7 @@ export function ChatSettingsPanel({
                         <div className="menu-right gap-2">
                             <button
                                 type="button"
-                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
+                                className="ui-btn ui-btn-ghost h-7 w-7 rounded-full p-0"
                                 onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit - 1)}
                                 disabled={visionImagePromptLimit <= 0}
                             >
@@ -1034,11 +1034,11 @@ export function ChatSettingsPanel({
                                 max={MAX_VISION_IMAGE_PROMPT_LIMIT}
                                 value={visionImagePromptLimit}
                                 onChange={e => updateVisionImagePromptLimit(e.target.value)}
-                                className="ui-input h-8 w-14 text-center"
+                                className="ui-input h-8 w-12 rounded-[12px] text-center"
                             />
                             <button
                                 type="button"
-                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
+                                className="ui-btn ui-btn-ghost h-7 w-7 rounded-full p-0"
                                 onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit + 1)}
                                 disabled={visionImagePromptLimit >= MAX_VISION_IMAGE_PROMPT_LIMIT}
                             >
