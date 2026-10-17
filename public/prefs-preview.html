@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>聊天页设置 · UI 预览（v3）</title>
+  <style>
+    :root {
+      --c-page-body-bg: #F1F2F6;
+      --c-card: #FFFFFF;
+      --c-card-border: #E0E0E0;
+      --c-text-title: #2C3440;
+      --c-text: #797E85;
+      --c-icon: #A0A3A8;
+      --c-input: #F2F3F5;
+      --c-danger: #FF3B30;
+      --c-success: #34C759;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      min-height: 100vh;
+      background: #e3e5ea;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+      color: var(--c-text-title);
+      display: flex;
+      justify-content: center;
+      padding: 28px 16px 60px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .stage {
+      width: 390px;
+      background: var(--c-page-body-bg);
+      border-radius: 28px;
+      box-shadow: 0 20px 60px rgba(44, 52, 64, 0.16);
+      overflow: hidden;
+    }
+
+    /* ── iOS 导航栏 ── */
+    .nav {
+      position: relative;
+      height: 56px;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 0.5px solid rgba(60, 60, 67, 0.16);
+      display: grid;
+      grid-template-columns: 56px 1fr 56px;
+      align-items: center;
+    }
+    .nav-back {
+      display: flex; align-items: center; justify-content: center;
+      height: 44px; color: #007AFF; cursor: pointer;
+    }
+    .nav-title {
+      text-align: center;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+      color: var(--c-text-title);
+    }
+
+    .page { padding: 8px 16px 40px; }
+
+    /* ── iOS 分组列表卡片 ── */
+    .card {
+      background: var(--c-card);
+      border-radius: 16px;
+      margin-top: 18px;
+      overflow: hidden;
+    }
+    .sec {
+      padding: 16px 16px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #8E8E93;
+    }
+    .sec.danger { color: #e0574f; }
+
+    .row {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 58px;
+      padding: 11px 16px;
+      background: transparent;
+      transition: background-color 100ms ease;
+    }
+    .row + .row::before,
+    .fold + .row::before,
+    .row + .fold::before,
+    .fold + .fold::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 16px; right: 0;
+      border-top: 0.5px solid rgba(60, 60, 67, 0.18);
+    }
+    .copy { flex: 1; min-width: 0; }
+
+    /* 标题与内标题统一 */
+    .name {
+      font-size: 17px;
+      font-weight: 400;
+      line-height: 1.25;
+      letter-spacing: -0.2px;
+      color: var(--c-text-title);
+    }
+    /* 斜体副标题已取消，只保留正体说明 */
+    .sub {
+      margin-top: 3px;
+      font-size: 13px;
+      font-weight: 400;
+      font-style: normal;
+      line-height: 1.35;
+      color: var(--c-text);
+    }
+
+    .toggle {
+      width: 51px; height: 31px; border-radius: 16px;
+      background: var(--c-success); position: relative; flex-shrink: 0;
+      box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.04);
+    }
+    .toggle::after {
+      content: ""; position: absolute; top: 2px; right: 2px;
+      width: 27px; height: 27px; border-radius: 50%; background: #fff;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.15), 0 1px 1px rgba(0,0,0,0.16);
+    }
+
+    .chev { color: #C4C4C6; flex-shrink: 0; display: flex; align-items: center; }
+
+    .stepper { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .step {
+      width: 22px; height: 22px; display: grid; place-items: center;
+      color: var(--c-text-title); font-size: 20px; font-weight: 300; line-height: 1;
+      cursor: pointer;
+    }
+    .num {
+      width: 58px; height: 30px; border-radius: 8px;
+      background: var(--c-input); display: grid; place-items: center;
+      font-size: 15px; font-weight: 400;
+    }
+
+    .fold-body { display: none; }
+    .fold.open .fold-body { display: block; }
+    .fold-body .row { min-height: 46px; padding-top: 8px; padding-bottom: 8px; padding-left: 30px; }
+    .fold-body .name { font-size: 15px; }
+    .fold.open .chev { transform: rotate(90deg); }
+    .chev { transition: transform 0.22s cubic-bezier(.2,.8,.3,1); }
+
+    /* ── Danger Zone：描边胶囊，三条描边都要在 ── */
+    .pills { display: flex; flex-direction: column; gap: 10px; padding: 6px 16px 16px; }
+    .pill {
+      height: 46px; border-radius: 999px;
+      border: 1px solid rgba(255, 59, 48, 0.30);
+      background: #fff;
+      color: var(--c-danger);
+      font-size: 16px; font-weight: 400;
+      display: grid; place-items: center;
+      cursor: pointer;
+    }
+    .pill.ghost { border-color: rgba(255, 59, 48, 0.30); color: var(--c-danger); }
+
+    .caption {
+      position: fixed; left: 24px; top: 24px; max-width: 230px;
+      font-size: 13px; color: #5b6169; line-height: 1.6;
+    }
+    @media (max-width: 760px) { .caption { display: none; } }
+  </style>
+</head>
+<body>
+  <p class="caption">
+    <b>v3 预览</b>（静态稿，未进项目）<br>
+    ① 标题只留「聊天页设置」<br>
+    ② 标题与内标题同字号同色、去斜体，统一 › 直接弹窗<br>
+    ③ 危险区三条描边全部恢复<br>
+    ④ 背景三项合并为「聊天背景」一行；CSS 提到「界面美化」本行，不再内设分区
+  </p>
+
+  <div class="stage">
+    <!-- iOS 导航栏：只留中文标题 -->
+    <div class="nav">
+      <div class="nav-back">
+        <svg width="11" height="19" viewBox="0 0 11 19" fill="none"><path d="M9.5 1.5L2 9.5L9.5 17.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="nav-title">聊天页设置</div>
+      <div></div>
+    </div>
+
+    <div class="page">
+      <!-- COGNITION -->
+      <div class="card">
+        <p class="sec">Cognition</p>
+        <div class="row">
+          <div class="copy">
+            <div class="name">原生状态栏</div>
+            <div class="sub">状态值与内心默认输出</div>
+          </div>
+          <div class="toggle"></div>
+        </div>
+        <div class="row">
+          <div class="copy">
+            <div class="name">归档</div>
+            <div class="sub">把聊天提炼成长期档案，写入 TA 的记忆</div>
+          </div>
+          <span class="chev">
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1L7 7L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+        </div>
+        <div class="row">
+          <div class="copy">
+            <div class="name">传入最近图片数</div>
+            <div class="sub">进入模型视觉上下文的最近图片数量</div>
+          </div>
+          <div class="stepper">
+            <div class="step">−</div>
+            <div class="num">1</div>
+            <div class="step">+</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISUALS -->
+      <div class="card">
+        <p class="sec">Visuals</p>
+
+        <div class="row">
+          <div class="copy">
+            <div class="name">聊天背景</div>
+            <div class="sub">视频通话与语音通话共用同一张背景</div>
+          </div>
+          <span class="chev">
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1L7 7L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+        </div>
+
+        <div class="row">
+          <div class="copy">
+            <div class="name">界面美化</div>
+            <div class="sub">自定义 CSS 样式</div>
+          </div>
+          <span class="chev">
+            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1L7 7L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <!-- DANGER ZONE -->
+      <div class="card">
+        <p class="sec danger">Danger Zone</p>
+        <div class="pills">
+          <div class="pill">删除好友</div>
+          <div class="pill ghost">清理原生 tool 调用历史</div>
+          <div class="pill">清空聊天记录</div>
+          <div class="pill ghost">删除会话</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
