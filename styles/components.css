@@ -3944,8 +3944,9 @@
   transition: background 0.25s;
   padding: 0;
 }
-.ui-toggle[data-checked] {
-  background: var(--c-success);
+.ui-toggle[data-checked],
+.ui-toggle[aria-checked="true"] {
+  background: #BDD4E3;
 }
 .ui-toggle-knob {
   position: absolute;
@@ -3959,7 +3960,8 @@
   transition: transform 0.25s;
   pointer-events: none;
 }
-.ui-toggle[data-checked] .ui-toggle-knob {
+.ui-toggle[data-checked] .ui-toggle-knob,
+.ui-toggle[aria-checked="true"] .ui-toggle-knob {
   transform: translateX(16px);
 }
 
@@ -6310,10 +6312,7 @@
   opacity: 0.6;
 }
 
-/* 本页开关（仅聊天页设置）：浅蓝 */
-.chat-prefs-card [role="switch"][aria-checked="true"] {
-  background: #BDD4E3;
-}
+/* 本页开关（仅聊天页设置）——已随全局改为浅蓝 */
 
 /* 聊天背景与通话弹窗 */
 .chat-bg-modal {
