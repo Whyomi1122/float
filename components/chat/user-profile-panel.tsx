@@ -973,8 +973,8 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         label="最短发帖间隔"
                         value={config.postIntervalMinHours}
                         valueLabel={`${config.postIntervalMinHours}小时`}
-                        min={6}
-                        max={48}
+                        min={2}
+                        max={24}
                         step={1}
                         onChange={v => update({ postIntervalMinHours: Math.min(v, config.postIntervalMaxHours) })}
                     />
@@ -982,8 +982,8 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         label="最长发帖间隔"
                         value={config.postIntervalMaxHours}
                         valueLabel={`${config.postIntervalMaxHours}小时`}
-                        min={12}
-                        max={72}
+                        min={3}
+                        max={48}
                         step={1}
                         onChange={v => update({ postIntervalMaxHours: Math.max(v, config.postIntervalMinHours) })}
                     />
@@ -995,8 +995,8 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         value={config.firstCommentDelaySec}
                         valueLabel={`${config.firstCommentDelaySec}秒`}
                         min={30}
-                        max={600}
-                        step={10}
+                        max={900}
+                        step={30}
                         onChange={v => update({ firstCommentDelaySec: v })}
                     />
                     <ProfileSettingsSliderItem
@@ -1004,8 +1004,8 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         value={config.commentGapSec}
                         valueLabel={`${config.commentGapSec}秒`}
                         min={30}
-                        max={600}
-                        step={10}
+                        max={900}
+                        step={30}
                         onChange={v => update({ commentGapSec: v })}
                     />
                 </div>
@@ -1037,7 +1037,7 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         value={config.npcReactionDelayMin}
                         valueLabel={`${config.npcReactionDelayMin}分钟`}
                         min={1}
-                        max={60}
+                        max={120}
                         step={1}
                         onChange={v => update({ npcReactionDelayMin: v })}
                     />
@@ -1045,8 +1045,8 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         label="角色回复NPC评论延迟"
                         value={config.replyDelaySec}
                         valueLabel={`${config.replyDelaySec}秒`}
-                        min={20}
-                        max={90}
+                        min={5}
+                        max={600}
                         step={5}
                         onChange={v => update({ replyDelaySec: v })}
                     />

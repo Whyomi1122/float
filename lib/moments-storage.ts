@@ -357,14 +357,14 @@ export type MomentsInteractionConfig = {
 };
 
 export const DEFAULT_MOMENTS_CONFIG: MomentsInteractionConfig = {
-    postIntervalMinHours: 24,
-    postIntervalMaxHours: 48,
-    firstCommentDelaySec: 120,
-    commentGapSec: 60,
+    postIntervalMinHours: 2,
+    postIntervalMaxHours: 6,
+    firstCommentDelaySec: 180,
+    commentGapSec: 360,
     npcReactionDelayMin: 20,
-    replyDelaySec: 3,
-    commentProb: 0.5,
-    likeProb: 0.75,
+    replyDelaySec: 45,
+    commentProb: 0.3,
+    likeProb: 0.6,
     bilingualTranslationEnabled: true,
     collapseBilingualTranslation: true,
     bilingualTranslationPrompt: DEFAULT_MOMENTS_BILINGUAL_PROMPT,
