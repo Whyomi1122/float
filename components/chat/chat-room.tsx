@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { forwardRef, Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, CHAT_LOAD_MORE_MESSAGE_COUNT, CHAT_REQUEST_REPLY_EVENT, loadChatAppSettings, loadChatMessages, loadChatContacts, loadChatSessions, saveChatSessions, pushChatMessage, updateChatMessage, deleteChatMessage, deleteChatMessagesFrom, deleteChatMessagesByIds, retractChatMessage, editChatMessage, updateMessageMediaData, replaceResponseBatchWithParts, replaceGroupResponseRound, isReadingDiscussMessage, isSystemInstructionMessage, createResponseBatchId, createResponseRoundId, getLatestStateValues, getLatestCharacterStateValues, compareChatMessages, isSessionStreamingEnabled } from "@/lib/chat-storage";
@@ -5563,7 +5563,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <BilingualTextBlock
                                             text={offlineDisplay.userContent}
                                             mode="markdown"
-                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                            defaultExpanded={true}
                                         />
                                     </div>
                                 </div>
@@ -5630,7 +5630,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         {activeOfflineTarget?.turnId === turn.id && activeOfflineTarget.role === "assistant" && renderOfflineContextMenu(turn, "assistant")}
                                         <OfflineAssistantTextBlock
                                             text={offlineDisplay.assistantContent}
-                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                            defaultExpanded={true}
                                         />
                                     </div>
                                     {turn.summary.trim() && (
@@ -5640,7 +5640,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 <BilingualTextBlock
                                                     text={offlineDisplay.summary}
                                                     mode="markdown"
-                                                    defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                                    defaultExpanded={true}
                                                 />
                                             </div>
                                         </details>
@@ -5662,7 +5662,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <BilingualTextBlock
                                             text={renderDisplayText(pendingOfflineUserText, 1, true)}
                                             mode="markdown"
-                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                            defaultExpanded={true}
                                         />
                                     </div>
                                 </div>
@@ -5808,7 +5808,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                             <BilingualTextBlock
                                                                 text={gMsg.displayProjected ? gMsg.content : renderDisplayText(gMsg.content, gMsg.role === "user" ? 1 : 2, false)}
                                                                 mode="markdown"
-                                                                defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                                                defaultExpanded={true}
                                                             />
                                                             {activeMessageId === gMsg.id && renderBubbleContextMenu(gMsg, { allowMultiSelect: false })}
                                                         </div>
@@ -6117,7 +6117,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <BilingualTextBlock
                                             text={msg.displayProjected ? (renderMsg.mediaData?.label || "") : renderDisplayText(renderMsg.mediaData?.label || "", msg.role === "user" ? 1 : 2, false)}
                                             mode="markdown"
-                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                            defaultExpanded={true}
                                         />
                                     </div>
                                     {msg.role === "user" && <div className="w-[40px] shrink-0" />}
@@ -6137,7 +6137,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         msg.statusRegionMode === "custom" && statusRegionCfg.renderHtml.trim() ? (
                                             <CustomStatusFrame html={statusRegionCfg.renderHtml} raw={renderMsg.statusPanel} />
                                         ) : (
-                                            <BilingualTextBlock text={msg.displayProjected ? renderMsg.statusPanel : renderDisplayText(renderMsg.statusPanel, 6, false)} mode="markdown" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
+                                            <BilingualTextBlock text={msg.displayProjected ? renderMsg.statusPanel : renderDisplayText(renderMsg.statusPanel, 6, false)} mode="markdown" defaultExpanded={true} />
                                         )
                                     )}
                                 </div>
@@ -6157,7 +6157,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <StateValuesPanel stateValues={cardStateValues} />
                                     )}
                                     <div className="chat-thought-body">
-                                        <BilingualTextBlock text={msg.displayProjected ? renderMsg.innerMonologue : renderDisplayText(renderMsg.innerMonologue, 6, false)} mode="markdown" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
+                                        <BilingualTextBlock text={msg.displayProjected ? renderMsg.innerMonologue : renderDisplayText(renderMsg.innerMonologue, 6, false)} mode="markdown" defaultExpanded={true} />
                                     </div>
                                     {/* Signature */}
                                     <div className="chat-thought-sig">

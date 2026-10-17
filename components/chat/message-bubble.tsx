@@ -639,8 +639,7 @@ export const BilingualTextBlock = memo(function BilingualTextBlock({
                         {renderContent(bilingual.translated, "chat-bilingual-content")}
                     </div>
                 </>
-            )}
-        </div>
+            )}        </div>
     );
 });
 
