@@ -485,14 +485,15 @@ function BodyText({
 function pickVoiceText(raw: string): string {
   const text = (raw ?? "").trim();
   if (!text) return "";
-  const first = text
+  // 逐行清洗后全部保留（此前只取首行，导致角色连说两句时第二句读不到）
+  const lines = text
     .split(/\n+/)
     .map((s) => s.trim())
-    .find(Boolean);
-  if (!first) return "";
-  // 行尾译文括号：全角（）优先，半角 () 兜底。非贪婪，避免误吃中间括号。
-  const cut = first.replace(/[（(][^）)]*[）)]\s*$/, "").trim();
-  return cut || first;
+    .filter(Boolean)
+    // 行尾译文括号：全角（）优先，半角 () 兜底。非贪婪，避免误吃中间括号。
+    .map((s) => (s.replace(/[（(][^）)]*[）)]\s*$/, "") || s).trim())
+    .filter(Boolean);
+  return lines.join("，");
 }
 
 /** 剧本会话字体的 font-family 注册名（运行时生成，与具体剧本无关；
