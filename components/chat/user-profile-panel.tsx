@@ -15,6 +15,7 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
         let tries = 0;
         let restoring = false;
         let onScroll: (() => void) | null = null;
+        const debug: string[] = [];
         const attach = () => {
             const body = anchorRef.current?.closest(".page-body") as HTMLElement | null;
             if (!body) {
@@ -23,6 +24,7 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
             }
             host = body;
             const saved = Number(sessionStorage.getItem(storageKey) || "0");
+            debug.push(`key=${storageKey} saved=${saved} h=${body.scrollHeight} v=${body.clientHeight} of=${getComputedStyle(body).overflowY} pos=${getComputedStyle(body).position}`);
             if (saved > 0) {
                 restoring = true;
                 let stableFrames = 0;
@@ -32,7 +34,12 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
                         host.scrollTop = saved;
                         if (Math.abs(host.scrollTop - saved) < 2) {
                             stableFrames += 1;
-                            if (stableFrames >= 3) { restoring = false; return; }
+                            if (stableFrames >= 3) {
+                                restoring = false;
+                                debug.push(`restore OK top=${host.scrollTop}`);
+                                window.__scrollDebug = debug.join("\n");
+                                return;
+                            }
                         } else {
                             stableFrames = 0;
                         }
@@ -40,11 +47,15 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
                     raf = requestAnimationFrame(restore);
                 };
                 raf = requestAnimationFrame(restore);
+            } else {
+                window.__scrollDebug = debug.join("\n");
             }
             onScroll = () => {
                 if (restoring || !host) return;
                 sessionStorage.setItem(storageKey, String(host.scrollTop));
                 sessionStorage.setItem(`${storageKey}:last`, String(host.scrollTop));
+                debug.push(`scroll top=${host.scrollTop}`);
+                window.__scrollDebug = debug.slice(-12).join("\n");
             };
             host.addEventListener("scroll", onScroll, { passive: true });
         };
@@ -63,6 +74,54 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
     }, [storageKey]);
     return <span ref={anchorRef} aria-hidden style={{ display: "none" }} />;
 }
+
+declare global {
+    interface Window { __scrollDebug?: string }
+}
+
+/** 临时诊断弹窗：手机浏览器没有控制台时，把滚动容器状态抄回来 */
+export function ScrollDebugPanel() {
+    const [open, setOpen] = useState(false);
+    const [text, setText] = useState("");
+    const refresh = () => {
+        const list = [...document.querySelectorAll<HTMLElement>(".page-body")].map(el => {
+            const cs = getComputedStyle(el);
+            return `cls=${el.className.slice(0, 30)} top=${el.scrollTop} h=${el.scrollHeight} v=${el.clientHeight} of=${cs.overflowY} pos=${cs.position}`;
+        });
+        const s = sessionStorage.getItem("chat_settings_scroll_top") || "none";
+        const m = sessionStorage.getItem("moments_settings_scroll_top") || "none";
+        setText([`chat=${s} moments=${m}`, ...list, "---", window.__scrollDebug || "no debug"].join("\n"));
+    };
+    return (
+        <>
+            <button
+                type="button"
+                onClick={() => { refresh(); setOpen(true); }}
+                className="fixed bottom-24 left-2 z-[400] rounded-full bg-black/60 px-3 py-1 ts-11 text-white"
+            >
+                滚动诊断
+            </button>
+            {open && (
+                <div className="fixed inset-0 z-[401] flex items-center justify-center bg-black/50 p-4" onClick={() => setOpen(false)}>
+                    <div className="w-full max-w-md rounded-2xl bg-white p-4" onClick={e => e.stopPropagation()}>
+                        <div className="mb-2 flex items-center justify-between">
+                            <span className="ts-13 font-semibold text-[#22303a]">滚动容器诊断</span>
+                            <button className="ts-12 text-[#22303a] underline" onClick={refresh}>刷新</button>
+                        </div>
+                        <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all text-[10px] leading-[1.5] text-[#33424d]">{text}</pre>
+                        <button
+                            className="mt-3 w-full rounded-lg bg-[#BDD4E3] py-2 ts-13 text-[#2b3a44]"
+                            onClick={() => { void navigator.clipboard?.writeText(text); }}
+                        >
+                            复制
+                        </button>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}
+
 import {
     loadFollowUpConfig,
     saveFollowUpConfig,
@@ -432,6 +491,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
             `}</style>
             <PageShell title="" onBack={onClose} className={`user-profile-page-root ${className || ""}`}>
                 <SettingsScrollRestore storageKey="chat_settings_scroll_top" />
+                <ScrollDebugPanel />
                 <div className="relative z-[1] w-full max-w-2xl mx-auto flex flex-col pb-8">
                     
                     {/* User Info & Stats Block */}
