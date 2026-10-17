@@ -1,262 +1,201 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>聊天页设置 · UI 预览（v3）</title>
-  <style>
-    :root {
-      --c-page-body-bg: #F1F2F6;
-      --c-card: #FFFFFF;
-      --c-card-border: #E0E0E0;
-      --c-text-title: #2C3440;
-      --c-text: #797E85;
-      --c-icon: #A0A3A8;
-      --c-input: #F2F3F5;
-      --c-danger: #FF3B30;
-      --c-success: #34C759;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body {
-      min-height: 100vh;
-      background: #e3e5ea;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
-      color: var(--c-text-title);
-      display: flex;
-      justify-content: center;
-      padding: 28px 16px 60px;
-      -webkit-font-smoothing: antialiased;
-    }
-    .stage {
-      width: 390px;
-      background: var(--c-page-body-bg);
-      border-radius: 28px;
-      box-shadow: 0 20px 60px rgba(44, 52, 64, 0.16);
-      overflow: hidden;
-    }
-
-    /* ── iOS 导航栏 ── */
-    .nav {
-      position: relative;
-      height: 56px;
-      background: rgba(255, 255, 255, 0.82);
-      backdrop-filter: saturate(180%) blur(20px);
-      -webkit-backdrop-filter: saturate(180%) blur(20px);
-      border-bottom: 0.5px solid rgba(60, 60, 67, 0.16);
-      display: grid;
-      grid-template-columns: 56px 1fr 56px;
-      align-items: center;
-    }
-    .nav-back {
-      display: flex; align-items: center; justify-content: center;
-      height: 44px; color: #007AFF; cursor: pointer;
-    }
-    .nav-title {
-      text-align: center;
-      font-size: 17px;
-      font-weight: 600;
-      letter-spacing: -0.2px;
-      color: var(--c-text-title);
-    }
-
-    .page { padding: 8px 16px 40px; }
-
-    /* ── iOS 分组列表卡片 ── */
-    .card {
-      background: var(--c-card);
-      border-radius: 16px;
-      margin-top: 18px;
-      overflow: hidden;
-    }
-    .sec {
-      padding: 16px 16px 6px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: #8E8E93;
-    }
-    .sec.danger { color: #e0574f; }
-
-    .row {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-height: 58px;
-      padding: 11px 16px;
-      background: transparent;
-      transition: background-color 100ms ease;
-    }
-    .row + .row::before,
-    .fold + .row::before,
-    .row + .fold::before,
-    .fold + .fold::before {
-      content: "";
-      position: absolute;
-      top: 0; left: 16px; right: 0;
-      border-top: 0.5px solid rgba(60, 60, 67, 0.18);
-    }
-    .copy { flex: 1; min-width: 0; }
-
-    /* 标题与内标题统一 */
-    .name {
-      font-size: 17px;
-      font-weight: 400;
-      line-height: 1.25;
-      letter-spacing: -0.2px;
-      color: var(--c-text-title);
-    }
-    /* 斜体副标题已取消，只保留正体说明 */
-    .sub {
-      margin-top: 3px;
-      font-size: 13px;
-      font-weight: 400;
-      font-style: normal;
-      line-height: 1.35;
-      color: var(--c-text);
-    }
-
-    .toggle {
-      width: 51px; height: 31px; border-radius: 16px;
-      background: var(--c-success); position: relative; flex-shrink: 0;
-      box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.04);
-    }
-    .toggle::after {
-      content: ""; position: absolute; top: 2px; right: 2px;
-      width: 27px; height: 27px; border-radius: 50%; background: #fff;
-      box-shadow: 0 3px 8px rgba(0,0,0,0.15), 0 1px 1px rgba(0,0,0,0.16);
-    }
-
-    .chev { color: #C4C4C6; flex-shrink: 0; display: flex; align-items: center; }
-
-    .stepper { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .step {
-      width: 22px; height: 22px; display: grid; place-items: center;
-      color: var(--c-text-title); font-size: 20px; font-weight: 300; line-height: 1;
-      cursor: pointer;
-    }
-    .num {
-      width: 58px; height: 30px; border-radius: 8px;
-      background: var(--c-input); display: grid; place-items: center;
-      font-size: 15px; font-weight: 400;
-    }
-
-    .fold-body { display: none; }
-    .fold.open .fold-body { display: block; }
-    .fold-body .row { min-height: 46px; padding-top: 8px; padding-bottom: 8px; padding-left: 30px; }
-    .fold-body .name { font-size: 15px; }
-    .fold.open .chev { transform: rotate(90deg); }
-    .chev { transition: transform 0.22s cubic-bezier(.2,.8,.3,1); }
-
-    /* ── Danger Zone：描边胶囊，三条描边都要在 ── */
-    .pills { display: flex; flex-direction: column; gap: 10px; padding: 6px 16px 16px; }
-    .pill {
-      height: 46px; border-radius: 999px;
-      border: 1px solid rgba(255, 59, 48, 0.30);
-      background: #fff;
-      color: var(--c-danger);
-      font-size: 16px; font-weight: 400;
-      display: grid; place-items: center;
-      cursor: pointer;
-    }
-    .pill.ghost { border-color: rgba(255, 59, 48, 0.30); color: var(--c-danger); }
-
-    .caption {
-      position: fixed; left: 24px; top: 24px; max-width: 230px;
-      font-size: 13px; color: #5b6169; line-height: 1.6;
-    }
-    @media (max-width: 760px) { .caption { display: none; } }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置页改版预览</title>
+<style>
+  :root{
+    --c-page-bg:#f6f5f3; --c-card:#fff; --c-text:#3f3f46; --c-text-title:#27272a;
+    --c-card-border:#e7e5e4; --c-danger:#ef4444; --c-icon:#8a8a8a;
+    --blue:#BDD4E3;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#dedbd7;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--c-text);padding:24px 12px 60px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:15px;letter-spacing:.14em;color:#6b6b6b;text-align:center;font-weight:600;margin:0 0 18px}
+  .cols{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
+  .col{width:344px;display:flex;flex-direction:column;gap:8px}
+  .col-title{font-size:12px;letter-spacing:.1em;color:#7a7a7a;text-align:center;margin-bottom:2px}
+  .phone{background:var(--c-page-bg);border-radius:26px;padding:18px 14px 26px;box-shadow:0 10px 34px rgba(0,0,0,.14);min-height:640px}
+  .page-head{text-align:center;font-size:16px;font-weight:600;color:var(--c-text-title);margin:4px 0 16px;position:relative}
+  .page-head .back{position:absolute;left:2px;top:0;width:30px;height:30px;display:grid;place-items:center;color:#4b4b4b;font-size:19px;font-weight:300}
+  .card{background:var(--c-card);border-radius:18px;padding:6px 16px;box-shadow:0 8px 24px rgba(0,0,0,.025);margin-bottom:14px}
+  .sec-label{font-size:11px;letter-spacing:.16em;padding:10px 6px 2px;color:#a8a8a8;text-transform:uppercase}
+  .row{display:flex;align-items:center;gap:12px;min-height:58px;padding:9px 0;text-align:left;width:100%;background:none;border:0;font:inherit;color:inherit;cursor:pointer}
+  .row + .row{border-top:1px solid color-mix(in srgb,var(--c-card-border) 55%,transparent)}
+  .row.no-line + .row.no-line{border-top:0}
+  .lab{font-size:14px;font-weight:600;color:var(--c-text-title);line-height:1.35;display:block}
+  .desc{font-size:11.5px;color:color-mix(in srgb,var(--c-text) 62%,transparent);margin-top:2px;line-height:1.5;display:block}
+  .grow{flex:1;min-width:0}
+  .chev{color:color-mix(in srgb,var(--c-text) 32%,transparent);flex:0 0 auto}
+  /* 开关 */
+  .sw{width:44px;height:26px;border-radius:999px;background:#e4e4e4;position:relative;flex:0 0 auto;transition:.18s}
+  .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);transition:.18s}
+  .sw.on{background:var(--blue)}
+  .sw.on::after{transform:translateX(18px)}
+  /* 头像区 */
+  .hero{display:flex;align-items:center;gap:14px;padding:8px 4px 12px}
+  .ava{width:72px;height:72px;border-radius:50%;background:linear-gradient(140deg,#cfd6dc,#e9e4dd);flex:0 0 auto}
+  .nm{font-size:21px;font-weight:700;color:var(--c-text-title)}
+  .badge{font-size:10.5px;background:rgba(0,0,0,.05);border-radius:999px;padding:2px 8px;display:inline-flex;align-items:center;gap:5px;margin-top:6px}
+  .dot{width:6px;height:6px;border-radius:50%;background:#5aaef0;display:inline-block}
+  .stats{font-size:11.5px;color:#7d7d7d;margin-top:8px}
+  .balance{border-radius:18px;padding:16px;background:#eaf5ff;margin-bottom:14px}
+  .balance .k{font-size:10.5px;letter-spacing:.18em;color:#6b7787;font-weight:600}
+  .balance .v{font-family:Georgia,serif;font-size:26px;font-weight:600;margin-top:6px;color:#172033}
+  .balance .f{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:11.5px;color:#5d6a78}
+  .pill{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.9);border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:600;color:#246bfd;display:inline-flex;align-items:center;gap:3px}
+  /* 色块入口（现状） */
+  .quick{display:flex;justify-content:space-between;padding:14px 22px}
+  .quick .q{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;font:inherit;cursor:pointer}
+  .sq{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;font-size:17px;font-weight:700}
+  .q span.t{font-size:12px;font-weight:600;color:var(--c-text-title)}
+  .q1{background:rgba(245,158,11,.15);color:#f59e0b}
+  .q2{background:rgba(16,185,129,.15);color:#10b981}
+  .q3{background:rgba(239,68,68,.15);color:#ef4444}
+  /* 方案 B：文字胶囊入口 */
+  .chips{display:flex;flex-wrap:wrap;gap:8px;padding:12px 4px}
+  .chip{border:1px solid color-mix(in srgb,var(--c-text) 14%,transparent);background:transparent;border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:600;color:var(--c-text-title);display:inline-flex;align-items:center;gap:6px}
+  /* 图标行（现状） */
+  .row .ic{width:18px;height:18px;flex:0 0 auto;color:var(--c-icon);opacity:.7;display:grid;place-items:center;font-size:15px}
+  .note{font-size:10.5px;color:#a5a5a5;text-align:center;margin:10px 0 0;line-height:1.6}
+  .kbd{font-size:10px;background:#eee;border-radius:4px;padding:1px 4px}
+</style>
 </head>
 <body>
-  <p class="caption">
-    <b>v3 预览</b>（静态稿，未进项目）<br>
-    ① 标题只留「聊天页设置」<br>
-    ② 标题与内标题同字号同色、去斜体，统一 › 直接弹窗<br>
-    ③ 危险区三条描边全部恢复<br>
-    ④ 背景三项合并为「聊天背景」一行；CSS 提到「界面美化」本行，不再内设分区
-  </p>
+<div class="wrap">
+  <h1>全局设置首页 · 排版预览（不改代码，仅供确认）</h1>
+  <div class="cols">
 
-  <div class="stage">
-    <!-- iOS 导航栏：只留中文标题 -->
-    <div class="nav">
-      <div class="nav-back">
-        <svg width="11" height="19" viewBox="0 0 11 19" fill="none"><path d="M9.5 1.5L2 9.5L9.5 17.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
-      <div class="nav-title">聊天页设置</div>
-      <div></div>
-    </div>
-
-    <div class="page">
-      <!-- COGNITION -->
-      <div class="card">
-        <p class="sec">Cognition</p>
-        <div class="row">
-          <div class="copy">
-            <div class="name">原生状态栏</div>
-            <div class="sub">状态值与内心默认输出</div>
-          </div>
-          <div class="toggle"></div>
-        </div>
-        <div class="row">
-          <div class="copy">
-            <div class="name">归档</div>
-            <div class="sub">把聊天提炼成长期档案，写入 TA 的记忆</div>
-          </div>
-          <span class="chev">
-            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1L7 7L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-        </div>
-        <div class="row">
-          <div class="copy">
-            <div class="name">传入最近图片数</div>
-            <div class="sub">进入模型视觉上下文的最近图片数量</div>
-          </div>
-          <div class="stepper">
-            <div class="step">−</div>
-            <div class="num">1</div>
-            <div class="step">+</div>
+    <!-- 现状 -->
+    <div class="col">
+      <div class="col-title">现状（图标多、卡片碎）</div>
+      <div class="phone">
+        <div class="page-head"><span class="back">‹</span>主页</div>
+        <div class="hero" style="padding:0 4px 10px">
+          <div class="ava"></div>
+          <div>
+            <div class="nm">岳霖玉（姜）</div>
+            <div class="badge"><span class="dot"></span>手机在线</div>
+            <div class="stats">Chatting 4 ｜ Moments 0 ｜ Visitors 1302</div>
           </div>
         </div>
-      </div>
-
-      <!-- VISUALS -->
-      <div class="card">
-        <p class="sec">Visuals</p>
-
-        <div class="row">
-          <div class="copy">
-            <div class="name">聊天背景</div>
-            <div class="sub">视频通话与语音通话共用同一张背景</div>
-          </div>
-          <span class="chev">
-            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1L7 7L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
+        <div class="balance">
+          <div style="display:flex;justify-content:space-between"><span class="k">REAL BALANCE</span><span class="k">1 张银行卡</span></div>
+          <div class="v">¥10,191.99</div>
+          <div class="f"><span>余额管理 · 银行卡与流水</span><span class="pill">查看 ›</span></div>
         </div>
-
-        <div class="row">
-          <div class="copy">
-            <div class="name">界面美化</div>
-            <div class="sub">自定义 CSS 样式</div>
-          </div>
-          <span class="chev">
-            <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M1 1L7 7L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
+        <div class="card quick">
+          <button class="q"><div class="sq q1">◉</div><span class="t">朋友圈互动</span></button>
+          <button class="q"><div class="sq q2">▣</div><span class="t">表情包仓储</span></button>
+          <button class="q"><div class="sq q3">◐</div><span class="t">外观CSS</span></button>
         </div>
-      </div>
-
-      <!-- DANGER ZONE -->
-      <div class="card">
-        <p class="sec danger">Danger Zone</p>
-        <div class="pills">
-          <div class="pill">删除好友</div>
-          <div class="pill ghost">清理原生 tool 调用历史</div>
-          <div class="pill">清空聊天记录</div>
-          <div class="pill ghost">删除会话</div>
+        <div class="card">
+          <button class="row"><span class="ic">➤</span><span class="grow"><span class="lab">追发规则与延迟控制</span><span class="desc">设定角色的主动回复频率与时间间隔</span></span><span class="chev">›</span></button>
+          <button class="row"><span class="ic">✳</span><span class="grow"><span class="lab">离线推送与定时消息</span><span class="desc">关掉后台也能收到推送、安静时段、定时主动消息</span></span><span class="chev">›</span></button>
+        </div>
+        <div class="card">
+          <div class="row"><span class="ic">⌨</span><span class="grow"><span class="lab">回车发送</span><span class="desc">开启后 Enter 发送，Shift+Enter 换行</span></span><span class="sw"></span></div>
+          <div class="row"><span class="ic">🔔</span><span class="grow"><span class="lab">语音/视频来电振动</span><span class="desc">角色来电等待接听时手机振动</span></span><span class="sw on"></span></div>
+          <div class="row"><span class="ic">🛎</span><span class="grow"><span class="lab">浏览器后台通知</span><span class="desc">允许网页在后台时弹出新消息横幅提醒</span></span><span class="sw on"></span></div>
+        </div>
+        <div class="card">
+          <button class="row"><span class="ic">✚</span><span class="grow"><span class="lab">扩展插件</span><span class="desc">JS 插件拦截聊天管线、注入提示词</span></span><span class="chev">›</span></button>
+          <button class="row"><span class="ic">◧</span><span class="grow"><span class="lab">底层调用大模型日志</span><span class="desc">查看网络通信中大模型的原始数据流</span></span><span class="chev">›</span></button>
         </div>
       </div>
     </div>
+
+    <!-- 方案 A -->
+    <div class="col">
+      <div class="col-title">方案 A：删图标 + 分组，保留色块</div>
+      <div class="phone">
+        <div class="page-head"><span class="back">‹</span>主页</div>
+        <div class="hero" style="padding:0 4px 10px">
+          <div class="ava"></div>
+          <div>
+            <div class="nm">岳霖玉（姜）</div>
+            <div class="badge"><span class="dot"></span>手机在线</div>
+            <div class="stats">Chatting 4 ｜ Moments 0 ｜ Visitors 1302</div>
+          </div>
+        </div>
+        <div class="balance">
+          <div style="display:flex;justify-content:space-between"><span class="k">REAL BALANCE</span><span class="k">1 张银行卡</span></div>
+          <div class="v">¥10,191.99</div>
+          <div class="f"><span>余额管理 · 银行卡与流水</span><span class="pill">查看 ›</span></div>
+        </div>
+        <div class="card quick" style="margin-bottom:10px">
+          <button class="q"><div class="sq q1">◉</div><span class="t">朋友圈互动</span></button>
+          <button class="q"><div class="sq q2">▣</div><span class="t">表情包仓储</span></button>
+          <button class="q"><div class="sq q3">◐</div><span class="t">外观CSS</span></button>
+        </div>
+        <div class="sec-label">行为与互动</div>
+        <div class="card">
+          <button class="row"><span class="grow"><span class="lab">追发规则与延迟控制</span><span class="desc">设定角色的主动回复频率与时间间隔</span></span><span class="chev">›</span></button>
+          <button class="row"><span class="grow"><span class="lab">离线推送与定时消息</span><span class="desc">后台推送、安静时段、定时主动消息</span></span><span class="chev">›</span></button>
+        </div>
+        <div class="sec-label">聊天偏好</div>
+        <div class="card">
+          <div class="row"><span class="grow"><span class="lab">回车发送</span><span class="desc">开启后 Enter 发送，Shift+Enter 换行</span></span><span class="sw"></span></div>
+          <div class="row"><span class="grow"><span class="lab">语音/视频来电振动</span><span class="desc">角色来电等待接听时手机振动</span></span><span class="sw on"></span></div>
+          <div class="row"><span class="grow"><span class="lab">浏览器后台通知</span><span class="desc">允许网页在后台时弹出新消息横幅提醒</span></span><span class="sw on"></span></div>
+        </div>
+        <div class="sec-label">高级</div>
+        <div class="card">
+          <button class="row"><span class="grow"><span class="lab">扩展插件</span><span class="desc">JS 插件拦截聊天管线、注入提示词</span></span><span class="chev">›</span></button>
+          <button class="row"><span class="grow"><span class="lab">底层调用大模型日志</span><span class="desc">查看网络通信中大模型的原始数据流</span></span><span class="chev">›</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案 B -->
+    <div class="col">
+      <div class="col-title">方案 B：色块也换成文字胶囊</div>
+      <div class="phone">
+        <div class="page-head"><span class="back">‹</span>主页</div>
+        <div class="hero" style="padding:0 4px 10px">
+          <div class="ava"></div>
+          <div>
+            <div class="nm">岳霖玉（姜）</div>
+            <div class="badge"><span class="dot"></span>手机在线</div>
+            <div class="stats">Chatting 4 ｜ Moments 0 ｜ Visitors 1302</div>
+          </div>
+        </div>
+        <div class="balance">
+          <div style="display:flex;justify-content:space-between"><span class="k">REAL BALANCE</span><span class="k">1 张银行卡</span></div>
+          <div class="v">¥10,191.99</div>
+          <div class="f"><span>余额管理 · 银行卡与流水</span><span class="pill">查看 ›</span></div>
+        </div>
+        <div class="card" style="padding:4px 14px 14px">
+          <div class="chips">
+            <button class="chip">朋友圈互动 ›</button>
+            <button class="chip">表情包仓储 ›</button>
+            <button class="chip">外观CSS ›</button>
+          </div>
+        </div>
+        <div class="sec-label">行为与互动</div>
+        <div class="card">
+          <button class="row"><span class="grow"><span class="lab">追发规则与延迟控制</span><span class="desc">设定角色的主动回复频率与时间间隔</span></span><span class="chev">›</span></button>
+          <button class="row"><span class="grow"><span class="lab">离线推送与定时消息</span><span class="desc">后台推送、安静时段、定时主动消息</span></span><span class="chev">›</span></button>
+        </div>
+        <div class="sec-label">聊天偏好</div>
+        <div class="card">
+          <div class="row"><span class="grow"><span class="lab">回车发送</span><span class="desc">开启后 Enter 发送，Shift+Enter 换行</span></span><span class="sw"></span></div>
+          <div class="row"><span class="grow"><span class="lab">语音/视频来电振动</span><span class="desc">角色来电等待接听时手机振动</span></span><span class="sw on"></span></div>
+          <div class="row"><span class="grow"><span class="lab">浏览器后台通知</span><span class="desc">允许网页在后台时弹出新消息横幅提醒</span></span><span class="sw on"></span></div>
+        </div>
+        <div class="sec-label">高级</div>
+        <div class="card">
+          <button class="row"><span class="grow"><span class="lab">扩展插件</span><span class="desc">JS 插件拦截聊天管线、注入提示词</span></span><span class="chev">›</span></button>
+          <button class="row"><span class="grow"><span class="lab">底层调用大模型日志</span><span class="desc">查看网络通信中大模型的原始数据流</span></span><span class="chev">›</span></button>
+        </div>
+      </div>
+    </div>
+
   </div>
+  <p class="note">开关统一为浅蓝 #BDD4E3 ｜ 所有设置行图标均已删除，只留标题 + 说明 + 右箭头／开关<br>
+  方案 A 保留三色块（个人意见：色块是“入口”不是“设置项”，保留更好点）｜ 方案 B 全部纯文字，最干净但入口不明显</p>
+</div>
 </body>
 </html>
