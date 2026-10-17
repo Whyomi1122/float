@@ -279,12 +279,13 @@ function ChatInfoIcon({ icon: Icon, color }: { icon: LucideIcon; color: string }
     );
 }
 
-/** 白卡片分区：英文小标题贴在卡顶里面 */
-function PrefsSection({ label, children, danger }: { label: string; children: React.ReactNode; danger?: boolean }) {
+/** 白卡片分区：iOS 分组列表风格，分组标题落在卡片外面 */
+function PrefsSection({ label, children, danger, footer }: { label: string; children: React.ReactNode; danger?: boolean; footer?: string }) {
     return (
-        <section className={`chat-prefs-card${danger ? " is-danger" : ""}`}>
-            <p className={`chat-prefs-section-label${danger ? " is-danger" : ""}`}>{label}</p>
-            {children}
+        <section className={`chat-prefs-group${danger ? " is-danger" : ""}`}>
+            <p className={`chat-prefs-group-label${danger ? " is-danger" : ""}`}>{label}</p>
+            <div className="chat-prefs-card">{children}</div>
+            {footer && <p className="chat-prefs-group-footer">{footer}</p>}
         </section>
     );
 }
@@ -309,7 +310,7 @@ function PrefsFold({
                     <span className="chat-prefs-fold-title">{title}</span>
                     {subtitle && <span className="chat-prefs-fold-sub">{subtitle}</span>}
                 </span>
-                <ChevronDown size={18} className={`chat-prefs-fold-chevron${open ? " is-open" : ""}`} />
+                <ChevronDown size={16} strokeWidth={2.25} className={`chat-prefs-fold-chevron${open ? " is-open" : ""}`} />
             </button>
             {open && <div className="chat-prefs-fold-body">{children}</div>}
         </div>
@@ -853,8 +854,8 @@ export function ChatSettingsPanel({
         <PageShell
             title={
                 <span className="chat-prefs-page-title">
-                    <span className="chat-prefs-page-title-main">Preferences</span>
-                    <span className="chat-prefs-page-title-sub">系统偏好设置</span>
+                    <span className="chat-prefs-page-title-main">偏好设置</span>
+                    <span className="chat-prefs-page-title-sub">Preferences</span>
                 </span>
             }
             onBack={onClose}
