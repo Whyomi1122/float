@@ -86,40 +86,44 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
         return el;
     }, []);
 
-    // 进出该页时保留滚动位置（从设置页进朋友圈互动设置再返回不跳顶）
+    // 进出该页时保留滚动位置：滚动宿主就是 PageShell 的 bodyRef（.page-body）
     useEffect(() => {
         const key = "moments_feed_scroll_top";
-        let host: HTMLDivElement | null = null;
+        const host = scrollRef.current;
+        if (!host) return;
+        const saved = Number(sessionStorage.getItem(key) || "0");
         let raf = 0;
-        let onScroll: (() => void) | null = null;
-        let tries = 0;
-        const attach = () => {
-            host = getScrollElement();
-            if (!host) {
-                if (tries++ < 40) raf = requestAnimationFrame(attach);
-                return;
+        let restoring = saved > 0;
+        let stableFrames = 0;
+        const restore = () => {
+            if (!restoring) return;
+            if (host.scrollHeight > host.clientHeight + 2) {
+                host.scrollTop = saved;
+                // 内容可能还在陆续渲染，连续稳定两帧才认为恢复完成
+                if (Math.abs(host.scrollTop - saved) < 2) {
+                    stableFrames += 1;
+                    if (stableFrames >= 3) { restoring = false; return; }
+                } else {
+                    stableFrames = 0;
+                }
             }
-            const saved = Number(sessionStorage.getItem(key) || "0");
-            if (saved > 0) {
-                const restore = () => {
-                    if (!host) return;
-                    if (host.scrollHeight > host.clientHeight + 4) host.scrollTop = saved;
-                    else raf = requestAnimationFrame(restore);
-                };
-                raf = requestAnimationFrame(restore);
-            }
-            onScroll = () => { if (host) sessionStorage.setItem(key, String(host.scrollTop)); };
-            host.addEventListener("scroll", onScroll, { passive: true });
+            raf = requestAnimationFrame(restore);
         };
-        attach();
+        if (saved > 0) restore();
+        const onScroll = () => {
+            if (restoring) return;
+            sessionStorage.setItem(key, String(host.scrollTop));
+        };
+        host.addEventListener("scroll", onScroll, { passive: true });
+        const persist = () => sessionStorage.setItem(key, String(host.scrollTop));
+        window.addEventListener("pagehide", persist);
         return () => {
             cancelAnimationFrame(raf);
-            if (host && onScroll) {
-                sessionStorage.setItem(key, String(host.scrollTop));
-                host.removeEventListener("scroll", onScroll);
-            }
+            persist();
+            host.removeEventListener("scroll", onScroll);
+            window.removeEventListener("pagehide", persist);
         };
-    }, [getScrollElement]);
+    }, []);
 
     const stopLoadMoreAnchorTracking = useCallback(() => {
         loadMoreResizeObserverRef.current?.disconnect();

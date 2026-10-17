@@ -10,23 +10,50 @@ import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
     const anchorRef = useRef<HTMLSpanElement | null>(null);
     useEffect(() => {
-        const host = anchorRef.current?.closest(".page-body") as HTMLElement | null;
-        if (!host) return;
-        const saved = Number(sessionStorage.getItem(storageKey) || "0");
+        let host: HTMLElement | null = null;
         let raf = 0;
-        if (saved > 0) {
-            const restore = () => {
-                if (host.scrollHeight > host.clientHeight + 4) host.scrollTop = saved;
-                else raf = requestAnimationFrame(restore);
+        let tries = 0;
+        let restoring = false;
+        let onScroll: (() => void) | null = null;
+        const attach = () => {
+            const body = anchorRef.current?.closest(".page-body") as HTMLElement | null;
+            if (!body) {
+                if (tries++ < 30) raf = requestAnimationFrame(attach);
+                return;
+            }
+            host = body;
+            const saved = Number(sessionStorage.getItem(storageKey) || "0");
+            if (saved > 0) {
+                restoring = true;
+                let stableFrames = 0;
+                const restore = () => {
+                    if (!host || !restoring) return;
+                    if (host.scrollHeight > host.clientHeight + 2) {
+                        host.scrollTop = saved;
+                        if (Math.abs(host.scrollTop - saved) < 2) {
+                            stableFrames += 1;
+                            if (stableFrames >= 3) { restoring = false; return; }
+                        } else {
+                            stableFrames = 0;
+                        }
+                    }
+                    raf = requestAnimationFrame(restore);
+                };
+                raf = requestAnimationFrame(restore);
+            }
+            onScroll = () => {
+                if (restoring || !host) return;
+                sessionStorage.setItem(storageKey, String(host.scrollTop));
             };
-            raf = requestAnimationFrame(restore);
-        }
-        const onScroll = () => sessionStorage.setItem(storageKey, String(host.scrollTop));
-        host.addEventListener("scroll", onScroll, { passive: true });
+            host.addEventListener("scroll", onScroll, { passive: true });
+        };
+        attach();
         return () => {
             cancelAnimationFrame(raf);
-            sessionStorage.setItem(storageKey, String(host.scrollTop));
-            host.removeEventListener("scroll", onScroll);
+            if (host && onScroll) {
+                sessionStorage.setItem(storageKey, String(host.scrollTop));
+                host.removeEventListener("scroll", onScroll);
+            }
         };
     }, [storageKey]);
     return <span ref={anchorRef} aria-hidden style={{ display: "none" }} />;
@@ -327,23 +354,28 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     if (showPushSettings) {
         return <OfflinePushSettingsPage onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPushSettings(false); }} />;
     }
-    // 子页面：返回后恢复主页的滚动位置（用 switch 前置，避免 early-return 时丢失滚动）
-    const subPage = showPluginManager
-        ? <ChatPluginPageBoundary page="扩展插件" onClose={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }}>
-            <ChatPluginManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }} />
-        </ChatPluginPageBoundary>
-        : showApiLog
-            ? <ApiLogViewer onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowApiLog(false); }} />
-            : showCSSEditor
-                ? <ChatCSSEditor onBack={() => { setShowCSSEditor(false); }} />
-                : showStickerManager
-                    ? <StickerManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowStickerManager(false); }} />
-                    : showMomentsSettings
-                        ? <InlineMomentsSettings onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowMomentsSettings(false); }} />
-                        : showWalletPanel
-                            ? <WalletPanel onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowWalletPanel(false); }} />
-                            : null;
-    if (subPage) return subPage;
+    if (showPluginManager) {
+        return (
+            <ChatPluginPageBoundary page="扩展插件" onClose={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }}>
+                <ChatPluginManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }} />
+            </ChatPluginPageBoundary>
+        );
+    }
+    if (showApiLog) {
+        return <ApiLogViewer onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowApiLog(false); }} />;
+    }
+    if (showCSSEditor) {
+        return <ChatCSSEditor onBack={() => { setShowCSSEditor(false); }} />;
+    }
+    if (showStickerManager) {
+        return <StickerManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowStickerManager(false); }} />;
+    }
+    if (showMomentsSettings) {
+        return <InlineMomentsSettings onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowMomentsSettings(false); }} />;
+    }
+    if (showWalletPanel) {
+        return <WalletPanel onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowWalletPanel(false); }} />;
+    }
 
     return (
         <>
@@ -379,6 +411,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                     bottom: 0;
                     padding-top: 0 !important;
                     background: transparent !important;
+                    overflow-y: auto !important;
+                    -webkit-overflow-scrolling: touch;
                 }
                 .user-profile-page-root .page-title {
                     display: none;

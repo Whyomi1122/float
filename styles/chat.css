@@ -45,6 +45,12 @@
   padding-bottom: 30px;
 }
 
+/* 页面级滚动容器必须自成一格，否则 flex 撑高后 scrollTop 永远为 0 */
+.chat-app .page-shell > .page-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* ── 聊天室：page-body 自己滚动，header absolute 浮在上方，输入栏在滚动区外 ── */
 .chat-app .chat-room-wrapper.page-shell {
   overflow: hidden;
