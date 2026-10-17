@@ -442,7 +442,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                     </button>
 
                     {/* 聊天偏好 */}
-                    <div className="prefs-block mx-4 mb-4">
+                    <div className="prefs-block mx-4">
                         <span className="prefs-block-label">聊天偏好</span>
                         <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowStickerManager(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
@@ -482,7 +482,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                     </div>
 
                     {/* 行为与互动 */}
-                    <div className="prefs-block mx-4 mb-4">
+                    <div className="prefs-block mx-4">
                         <span className="prefs-block-label">行为与互动</span>
                         <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowMomentsSettings(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
@@ -508,7 +508,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                     </div>
 
                     {/* 高级工具 */}
-                    <div className="prefs-block mx-4 mb-4">
+                    <div className="prefs-block mx-4">
                         <span className="prefs-block-label">高级</span>
                         <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowPluginManager(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
@@ -1348,9 +1348,10 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
       <>
         <PageShell title="离线推送" onBack={onBack} className="absolute inset-0 z-[100]">
             <div className="page-menu profile-settings-menu">
-                <p className="menu-group-desc mx-2">云端服务</p>
-                <div className="menu-group">
-                    <div className="menu-item" style={{ alignItems: "stretch", flexDirection: "column", gap: 10 }}>
+                {/* 云端服务 */}
+                <div className="prefs-block">
+                    <span className="prefs-block-label">云端服务</span>
+                    <div className="prefs-row" style={{ alignItems: "stretch", flexDirection: "column", gap: 10, cursor: "default" }}>
                         <div className="flex items-center gap-3">
                             <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${personalCloudActive ? "bg-green-500" : "bg-black/20"}`} />
                             <div className="menu-label-group flex-1">
@@ -1389,67 +1390,69 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
                         )}
                     </div>
                 </div>
-                {(
-                    <>
-                        <p className="menu-group-desc mx-2">系统推送</p>
-                        <div className="menu-group">
-                            <div className="menu-item">
-                                <div className="menu-label-group">
-                                    <span className="menu-label">离线推送</span>
-                                    <span className="menu-desc">关掉后台后仍由系统推送通知（本设备）</span>
-                                </div>
-                                <div className="menu-right flex items-center gap-2">
-                                    {(offlinePushState === "on" || isShellApp) && (
-                                        <button className="ui-btn ui-btn-outline py-1 px-2 ts-11" style={{ whiteSpace: "nowrap" }} onClick={() => void handleOfflinePushTest()} disabled={offlinePushBusy}>测试</button>
-                                    )}
-                                    <Toggle
-                                        checked={offlinePushState === "on" || isShellApp}
-                                        disabled={offlinePushBusy || isShellApp || offlinePushState === "unsupported"}
-                                        onChange={enabled => void handleOfflinePushToggle(enabled)}
-                                    />
-                                </div>
-                            </div>
-                            <div className="menu-item">
-                                <div className="menu-label-group">
-                                    <span className="menu-label">安静时段</span>
-                                    <span className="menu-desc">时段内角色不主动推送，回复你的消息不受影响</span>
-                                </div>
-                                <div className="menu-right flex items-center gap-2">
-                                    {quietEnabled && (
-                                        <>
-                                            <input
-                                                type="time"
-                                                className="border-none outline-none bg-transparent ts-12 text-[var(--c-text)] opacity-70"
-                                                value={quietStart}
-                                                onChange={e => { setQuietStart(e.target.value); persistQuietHours(true, e.target.value, quietEnd); }}
-                                            />
-                                            <span className="ts-12 opacity-40">–</span>
-                                            <input
-                                                type="time"
-                                                className="border-none outline-none bg-transparent ts-12 text-[var(--c-text)] opacity-70"
-                                                value={quietEnd}
-                                                onChange={e => { setQuietEnd(e.target.value); persistQuietHours(true, quietStart, e.target.value); }}
-                                            />
-                                        </>
-                                    )}
-                                    <Toggle
-                                        checked={quietEnabled}
-                                        onChange={enabled => { setQuietEnabled(enabled); persistQuietHours(enabled, quietStart, quietEnd); }}
-                                    />
-                                </div>
-                            </div>
+
+                {/* 系统推送 */}
+                <div className="prefs-block">
+                    <span className="prefs-block-label">系统推送</span>
+                    <div className="prefs-row">
+                        <div className="menu-label-group flex-1">
+                            <span className="menu-label">离线推送</span>
+                            <span className="menu-desc">关掉后台后仍由系统推送通知（本设备）</span>
                         </div>
-                        <p className="menu-group-desc mx-2">
+                        <div className="menu-right flex items-center gap-2">
+                            {(offlinePushState === "on" || isShellApp) && (
+                                <button className="ui-btn ui-btn-outline py-1 px-2 ts-11" style={{ whiteSpace: "nowrap" }} onClick={() => void handleOfflinePushTest()} disabled={offlinePushBusy}>测试</button>
+                            )}
+                            <Toggle
+                                checked={offlinePushState === "on" || isShellApp}
+                                disabled={offlinePushBusy || isShellApp || offlinePushState === "unsupported"}
+                                onChange={enabled => void handleOfflinePushToggle(enabled)}
+                            />
+                        </div>
+                    </div>
+                    <div className="prefs-row">
+                        <div className="menu-label-group flex-1">
+                            <span className="menu-label">安静时段</span>
+                            <span className="menu-desc">时段内角色不主动推送，回复你的消息不受影响</span>
+                        </div>
+                        <div className="menu-right flex items-center gap-2">
+                            {quietEnabled && (
+                                <>
+                                    <input
+                                        type="time"
+                                        className="border-none outline-none bg-transparent ts-12 text-[var(--c-text)] opacity-70"
+                                        value={quietStart}
+                                        onChange={e => { setQuietStart(e.target.value); persistQuietHours(true, e.target.value, quietEnd); }}
+                                    />
+                                    <span className="ts-12 opacity-40">–</span>
+                                    <input
+                                        type="time"
+                                        className="border-none outline-none bg-transparent ts-12 text-[var(--c-text)] opacity-70"
+                                        value={quietEnd}
+                                        onChange={e => { setQuietEnd(e.target.value); persistQuietHours(true, quietStart, e.target.value); }}
+                                    />
+                                </>
+                            )}
+                            <Toggle
+                                checked={quietEnabled}
+                                onChange={enabled => { setQuietEnabled(enabled); persistQuietHours(enabled, quietStart, quietEnd); }}
+                            />
+                        </div>
+                    </div>
+                    {(offlinePushHint || isShellApp || offlinePushState === "unsupported") && (
+                        <p className="menu-group-desc" style={{ padding: "0 0 12px" }}>
                             {offlinePushHint || (isShellApp
                                 ? "App 版自带推送通道，已自动接管离线推送；保持系统通知权限开启即可，可点「测试」验证。"
-                                : offlinePushState === "unsupported" ? "当前环境不支持。iOS 请先添加到主屏幕，从主屏幕打开后再开启。" : "")}
+                                : "当前环境不支持。iOS 请先添加到主屏幕，从主屏幕打开后再开启。")}
                         </p>
-                    </>
-                )}
-                <p className="menu-group-desc mx-2">定时主动消息</p>
-                <div className="menu-group">
-                    <div className="menu-item">
-                        <div className="menu-label-group">
+                    )}
+                </div>
+
+                {/* 定时主动消息 */}
+                <div className="prefs-block">
+                    <span className="prefs-block-label">定时主动消息</span>
+                    <div className="prefs-row">
+                        <div className="menu-label-group flex-1">
                             <span className="menu-label">触发方式</span>
                         </div>
                         <div className="menu-right">
@@ -1463,8 +1466,8 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
                             </select>
                         </div>
                     </div>
-                    <div className="menu-item">
-                        <div className="menu-label-group">
+                    <div className="prefs-row">
+                        <div className="menu-label-group flex-1">
                             <span className="menu-label">角色</span>
                         </div>
                         <div className="menu-right">
@@ -1481,8 +1484,8 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
                         </div>
                     </div>
                     {tmMode === "once" ? (
-                        <div className="menu-item">
-                            <div className="menu-label-group">
+                        <div className="prefs-row">
+                            <div className="menu-label-group flex-1">
                                 <span className="menu-label">多久之后</span>
                             </div>
                             <div className="menu-right flex items-center gap-1">
@@ -1505,8 +1508,8 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
                             </div>
                         </div>
                     ) : (
-                        <div className="menu-item">
-                            <div className="menu-label-group">
+                        <div className="prefs-row">
+                            <div className="menu-label-group flex-1">
                                 <span className="menu-label">沉默超过</span>
                             </div>
                             <div className="menu-right flex items-center gap-1 ts-13">
@@ -1529,51 +1532,49 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
                             </div>
                         </div>
                     )}
-                    <div className="menu-item" style={{ alignItems: "stretch", flexDirection: "column", gap: 8 }}>
+                    <div className="prefs-row" style={{ cursor: "default" }}>
                         <button className="ui-btn ui-btn-soft-action w-full" onClick={tmMode === "idle" ? handleCreateIdleRule : handleCreateTimedMsg} disabled={tmBusy}>
                             {tmBusy ? "创建中..." : "创建"}
                         </button>
                     </div>
+                    <p className="menu-group-desc" style={{ padding: "0 0 12px" }}>
+                        {tmHint || (tmMode === "idle"
+                            ? `你长时间不发消息时 TA 会主动来找你；不回复最多连发 ${IDLE_RECONNECT_MAX_CONSECUTIVE} 次，回复后重新开始计。每个角色一条规则。`
+                            : "每个角色同时仅保留一条，新建会替换旧的。关掉后台由服务端接管生成并推送（需开启离线推送）。")}
+                    </p>
                 </div>
-                <p className="menu-group-desc mx-2">
-                    {tmHint || (tmMode === "idle"
-                        ? `你长时间不发消息时 TA 会主动来找你；不回复最多连发 ${IDLE_RECONNECT_MAX_CONSECUTIVE} 次，回复后重新开始计。每个角色一条规则。`
-                        : "每个角色同时仅保留一条，新建会替换旧的。关掉后台由服务端接管生成并推送（需开启离线推送）。")}
-                </p>
 
                 {(timedSchedules.length > 0 || idleRules.length > 0) && (
-                    <>
-                        <p className="menu-group-desc mx-2">已排期</p>
-                        <div className="menu-group">
-                            {idleRules.map(rule => {
-                                const charName = loadCharacters().find(c => c.id === rule.characterId)?.name ?? "未知角色";
-                                const hours = Math.floor(rule.intervalMinutes / 60);
-                                const minutes = rule.intervalMinutes % 60;
-                                const intervalLabel = `${hours ? `${hours}小时` : ""}${minutes ? `${minutes}分钟` : hours ? "" : "0分钟"}`;
-                                return (
-                                    <div key={rule.id} className="menu-item">
-                                        <div className="menu-label-group" style={{ minWidth: 0, flex: 1 }}>
-                                            <span className="menu-label">{charName} · 沉默超过 {intervalLabel}（连发 {rule.consecutiveCount}/{IDLE_RECONNECT_MAX_CONSECUTIVE}）</span>
-                                            <span className="menu-desc" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>长时间没消息时主动来找你</span>
-                                        </div>
-                                        <button className="ui-btn ui-btn-outline py-1 px-3 ts-12" style={{ whiteSpace: "nowrap", color: "var(--c-danger)" }} onClick={() => handleDeleteIdleRule(rule)}>删除</button>
+                    <div className="prefs-block">
+                        <span className="prefs-block-label">已排期</span>
+                        {idleRules.map(rule => {
+                            const charName = loadCharacters().find(c => c.id === rule.characterId)?.name ?? "未知角色";
+                            const hours = Math.floor(rule.intervalMinutes / 60);
+                            const minutes = rule.intervalMinutes % 60;
+                            const intervalLabel = `${hours ? `${hours}小时` : ""}${minutes ? `${minutes}分钟` : ""}${hours || minutes ? "" : "0分钟"}`;
+                            return (
+                                <div key={rule.id} className="prefs-row" style={{ cursor: "default" }}>
+                                    <div className="menu-label-group flex-1" style={{ minWidth: 0 }}>
+                                        <span className="menu-label">{charName} · 沉默超过 {intervalLabel}（连发 {rule.consecutiveCount}/{IDLE_RECONNECT_MAX_CONSECUTIVE}）</span>
+                                        <span className="menu-desc" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>长时间没消息时主动来找你</span>
                                     </div>
-                                );
-                            })}
-                            {timedSchedules.map(schedule => {
-                                const charName = loadCharacters().find(c => c.id === schedule.characterId)?.name ?? "未知角色";
-                                return (
-                                    <div key={schedule.id} className="menu-item">
-                                        <div className="menu-label-group" style={{ minWidth: 0, flex: 1 }}>
-                                            <span className="menu-label">{charName} · {formatFireAt(schedule.fireAt)}</span>
-                                            <span className="menu-desc" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>固定时间后主动来找你</span>
-                                        </div>
-                                        <button className="ui-btn ui-btn-outline py-1 px-3 ts-12" style={{ whiteSpace: "nowrap", color: "var(--c-danger)" }} onClick={() => handleDeleteTimedMsg(schedule)}>删除</button>
+                                    <button className="ui-btn ui-btn-outline py-1 px-3 ts-12" style={{ whiteSpace: "nowrap", color: "var(--c-danger)" }} onClick={() => handleDeleteIdleRule(rule)}>删除</button>
+                                </div>
+                            );
+                        })}
+                        {timedSchedules.map(schedule => {
+                            const charName = loadCharacters().find(c => c.id === schedule.characterId)?.name ?? "未知角色";
+                            return (
+                                <div key={schedule.id} className="prefs-row" style={{ cursor: "default" }}>
+                                    <div className="menu-label-group flex-1" style={{ minWidth: 0 }}>
+                                        <span className="menu-label">{charName} · {formatFireAt(schedule.fireAt)}</span>
+                                        <span className="menu-desc" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>固定时间后主动来找你</span>
                                     </div>
-                                );
-                            })}
-                        </div>
-                    </>
+                                    <button className="ui-btn ui-btn-outline py-1 px-3 ts-12" style={{ whiteSpace: "nowrap", color: "var(--c-danger)" }} onClick={() => handleDeleteTimedMsg(schedule)}>删除</button>
+                                </div>
+                            );
+                        })}
+                    </div>
                 )}
             </div>
         </PageShell>

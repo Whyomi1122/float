@@ -3316,7 +3316,8 @@
   flex-direction: column;
   background: var(--c-card);
   border-radius: 18px;
-  padding: 4px 16px 2px;
+  padding: 6px 16px 6px;
+  margin-bottom: 16px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.025);
 }
 
@@ -3335,8 +3336,8 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 56px;
-  padding: 10px 0;
+  min-height: 62px;
+  padding: 15px 0;
   background: transparent;
   border: 0;
   font: inherit;

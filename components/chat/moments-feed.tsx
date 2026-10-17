@@ -50,6 +50,26 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
     const [coverUrl, setCoverUrl] = useState<string | null>(null);
     const coverInputRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    // 进出该页时保留滚动位置（从设置页进朋友圈互动设置再返回不跳顶）
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const key = "moments_feed_scroll_top";
+        const saved = Number(sessionStorage.getItem(key) || "0");
+        if (saved > 0) requestAnimationFrame(() => { el.scrollTop = saved; });
+        let last = 0;
+        const onScroll = () => { last = el.scrollTop; };
+        el.addEventListener("scroll", onScroll, { passive: true });
+        const persist = () => {
+            if (last > 0) sessionStorage.setItem(key, String(last));
+        };
+        window.addEventListener("pagehide", persist);
+        return () => {
+            el.removeEventListener("scroll", onScroll);
+            window.removeEventListener("pagehide", persist);
+            persist();
+        };
+    }, []);
     const userIdentity = resolveUserIdentity(undefined, "chat");
     const [signature, setSignature] = useState(() => {
         if (typeof window !== "undefined") {
