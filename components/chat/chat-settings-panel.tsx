@@ -444,6 +444,8 @@ export function ChatSettingsPanel({
     const [editingCSS, setEditingCSS] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [openFold, setOpenFold] = useState<string | null>(null);
+    // 聊天背景与通话（弹窗）
+    const [showBgModal, setShowBgModal] = useState(false);
     // TA 的电脑：翻看角色云端电脑（连接了角色电脑才显示入口）
     const [showComputer, setShowComputer] = useState(false);
     const [showArchive, setShowArchive] = useState(false);
@@ -858,6 +860,53 @@ export function ChatSettingsPanel({
             onBack={onClose}
             className="absolute inset-0 z-[100]"
         >
+            {showBgModal && (
+                <div className="modal-overlay" onClick={() => setShowBgModal(false)}>
+                    <div className="chat-bg-modal" onClick={e => e.stopPropagation()}>
+                        <div className="chat-bg-modal-head">
+                            <span className="chat-bg-modal-title">聊天背景与通话</span>
+                            <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => setShowBgModal(false)}>关闭</button>
+                        </div>
+                        <div className="chat-bg-picker">
+                            {[
+                                { key: "chat", label: "聊天背景", value: session.backgroundImage, onChange: (v: string) => updateSession({ backgroundImage: v }) },
+                                { key: "video", label: "视频通话背景", value: session.videoBackground, onChange: (v: string) => updateSession({ videoBackground: v }) },
+                                { key: "voice", label: "语音通话背景", value: session.voiceBackground, onChange: (v: string) => updateSession({ voiceBackground: v }) },
+                            ].map(item => (
+                                <div key={item.key} className="chat-bg-picker-row">
+                                    <div className="chat-bg-picker-preview">
+                                        {item.value ? <img src={item.value} alt="" /> : <span className="chat-bg-picker-empty">未设置</span>}
+                                    </div>
+                                    <div className="chat-bg-picker-meta">
+                                        <span className="chat-bg-picker-label">{item.label}</span>
+                                        <div className="chat-bg-picker-actions">
+                                            <label className="chat-bg-picker-btn">
+                                                {item.value ? "更换" : "上传"}
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    hidden
+                                                    onChange={e => {
+                                                        const file = e.target.files?.[0];
+                                                        e.currentTarget.value = "";
+                                                        if (!file) return;
+                                                        const reader = new FileReader();
+                                                        reader.onload = () => item.onChange(String(reader.result || ""));
+                                                        reader.readAsDataURL(file);
+                                                    }}
+                                                />
+                                            </label>
+                                            {item.value && (
+                                                <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => item.onChange("")}>清除</button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="page-menu chat-info-menu chat-prefs-menu">
                 {session.isGroup && (
                     <PrefsSection label="SESSION">
@@ -1034,7 +1083,7 @@ export function ChatSettingsPanel({
                                 max={MAX_VISION_IMAGE_PROMPT_LIMIT}
                                 value={visionImagePromptLimit}
                                 onChange={e => updateVisionImagePromptLimit(e.target.value)}
-                                className="ui-input h-8 w-12 rounded-[12px] text-center"
+                                className="ui-input h-8 w-12 rounded-[10px] text-center"
                             />
                             <button
                                 type="button"
@@ -1048,6 +1097,21 @@ export function ChatSettingsPanel({
                     </div>
                 </PrefsSection>
 
+                <PrefsSection label="VISUALS">
+                    <button className="menu-item" onClick={() => setShowBgModal(true)}>
+                        <span className="menu-label-group"><span className="menu-label">聊天背景与通话</span></span>
+                        <span className="menu-right"><ChevronRight size={16} /></span>
+                    </button>
+                    <button className="menu-item" onClick={() => setEditingCSS(true)}>
+                        <span className="menu-label-group"><span className="menu-label">界面美化 (CSS)</span></span>
+                        <span className="menu-right">
+                            {customCSS && <span className="menu-desc mr-1">已设置</span>}
+                            <ChevronRight size={16} />
+                        </span>
+                    </button>
+                </PrefsSection>
+
+                {/* 旧折叠实现（已停用，保留备用）
                 <PrefsSection label="VISUALS">
                     <PrefsFold
                         open={openFold === "visuals"}
@@ -1132,12 +1196,12 @@ export function ChatSettingsPanel({
                         </button>
                     </PrefsFold>
                 </PrefsSection>
+                */}
 
                 <PrefsSection label="DANGER ZONE" danger>
                     <div className="chat-prefs-danger-list">
                         {!session.isGroup && (
-                            <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmDelete(true)}>
-                                <ChatInfoIcon icon={UserMinus} color="#ef4444" />
+                            <button type="button" className="menu-item" onClick={() => setShowConfirmDelete(true)}>
                                 <span className="menu-label-group">
                                     <span className="menu-label is-danger">删除好友</span>
                                     <span className="menu-desc">移除好友关系，聊天记录一并清除</span>
@@ -1145,24 +1209,21 @@ export function ChatSettingsPanel({
                                 <span className="menu-right"><ChevronRight size={16} /></span>
                             </button>
                         )}
-                        <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmClearTools(true)}>
-                            <ChatInfoIcon icon={Code} color="#ef4444" />
+                        <button type="button" className="menu-item" onClick={() => setShowConfirmClearTools(true)}>
                             <span className="menu-label-group">
                                 <span className="menu-label is-danger">清理原生 tool 调用历史</span>
                                 <span className="menu-desc">切换到文本协议 API 前使用</span>
                             </span>
                             <span className="menu-right"><ChevronRight size={16} /></span>
                         </button>
-                        <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmClear(true)}>
-                            <ChatInfoIcon icon={Trash2} color="#ef4444" />
+                        <button type="button" className="menu-item" onClick={() => setShowConfirmClear(true)}>
                             <span className="menu-label-group">
                                 <span className="menu-label is-danger">清空聊天记录</span>
                                 <span className="menu-desc">清空该会话的全部消息，好友保留</span>
                             </span>
                             <span className="menu-right"><ChevronRight size={16} /></span>
                         </button>
-                        <button type="button" className="chat-prefs-danger-row" onClick={() => setShowConfirmDeleteSession(true)}>
-                            <ChatInfoIcon icon={Trash2} color="#ef4444" />
+                        <button type="button" className="menu-item" onClick={() => setShowConfirmDeleteSession(true)}>
                             <span className="menu-label-group">
                                 <span className="menu-label is-danger">{session.isGroup ? "解散群聊" : "删除会话"}</span>
                                 <span className="menu-desc">{session.isGroup ? "解散该群聊，成员好友保留" : "移除该会话及聊天记录，好友保留"}</span>
