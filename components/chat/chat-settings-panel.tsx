@@ -492,6 +492,7 @@ export function ChatSettingsPanel({
     const closeSearchPanel = () => {
         searchRunRef.current += 1;
         setShowSearch(false);
+        onClose();
         setSearchQuery("");
         setSubmittedSearchQuery("");
         setSearchResults([]);
@@ -1495,11 +1496,12 @@ export function ChatSettingsPanel({
                             onChange={e => setCustomCSS(e.target.value)}
                             spellCheck={false}
                         />
-                        <div className="chat-bg-picker-actions mt-3 justify-end">
+                        <div className="chat-bg-picker-actions mt-3 items-center">
+                            <CSSSchemeBar target="chat_session" currentCSS={customCSS} onLoad={setCustomCSS} btnStyle={{ width: 36, height: 32, borderRadius: 10 }} />
+                            <div className="flex-1" />
                             <button type="button" className="chat-bg-picker-btn" onClick={() => setCustomCSS(customCSS.trim() === CHAT_SESSION_CSS_EXAMPLE.trim() ? "" : CHAT_SESSION_CSS_EXAMPLE)}>示例</button>
                             <button type="button" className="chat-bg-picker-btn" onClick={() => setCustomCSS("")}>清除</button>
-                            <button type="button" className="chat-bg-picker-btn is-primary" onClick={() => { updateSession({ customCSS }); window.dispatchEvent(new CustomEvent("chat-session-css-updated", { detail: { sessionId: session.id, css: customCSS } })); setEditingCSS(false); }}>应用</button>
-                        </div>
+                            <button type="button" className="chat-bg-picker-btn is-primary" onClick={() => { updateSession({ customCSS }); window.dispatchEvent(new CustomEvent("chat-session-css-updated", { detail: { sessionId: session.id, css: customCSS } })); setEditingCSS(false); }}>应用</button>                        </div>
                     </div>
                 </div>
             )}
@@ -1537,9 +1539,16 @@ export function ChatSettingsPanel({
                                 type="button"
                                 aria-label="搜索聊天记录"
                                 title="搜索"
-                                onClick={runSearch}
-                                disabled={isSearching}
-                                className="h-10 w-10 shrink-0 grid place-items-center border-0 bg-transparent text-[var(--c-icon)] disabled:opacity-40"
+                                onClick={() => {
+                                    const q = searchQuery.trim();
+                                    if (q) {
+                                        runSearch();
+                                    } else {
+                                        // 输入框为空时点放大镜：直接退出搜索，回到聊天
+                                        closeSearchPanel();
+                                    }
+                                }}
+                                className="h-10 w-10 shrink-0 grid place-items-center border-0 bg-transparent text-[var(--c-icon)]"
                             >
                                 <Search size={20} strokeWidth={2.1} />
                             </button>
