@@ -207,7 +207,7 @@ export function ChatArchivePanel({
                             <span className="ts-13 font-medium">从聊天记录提炼</span>
                             <button
                                 className="rounded-xl px-3 py-1.5 ts-12 flex items-center gap-1"
-                                style={{ background: "var(--accent, #6c5ce7)", color: "#fff", opacity: hasTranscript && !summarizing ? 1 : 0.5 }}
+                                style={{ background: "#BDD4E3", color: "#2b3a44", opacity: hasTranscript && !summarizing ? 1 : 0.5 }}
                                 disabled={!hasTranscript || summarizing}
                                 onClick={handleSummarize}
                             >
@@ -228,7 +228,7 @@ export function ChatArchivePanel({
                                 <div className="flex gap-2 mt-2">
                                     <button
                                         className="flex-1 rounded-xl py-2 ts-13 flex items-center justify-center gap-1"
-                                        style={{ background: "var(--accent, #6c5ce7)", color: "#fff", opacity: saving ? 0.6 : 1 }}
+                                        style={{ background: "#BDD4E3", color: "#2b3a44", opacity: saving ? 0.6 : 1 }}
                                         disabled={saving}
                                         onClick={handleConfirmArchive}
                                     >

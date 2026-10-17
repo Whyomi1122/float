@@ -6392,6 +6392,27 @@
   border-color: transparent;
   color: color-mix(in srgb, var(--c-text) 55%, transparent);
 }
+.chat-bg-picker-btn.is-primary {
+  border-color: transparent;
+  background: #BDD4E3;
+  color: color-mix(in srgb, var(--c-text) 82%, #000);
+  font-weight: 600;
+}
+
+/* 界面美化 (CSS) 弹窗 */
+.chat-css-modal {
+  width: min(92%, 400px);
+  height: min(72%, 520px);
+  display: flex;
+  flex-direction: column;
+  background: var(--c-card);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
+  animation: modalSoftRise 0.24s ease;
+}
+
+/* 归档弹窗按钮：浅蓝已内联在组件中 */
 
 /* 数字调节器：收窄 + 大圆角 */
 .chat-prefs-card .chat-count-stepper input,

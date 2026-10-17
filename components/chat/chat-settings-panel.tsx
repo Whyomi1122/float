@@ -444,8 +444,23 @@ export function ChatSettingsPanel({
     const [editingCSS, setEditingCSS] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [openFold, setOpenFold] = useState<string | null>(null);
-    // 聊天背景与通话（弹窗）
+    // 聊天背景与通话（弹窗）：草稿态，上传后立即预览，确认后统一写入
     const [showBgModal, setShowBgModal] = useState(false);
+    const [bgDraft, setBgDraft] = useState<{ chat: string; video: string; voice: string }>({ chat: "", video: "", voice: "" });
+    useEffect(() => {
+        if (showBgModal) {
+            setBgDraft({
+                chat: session.backgroundImage || "",
+                video: session.videoBackground || "",
+                voice: session.voiceBackground || "",
+            });
+        }
+    }, [showBgModal, session.backgroundImage, session.videoBackground, session.voiceBackground]);
+    const applyBgDraft = () => {
+        if (bgDraft.chat !== (session.backgroundImage || "")) updateSession({ backgroundImage: bgDraft.chat });
+        if (bgDraft.video !== (session.videoBackground || "")) updateSession({ videoBackground: bgDraft.video });
+        if (bgDraft.voice !== (session.voiceBackground || "")) updateSession({ voiceBackground: bgDraft.voice });
+    };
     // TA 的电脑：翻看角色云端电脑（连接了角色电脑才显示入口）
     const [showComputer, setShowComputer] = useState(false);
     const [showArchive, setShowArchive] = useState(false);
@@ -861,17 +876,17 @@ export function ChatSettingsPanel({
             className="absolute inset-0 z-[100]"
         >
             {showBgModal && (
-                <div className="modal-overlay" onClick={() => setShowBgModal(false)}>
+                <div className="modal-overlay" onClick={() => { applyBgDraft(); setShowBgModal(false); }}>
                     <div className="chat-bg-modal" onClick={e => e.stopPropagation()}>
                         <div className="chat-bg-modal-head">
                             <span className="chat-bg-modal-title">聊天背景与通话</span>
-                            <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => setShowBgModal(false)}>关闭</button>
+                            <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => { applyBgDraft(); setShowBgModal(false); }}>完成</button>
                         </div>
                         <div className="chat-bg-picker">
                             {[
-                                { key: "chat", label: "聊天背景", value: session.backgroundImage, onChange: (v: string) => updateSession({ backgroundImage: v }) },
-                                { key: "video", label: "视频通话背景", value: session.videoBackground, onChange: (v: string) => updateSession({ videoBackground: v }) },
-                                { key: "voice", label: "语音通话背景", value: session.voiceBackground, onChange: (v: string) => updateSession({ voiceBackground: v }) },
+                                { key: "chat", label: "聊天背景", value: bgDraft.chat, onChange: (v: string) => setBgDraft(d => ({ ...d, chat: v })) },
+                                { key: "video", label: "视频通话背景", value: bgDraft.video, onChange: (v: string) => setBgDraft(d => ({ ...d, video: v })) },
+                                { key: "voice", label: "语音通话背景", value: bgDraft.voice, onChange: (v: string) => setBgDraft(d => ({ ...d, voice: v })) },
                             ].map(item => (
                                 <div key={item.key} className="chat-bg-picker-row">
                                     <div className="chat-bg-picker-preview">
@@ -891,7 +906,7 @@ export function ChatSettingsPanel({
                                                         e.currentTarget.value = "";
                                                         if (!file) return;
                                                         const reader = new FileReader();
-                                                        reader.onload = () => item.onChange(String(reader.result || ""));
+                                        reader.onload = () => item.onChange(String(reader.result || ""));
                                                         reader.readAsDataURL(file);
                                                     }}
                                                 />
@@ -1463,30 +1478,29 @@ export function ChatSettingsPanel({
 
             {/* Sub-page: Custom CSS */}
             {editingCSS && (
-                <div style={{ position: "absolute", inset: 0, zIndex: 9999, background: "#ffffff" }}>
-                <div style={{ position: "absolute", inset: 0, background: "var(--c-page-body-bg)" }}>
-                    <PageShell title="自定义 CSS" onBack={() => setEditingCSS(false)}>
-                        <div className="theme-section-page">
-                            <p className="ts-13 text-[var(--c-text)] mb-3 leading-relaxed">
-                                支持 :root 变量和选择器，仅作用于本会话。
-                            </p>
-                            <textarea
-                                className="ui-textarea font-mono ts-13 leading-relaxed flex-1"
-                                style={{ minHeight: 280, resize: "none", scrollbarWidth: "none" }}
-                                placeholder={`:root {\n  --c-bubble-self: #95ec69;\n}\n\n.chat-bubble-role-user {\n  border-radius: 6px;\n}\n\n.chat-html-inline-frame {\n  max-height: min(36vh, 340px);\n}`}
-                                value={customCSS}
-                                onChange={e => setCustomCSS(e.target.value)}
-                                spellCheck={false}
-                            />
-                            <div className="flex gap-2 mt-3 items-center">
-                                <CSSSchemeBar target="chat_session" currentCSS={customCSS} onLoad={setCustomCSS} />
-                                <button type="button" className="ui-btn ui-btn-outline flex-1" onClick={() => setCustomCSS(CHAT_SESSION_CSS_EXAMPLE)}>示例</button>
-                                <button type="button" className="ui-btn ui-btn-outline flex-1" onClick={() => setCustomCSS("")}>清除</button>
-                                <button type="button" className="ui-btn ui-btn-soft-action flex-1" onClick={() => { updateSession({ customCSS }); window.dispatchEvent(new CustomEvent("chat-session-css-updated", { detail: { sessionId: session.id, css: customCSS } })); setEditingCSS(false); }}>应用</button>
-                            </div>
+                <div className="modal-overlay" style={{ position: "absolute", zIndex: 9999 }} onClick={() => setEditingCSS(false)}>
+                    <div className="chat-css-modal" onClick={e => e.stopPropagation()}>
+                        <div className="chat-bg-modal-head">
+                            <span className="chat-bg-modal-title">界面美化 (CSS)</span>
+                            <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => setEditingCSS(false)}>关闭</button>
                         </div>
-                    </PageShell>
-                </div>
+                        <p className="ts-12 text-[var(--c-text)] opacity-60 mb-2 leading-relaxed">
+                            支持 :root 变量和选择器，仅作用于本会话。
+                        </p>
+                        <textarea
+                            className="ui-textarea font-mono ts-12 leading-relaxed"
+                            style={{ flex: 1, minHeight: 200, resize: "none", scrollbarWidth: "none" }}
+                            placeholder={`:root {\n  --c-bubble-self: #95ec69;\n}\n\n.chat-bubble-role-user {\n  border-radius: 6px;\n}`}
+                            value={customCSS}
+                            onChange={e => setCustomCSS(e.target.value)}
+                            spellCheck={false}
+                        />
+                        <div className="chat-bg-picker-actions mt-3 justify-end">
+                            <button type="button" className="chat-bg-picker-btn" onClick={() => setCustomCSS(customCSS.trim() === CHAT_SESSION_CSS_EXAMPLE.trim() ? "" : CHAT_SESSION_CSS_EXAMPLE)}>示例</button>
+                            <button type="button" className="chat-bg-picker-btn" onClick={() => setCustomCSS("")}>清除</button>
+                            <button type="button" className="chat-bg-picker-btn is-primary" onClick={() => { updateSession({ customCSS }); window.dispatchEvent(new CustomEvent("chat-session-css-updated", { detail: { sessionId: session.id, css: customCSS } })); setEditingCSS(false); }}>应用</button>
+                        </div>
+                    </div>
                 </div>
             )}
 
