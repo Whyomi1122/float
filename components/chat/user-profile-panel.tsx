@@ -2,6 +2,35 @@
 
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
+
+/**
+ * 通用滚动位置记忆：挂在 PageShell 的 .page-body 下，
+ * 离开（被其它子页面替换）时保存 scrollTop，重新挂载时恢复。
+ */
+export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
+    const anchorRef = useRef<HTMLSpanElement | null>(null);
+    useEffect(() => {
+        const host = anchorRef.current?.closest(".page-body") as HTMLElement | null;
+        if (!host) return;
+        const saved = Number(sessionStorage.getItem(storageKey) || "0");
+        let raf = 0;
+        if (saved > 0) {
+            const restore = () => {
+                if (host.scrollHeight > host.clientHeight + 4) host.scrollTop = saved;
+                else raf = requestAnimationFrame(restore);
+            };
+            raf = requestAnimationFrame(restore);
+        }
+        const onScroll = () => sessionStorage.setItem(storageKey, String(host.scrollTop));
+        host.addEventListener("scroll", onScroll, { passive: true });
+        return () => {
+            cancelAnimationFrame(raf);
+            sessionStorage.setItem(storageKey, String(host.scrollTop));
+            host.removeEventListener("scroll", onScroll);
+        };
+    }, [storageKey]);
+    return <span ref={anchorRef} aria-hidden style={{ display: "none" }} />;
+}
 import {
     loadFollowUpConfig,
     saveFollowUpConfig,
@@ -298,28 +327,23 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     if (showPushSettings) {
         return <OfflinePushSettingsPage onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPushSettings(false); }} />;
     }
-    if (showPluginManager) {
-        return (
-            <ChatPluginPageBoundary page="扩展插件" onClose={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }}>
-                <ChatPluginManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }} />
-            </ChatPluginPageBoundary>
-        );
-    }
-    if (showApiLog) {
-        return <ApiLogViewer onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowApiLog(false); }} />;
-    }
-    if (showCSSEditor) {
-        return <ChatCSSEditor onBack={() => { setShowCSSEditor(false); }} />;
-    }
-    if (showStickerManager) {
-        return <StickerManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowStickerManager(false); }} />;
-    }
-    if (showMomentsSettings) {
-        return <InlineMomentsSettings onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowMomentsSettings(false); }} />;
-    }
-    if (showWalletPanel) {
-        return <WalletPanel onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowWalletPanel(false); }} />;
-    }
+    // 子页面：返回后恢复主页的滚动位置（用 switch 前置，避免 early-return 时丢失滚动）
+    const subPage = showPluginManager
+        ? <ChatPluginPageBoundary page="扩展插件" onClose={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }}>
+            <ChatPluginManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowPluginManager(false); }} />
+        </ChatPluginPageBoundary>
+        : showApiLog
+            ? <ApiLogViewer onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowApiLog(false); }} />
+            : showCSSEditor
+                ? <ChatCSSEditor onBack={() => { setShowCSSEditor(false); }} />
+                : showStickerManager
+                    ? <StickerManager onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowStickerManager(false); }} />
+                    : showMomentsSettings
+                        ? <InlineMomentsSettings onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowMomentsSettings(false); }} />
+                        : showWalletPanel
+                            ? <WalletPanel onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowWalletPanel(false); }} />
+                            : null;
+    if (subPage) return subPage;
 
     return (
         <>
@@ -361,6 +385,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                 }
             `}</style>
             <PageShell title="" onBack={onClose} className={`user-profile-page-root ${className || ""}`}>
+                <SettingsScrollRestore storageKey="chat_settings_scroll_top" />
                 <div className="relative z-[1] w-full max-w-2xl mx-auto flex flex-col pb-8">
                     
                     {/* User Info & Stats Block */}
@@ -599,6 +624,7 @@ function FollowUpSettingsEditor({ onBack }: { onBack: () => void }) {
 
     return (
         <PageShell title="追发设置" onBack={onBack} className="absolute inset-0 z-[100]">
+            <SettingsScrollRestore storageKey="followup_settings_scroll_top" />
             <div className="page-menu profile-settings-menu">
                 <p className="menu-group-desc mx-2">
                     焦虑值越高，角色追得越急；低于 {config.anxietyThreshold} 时不追发。不回复时最多主动发 {IDLE_RECONNECT_MAX_CONSECUTIVE} 次，你回复后重新计数。
@@ -940,6 +966,7 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
 
     return (
         <PageShell title="朋友圈互动设置" onBack={onBack} className="absolute inset-0 z-[100]">
+            <SettingsScrollRestore storageKey="moments_settings_scroll_top" />
             <div className="page-menu profile-settings-menu">
                 <div className="menu-group">
                     <ProfileSettingsSliderItem
@@ -1347,6 +1374,7 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
     return (
       <>
         <PageShell title="离线推送" onBack={onBack} className="absolute inset-0 z-[100]">
+            <SettingsScrollRestore storageKey="push_settings_scroll_top" />
             <div className="page-menu profile-settings-menu">
                 {/* 云端服务 */}
                 <div className="prefs-block">

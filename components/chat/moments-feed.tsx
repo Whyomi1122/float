@@ -50,26 +50,6 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
     const [coverUrl, setCoverUrl] = useState<string | null>(null);
     const coverInputRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
-    // 进出该页时保留滚动位置（从设置页进朋友圈互动设置再返回不跳顶）
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        const key = "moments_feed_scroll_top";
-        const saved = Number(sessionStorage.getItem(key) || "0");
-        if (saved > 0) requestAnimationFrame(() => { el.scrollTop = saved; });
-        let last = 0;
-        const onScroll = () => { last = el.scrollTop; };
-        el.addEventListener("scroll", onScroll, { passive: true });
-        const persist = () => {
-            if (last > 0) sessionStorage.setItem(key, String(last));
-        };
-        window.addEventListener("pagehide", persist);
-        return () => {
-            el.removeEventListener("scroll", onScroll);
-            window.removeEventListener("pagehide", persist);
-            persist();
-        };
-    }, []);
     const userIdentity = resolveUserIdentity(undefined, "chat");
     const [signature, setSignature] = useState(() => {
         if (typeof window !== "undefined") {
@@ -105,6 +85,41 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
         if (el) scrollRef.current = el;
         return el;
     }, []);
+
+    // 进出该页时保留滚动位置（从设置页进朋友圈互动设置再返回不跳顶）
+    useEffect(() => {
+        const key = "moments_feed_scroll_top";
+        let host: HTMLDivElement | null = null;
+        let raf = 0;
+        let onScroll: (() => void) | null = null;
+        let tries = 0;
+        const attach = () => {
+            host = getScrollElement();
+            if (!host) {
+                if (tries++ < 40) raf = requestAnimationFrame(attach);
+                return;
+            }
+            const saved = Number(sessionStorage.getItem(key) || "0");
+            if (saved > 0) {
+                const restore = () => {
+                    if (!host) return;
+                    if (host.scrollHeight > host.clientHeight + 4) host.scrollTop = saved;
+                    else raf = requestAnimationFrame(restore);
+                };
+                raf = requestAnimationFrame(restore);
+            }
+            onScroll = () => { if (host) sessionStorage.setItem(key, String(host.scrollTop)); };
+            host.addEventListener("scroll", onScroll, { passive: true });
+        };
+        attach();
+        return () => {
+            cancelAnimationFrame(raf);
+            if (host && onScroll) {
+                sessionStorage.setItem(key, String(host.scrollTop));
+                host.removeEventListener("scroll", onScroll);
+            }
+        };
+    }, [getScrollElement]);
 
     const stopLoadMoreAnchorTracking = useCallback(() => {
         loadMoreResizeObserverRef.current?.disconnect();
