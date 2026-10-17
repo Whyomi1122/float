@@ -1517,8 +1517,7 @@ export function ChatSettingsPanel({
 
             {/* Sub-page: Search History */}
             {showSearch && (
-                <div style={{ position: "absolute", inset: 0, zIndex: 9999, background: "#ffffff" }}>
-                <div style={{ position: "absolute", inset: 0, background: "var(--c-page-body-bg)" }}>
+                <div style={{ position: "absolute", inset: 0, zIndex: 9999, background: "var(--c-page-body-bg)" }}>
                     <PageShell title="查找聊天记录" onBack={closeSearchPanel}>
                         <div className="px-4 pt-2 pb-3 flex items-center gap-2">
                             <input
@@ -1554,6 +1553,9 @@ export function ChatSettingsPanel({
                             </button>
                         </div>
                         <div className="flex flex-col gap-4 px-4 pb-4">
+                            <p className="ts-11 text-[var(--c-text)] opacity-40 leading-relaxed">
+                                记录只存在本机浏览器，清缓存会丢失。
+                            </p>
                             {!searchMode && searchHistoryMessages.length === 0 && (
                                 <div className="ui-empty">
                                     <span className="menu-desc">暂无聊天记录</span>
@@ -1586,7 +1588,6 @@ export function ChatSettingsPanel({
                             )}
                         </div>
                     </PageShell>
-                </div>
                 </div>
             )}
             {showStatusRegionDialog && (
