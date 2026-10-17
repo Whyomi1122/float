@@ -441,68 +441,38 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         </div>
                     </button>
 
-                    {/* 行为与互动 */}
-                    <div className="menu-group-desc mx-4">行为与互动</div>
-                    <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl px-4 py-1 flex flex-col"
-                         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowMomentsSettings(true); }}>
-                            <div className="flex flex-col flex-1 text-left gap-0.5">
-                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">朋友圈互动</span>
-                                <span className="ts-11 text-[var(--c-text)] opacity-70">自动发帖、评论节奏、点赞概率与翻译</span>
-                            </div>
-                            <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
-                        </button>
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowFollowUpEditor(true); }}>
-                            <div className="flex flex-col flex-1 text-left gap-0.5">
-                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">追发规则与延迟控制</span>
-                                <span className="ts-11 text-[var(--c-text)] opacity-70">设定角色的主动回复频率与时间间隔</span>
-                            </div>
-                            <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
-                        </button>
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowPushSettings(true); }}>
-                            <div className="flex flex-col flex-1 text-left gap-0.5">
-                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">离线推送与定时消息</span>
-                                <span className="ts-11 text-[var(--c-text)] opacity-70">后台推送、安静时段、定时主动消息</span>
-                            </div>
-                            <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
-                        </button>
-                    </div>
-
                     {/* 聊天偏好 */}
-                    <div className="menu-group-desc mx-4">聊天偏好</div>
-                    <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl px-4 py-1 flex flex-col"
-                         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowStickerManager(true); }}>
+                    <div className="prefs-block mx-4 mb-4">
+                        <span className="prefs-block-label">聊天偏好</span>
+                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowStickerManager(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">表情包仓储</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">管理聊天里可用的表情包</span>
                             </div>
                             <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
                         </button>
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowCSSEditor(true); }}>
+                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowCSSEditor(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">外观CSS</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">自定义聊天页面的整体样式</span>
                             </div>
                             <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
                         </button>
-                        <div className="flex items-center gap-3 py-3 w-full">
+                        <div className="prefs-row">
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">回车发送</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">开启后 Enter 发送，Shift+Enter 换行</span>
                             </div>
                             <Toggle checked={enterToSendEnabled} onChange={handleEnterToSendToggle} />
                         </div>
-
-                        <div className="flex items-center gap-3 py-3 w-full">
+                        <div className="prefs-row">
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">语音/视频来电振动</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">角色来电等待接听时手机振动（iOS 网页不支持振动）</span>
                             </div>
                             <Toggle checked={callVibrationEnabled} onChange={handleCallVibrationToggle} />
                         </div>
-
-                        <div className="flex items-center gap-3 py-3 w-full">
+                        <div className="prefs-row">
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">浏览器后台通知</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">{notifHint || "允许网页在后台时弹出新消息横幅提醒"}</span>
@@ -511,19 +481,43 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         </div>
                     </div>
 
+                    {/* 行为与互动 */}
+                    <div className="prefs-block mx-4 mb-4">
+                        <span className="prefs-block-label">行为与互动</span>
+                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowMomentsSettings(true); }}>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">朋友圈互动</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">自动发帖、评论节奏、点赞概率与翻译</span>
+                            </div>
+                            <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
+                        </button>
+                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowFollowUpEditor(true); }}>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">追发规则与延迟控制</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">设定角色的主动回复频率与时间间隔</span>
+                            </div>
+                            <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
+                        </button>
+                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowPushSettings(true); }}>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">离线推送与定时消息</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">后台推送、安静时段、定时主动消息</span>
+                            </div>
+                            <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
+                        </button>
+                    </div>
+
                     {/* 高级工具 */}
-                    <div className="menu-group-desc mx-4">高级</div>
-                    <div className="mx-4 bg-[var(--c-card)] rounded-2xl px-4 py-1 flex flex-col"
-                         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowPluginManager(true); }}>
+                    <div className="prefs-block mx-4 mb-4">
+                        <span className="prefs-block-label">高级</span>
+                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowPluginManager(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">扩展插件</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">JS 插件拦截聊天管线、注入提示词、自由渲染界面</span>
                             </div>
                             <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
                         </button>
-
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowApiLog(true); }}>
+                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowApiLog(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">底层调用大模型日志</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">查看网络通信中大模型的原始数据流</span>
@@ -1354,6 +1348,47 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
       <>
         <PageShell title="离线推送" onBack={onBack} className="absolute inset-0 z-[100]">
             <div className="page-menu profile-settings-menu">
+                <p className="menu-group-desc mx-2">云端服务</p>
+                <div className="menu-group">
+                    <div className="menu-item" style={{ alignItems: "stretch", flexDirection: "column", gap: 10 }}>
+                        <div className="flex items-center gap-3">
+                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${personalCloudActive ? "bg-green-500" : "bg-black/20"}`} />
+                            <div className="menu-label-group flex-1">
+                                <span className="menu-label">部署到我的 Supabase</span>
+                                <span className="menu-desc">{personalCloudActive ? "已部署，离线预约使用你自己的 Supabase" : "未部署，离线预约走默认通道"}</span>
+                            </div>
+                            <button
+                                type="button"
+                                className="ui-btn ui-btn-outline shrink-0 whitespace-nowrap !px-3 !text-[12px]"
+                                onClick={() => {
+                                    sessionStorage.setItem("mascot-settings-mode", "cloud");
+                                    window.dispatchEvent(new CustomEvent("mascot-navigate", { detail: { app: "settings", mode: "cloud" } }));
+                                }}
+                            >
+                                {personalCloudActive ? "重新部署" : "去部署"}
+                            </button>
+                        </div>
+                        {personalCloudActive && (
+                            <div className="flex items-center gap-3">
+                                <div className="flex-1 flex flex-col">
+                                    <span className="menu-label">云端任务</span>
+                                    <span className="menu-desc !mt-0">开着才会派发离线预约；关掉零配额消耗</span>
+                                </div>
+                                {pushScheduleBusy
+                                    ? <Loader2 size={18} className="animate-spin shrink-0" />
+                                    : (
+                                        <Toggle
+                                            checked={pushCloudScheduled}
+                                            onChange={v => void handleTogglePushCloudSchedule(v)}
+                                        />
+                                    )}
+                            </div>
+                        )}
+                        {pushScheduleHint && (
+                            <span className="menu-desc !mt-0">{pushScheduleHint}</span>
+                        )}
+                    </div>
+                </div>
                 {(
                     <>
                         <p className="menu-group-desc mx-2">系统推送</p>
@@ -1411,47 +1446,6 @@ function OfflinePushSettingsPage({ onBack }: { onBack: () => void }) {
                         </p>
                     </>
                 )}
-                <p className="menu-group-desc mx-2">云端服务</p>
-                <div className="menu-group">
-                    <div className="menu-item" style={{ alignItems: "stretch", flexDirection: "column", gap: 10 }}>
-                        <div className="flex items-center gap-3">
-                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${personalCloudActive ? "bg-green-500" : "bg-black/20"}`} />
-                            <div className="menu-label-group flex-1">
-                                <span className="menu-label">部署到我的 Supabase</span>
-                                <span className="menu-desc">{personalCloudActive ? "已部署，离线预约使用你自己的 Supabase" : "未部署，离线预约走默认通道"}</span>
-                            </div>
-                            <button
-                                type="button"
-                                className="ui-btn ui-btn-outline shrink-0 whitespace-nowrap !px-3 !text-[12px]"
-                                onClick={() => {
-                                    sessionStorage.setItem("mascot-settings-mode", "cloud");
-                                    window.dispatchEvent(new CustomEvent("mascot-navigate", { detail: { app: "settings", mode: "cloud" } }));
-                                }}
-                            >
-                                {personalCloudActive ? "重新部署" : "去部署"}
-                            </button>
-                        </div>
-                        {personalCloudActive && (
-                            <div className="flex items-center gap-3">
-                                <div className="flex-1 flex flex-col">
-                                    <span className="menu-label">云端任务</span>
-                                    <span className="menu-desc !mt-0">开着才会派发离线预约；关掉零配额消耗</span>
-                                </div>
-                                {pushScheduleBusy
-                                    ? <Loader2 size={18} className="animate-spin shrink-0" />
-                                    : (
-                                        <Toggle
-                                            checked={pushCloudScheduled}
-                                            onChange={v => void handleTogglePushCloudSchedule(v)}
-                                        />
-                                    )}
-                            </div>
-                        )}
-                        {pushScheduleHint && (
-                            <span className="menu-desc !mt-0">{pushScheduleHint}</span>
-                        )}
-                    </div>
-                </div>
                 <p className="menu-group-desc mx-2">定时主动消息</p>
                 <div className="menu-group">
                     <div className="menu-item">

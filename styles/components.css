@@ -3310,6 +3310,48 @@
   box-sizing: border-box;
 }
 
+/* ── 设置页分块卡片：标题在块内，行间细线 ── */
+.prefs-block {
+  display: flex;
+  flex-direction: column;
+  background: var(--c-card);
+  border-radius: 18px;
+  padding: 4px 16px 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.025);
+}
+
+.prefs-block-label {
+  padding: 12px 0 6px;
+  font-size: calc(10.8px*var(--app-text-scale,1));
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-text);
+  opacity: 0.5;
+}
+
+.prefs-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.prefs-row + .prefs-row {
+  border-top: 1px solid color-mix(in srgb, var(--c-card-border) 55%, transparent);
+}
+
+.prefs-block-label + .prefs-row {
+  border-top: 1px solid color-mix(in srgb, var(--c-card-border) 55%, transparent);
+}
+
 
 /* ── World grouping: monochrome "case-file" evidence board ── */
 .cw-archive {
