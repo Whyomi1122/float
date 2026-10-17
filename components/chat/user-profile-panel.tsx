@@ -44,14 +44,19 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
             onScroll = () => {
                 if (restoring || !host) return;
                 sessionStorage.setItem(storageKey, String(host.scrollTop));
+                sessionStorage.setItem(`${storageKey}:last`, String(host.scrollTop));
             };
             host.addEventListener("scroll", onScroll, { passive: true });
         };
         attach();
+        // 恢复过程可能持续几十帧，用卸载时的值兜底，但只在页面确实滚过才覆盖
+        const saveKey = `${storageKey}:last`;
         return () => {
             cancelAnimationFrame(raf);
             if (host && onScroll) {
-                sessionStorage.setItem(storageKey, String(host.scrollTop));
+                const top = host.scrollTop;
+                const last = Number(sessionStorage.getItem(saveKey) || "0");
+                if (top > 0 || last > 0) sessionStorage.setItem(storageKey, String(top));
                 host.removeEventListener("scroll", onScroll);
             }
         };
@@ -191,7 +196,14 @@ function ProfileSettingsSliderItem({
                 autoFocus
                 onChange={event => onChange(Number(event.target.value))}
                 onBlur={() => setActive(false)}
-                onPointerUp={() => setActive(false)}
+                onPointerUp={event => {
+                    // 松手时把当前值写到底层，保证拖到极值也能生效
+                    const el = event.currentTarget;
+                    const next = Number(el.value);
+                    if (next !== value) onChange(next);
+                    // 手指离开后保持展开，点别处才收起，避免拖到一半被收掉
+                    if (document.activeElement !== el) setActive(false);
+                }}
                 className="ui-slider profile-settings-slider"
             />
             <span className="profile-slider-current">{valueLabel}</span>
@@ -1010,7 +1022,7 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         min={1}
                         max={24}
                         step={1}
-                        onChange={v => update({ postIntervalMinHours: Math.min(v, config.postIntervalMaxHours) })}
+                        onChange={v => update({ postIntervalMinHours: v })}
                     />
                     <ProfileSettingsSliderItem
                         label="最长发帖间隔"
@@ -1019,7 +1031,7 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                         min={3}
                         max={48}
                         step={1}
-                        onChange={v => update({ postIntervalMaxHours: Math.max(v, config.postIntervalMinHours) })}
+                        onChange={v => update({ postIntervalMaxHours: v })}
                     />
                 </div>
 

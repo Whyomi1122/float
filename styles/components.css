@@ -3272,6 +3272,23 @@
   width: auto;
   margin: 0;
   touch-action: pan-y;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* 展开后的滑杆必须整块可拖：pad 一下轨道上下区域，两端也能拖到极值 */
+.profile-settings-slider::-moz-range-track {
+  height: 3px;
+}
+.profile-settings-slider::-moz-range-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ui-slider-thumb);
+}
+
+/* 仅在朋友圈/追发这类设置页里，点轨道任意位置即刻跳值，避免拖到一半松手 */
+.profile-settings-menu .profile-settings-slider {
+  flex-basis: 0;
 }
 
 /* 收起态：一根细轨道，点击才展开滑杆，避免滚动页面时误触 */
