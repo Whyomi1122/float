@@ -5468,7 +5468,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                             </span>
                         )}
                     </span>
-                    <span className="page-header-right">
+                    <span className="page-header-right chat-room-header-actions">
                         <button
                             className="page-back-btn"
                             type="button"
@@ -6080,7 +6080,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 }}
                                                 onMusicPlay={handleMusicCardPlay}
                                                 onActionSelect={(text) => chatTextInputRef.current?.appendText(text)}
-                                                defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                                defaultTranslationExpanded={true}
                                             />
                                             {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
                                                 <button

@@ -845,7 +845,7 @@ export function ChatSettingsPanel({
                                     userName={userIdentity?.name || "你"}
                                     groupSize={session.isGroup ? (session.participantIds?.length || 0) + (session.isSpectator ? 0 : 1) : undefined}
                                     characterId={msg.senderCharacterId || session.contactId}
-                                    defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                    defaultTranslationExpanded={true}
                                 />
                             </div>
                         </div>

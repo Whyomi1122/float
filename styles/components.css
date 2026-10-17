@@ -1218,6 +1218,16 @@
   min-width: 40px;
 }
 
+/* 聊天页右上角：搜索与更多拉开间距，降低误触 */
+.chat-room-header-actions {
+  gap: 10px;
+}
+.chat-room-header-actions .page-back-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+}
+
 .page-body {
   flex: 1 1 auto;
   display: flex;
