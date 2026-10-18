@@ -54,6 +54,7 @@ import {
   buildArchiveSummaryPrompt,
   makeStoryRangeLabel,
 } from "@/lib/ensemble-archive";
+import { syncEnsembleArchiveToMemory, removeEnsembleArchiveFromMemory } from "@/lib/ensemble-memory-bridge";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import {
@@ -2709,7 +2710,16 @@ ${lastSpeakerNote}
       saveOrUpdateEnsembleScript(updated);
       setScripts(loadEnsembleScripts());
       refreshArchivePanelFor(updated);
-      setToast(`已杀青 ${target.length} 幕`);
+
+      // C-1 桥接：把这次杀青同步进参与角色的记忆库（只进归档层，不污染时间线）。
+      // 失败不阻断杀青本身，只提示一下。
+      void syncEnsembleArchiveToMemory(updated, entry).then(result => {
+        if (result.written > 0) {
+          setToast(`已杀青 ${target.length} 幕 · ${result.written} 位角色已记住`);
+        } else {
+          setToast(`已杀青 ${target.length} 幕`);
+        }
+      }).catch(() => setToast(`已杀青 ${target.length} 幕`));
     } catch (e) {
       setArchiveError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -2727,10 +2737,13 @@ ${lastSpeakerNote}
       return;
     }
     const updated = { ...s, archives: list.slice(0, -1) };
+    const removed = list[list.length - 1];
     setCurrentScript(updated);
     saveOrUpdateEnsembleScript(updated);
     setScripts(loadEnsembleScripts());
     refreshArchivePanelFor(updated);
+    // 同步撤回这条归档在参与角色记忆库里的副本
+    if (removed) void removeEnsembleArchiveFromMemory(updated, removed).catch(() => undefined);
     setToast("已撤销上次杀青");
   };
 
