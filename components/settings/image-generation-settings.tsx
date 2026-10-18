@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { AlertCircle, Camera, ChevronDown, Image, Info, Plus, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { AlertCircle, Camera, ChevronDown, Image, Info, Plus, RefreshCw, ScanFace, Sparkles, Trash2, Upload } from "lucide-react";
 import type { ImageGenerationSettings as ImageGenerationSettingsType, NovelAiPreset, OpenAiImagePreset } from "@/lib/settings-types";
 import {
     DEFAULT_IMAGE_GENERATION_SETTINGS,
@@ -67,6 +67,12 @@ export function ImageGenerationSettings() {
     const [settings, setSettings] = useState<ImageGenerationSettingsType>(DEFAULT_IMAGE_GENERATION_SETTINGS);
     const [characters, setCharacters] = useState<Character[]>([]);
     const [referencePreviews, setReferencePreviews] = useState<Record<string, string>>({});
+    // 脸部选区编辑器：每个角色一份草稿，保存后写入 characterReferences[].faceCrop
+    const [cropCharacterId, setCropCharacterId] = useState<string | null>(null);
+    const [cropDraft, setCropDraft] = useState({ x: 0.27, y: 0.12, size: 0.46 });
+    const [cropViewport, setCropViewport] = useState({ width: 0, height: 0 });
+    const cropContainerRef = useRef<HTMLDivElement>(null);
+    const cropDragRef = useRef<{ pointerId: number; startX: number; startY: number; cropX: number; cropY: number } | null>(null);
     const [models, setModels] = useState<string[]>([]);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
     const [naiModels, setNaiModels] = useState<string[]>(NOVELAI_COMMON_MODELS);
@@ -309,7 +315,22 @@ export function ImageGenerationSettings() {
             ...settings,
             characterReferences: {
                 ...(settings.characterReferences || {}),
-                [characterId]: { assetId, updatedAt: Date.now() },
+                [characterId]: { ...(settings.characterReferences?.[characterId] ?? {}), assetId, updatedAt: Date.now() },
+            },
+        });
+    };
+
+    const patchReference = (
+        characterId: string,
+        patch: Partial<NonNullable<ImageGenerationSettingsType["characterReferences"][string]>>,
+    ) => {
+        const current = settings.characterReferences?.[characterId];
+        if (!current) return;
+        persist({
+            ...settings,
+            characterReferences: {
+                ...(settings.characterReferences || {}),
+                [characterId]: { ...current, ...patch, updatedAt: Date.now() },
             },
         });
     };
@@ -875,8 +896,11 @@ export function ImageGenerationSettings() {
                             </div>
                         ) : characters.map(character => {
                             const preview = referencePreviews[character.id];
+                            const ref = settings.characterReferences?.[character.id];
+                            const refEnabled = ref?.enabled !== false;
                             return (
-                                <div key={character.id} className="menu-item">
+                                <div key={character.id} className="flex flex-col gap-3 py-3">
+                                <div className="flex items-center gap-3">
                                 <span className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-[var(--c-input)]">
                                     {preview ? (
                                         <img src={preview} alt="" className="h-full w-full object-cover" />
@@ -923,11 +947,167 @@ export function ImageGenerationSettings() {
                                     )}
                                 </span>
                                 </div>
+                                {ref && (
+                                    <div className="flex flex-col gap-2 pl-14">
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                className="ui-btn ui-btn-outline ts-11 !px-2 !py-1"
+                                                onClick={() => {
+                                                    setCropDraft(ref.faceCrop ?? { x: 0.27, y: 0.12, size: 0.46 });
+                                                    setCropCharacterId(character.id);
+                                                }}
+                                            >
+                                                <ScanFace size={14} className="mr-1 inline-block" />
+                                                选取人脸
+                                            </button>
+                                            <span className="ts-11 opacity-55">只截取脸部区域送去生图，锁脸更准</span>
+                                        </div>
+                                        <textarea
+                                            className="ui-input min-h-[64px] w-full resize-y ts-12"
+                                            placeholder={`${character.name} 的固定外观：如 黑色长卷发、灰蓝色眼睛、左眼下小痣`}
+                                            value={ref.featurePrompt ?? ""}
+                                            onChange={event => patchReference(character.id, { featurePrompt: event.target.value })}
+                                        />
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="ts-11 opacity-70">启用参考图</span>
+                                            <Toggle
+                                                checked={refEnabled}
+                                                onChange={value => patchReference(character.id, { enabled: value })}
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="ts-11 opacity-70">NovelAI 也使用人物提示词</span>
+                                            <Toggle
+                                                checked={ref.novelAiFeaturePromptEnabled !== false}
+                                                onChange={value => patchReference(character.id, { novelAiFeaturePromptEnabled: value })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                </div>
                             );
                         })}
                     </div>
                 </div>
             )}
+
+            {cropCharacterId && referencePreviews[cropCharacterId] && (() => {
+                const cropCharacter = characters.find(item => item.id === cropCharacterId);
+                const value = cropDraft;
+                const viewSize = cropViewport.width;
+                const square = Math.max(1, Math.round(viewSize * value.size));
+                const left = Math.round(value.x * cropViewport.width);
+                const top = Math.round(value.y * cropViewport.height);
+                const clamp = (next: number, max: number) => Math.max(0, Math.min(max, next));
+                const moveTo = (clientX: number, clientY: number, startX: number, startY: number, cropX: number, cropY: number) => {
+                    const dx = clientX - startX;
+                    const dy = clientY - startY;
+                    setCropDraft(prev => {
+                        const size = prev.size;
+                        return {
+                            ...prev,
+                            x: clamp(cropX + dx / Math.max(1, cropViewport.width), 1 - size),
+                            y: clamp(cropY + dy / Math.max(1, cropViewport.height), 1 - size),
+                        };
+                    });
+                };
+                const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    cropDragRef.current = {
+                        pointerId: event.pointerId,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        cropX: value.x,
+                        cropY: value.y,
+                    };
+                };
+                const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+                    const drag = cropDragRef.current;
+                    if (!drag || drag.pointerId !== event.pointerId) return;
+                    moveTo(event.clientX, event.clientY, drag.startX, drag.startY, drag.cropX, drag.cropY);
+                };
+                const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+                    if (cropDragRef.current?.pointerId === event.pointerId) cropDragRef.current = null;
+                };
+                return (
+                    <div className="modal-overlay" data-ui="modal" onClick={() => setCropCharacterId(null)}>
+                        <div className="modal-dialog" data-ui="modal-dialog" onClick={e => e.stopPropagation()}>
+                            <div className="modal-header" data-ui="modal-header">
+                                <h3 className="modal-title">选取 {cropCharacter?.name ?? ""} 的人脸</h3>
+                            </div>
+                            <div className="modal-body" data-ui="modal-body" style={{ textAlign: "left", width: "100%" }}>
+                        <div className="flex flex-col gap-3">
+                            <div
+                                ref={node => {
+                                    cropContainerRef.current = node;
+                                    if (node && Math.abs(node.clientWidth - cropViewport.width) > 1) {
+                                        setCropViewport({ width: node.clientWidth, height: node.clientHeight });
+                                    }
+                                }}
+                                className="relative w-full overflow-hidden rounded-xl bg-black/5 touch-none select-none"
+                                style={{ aspectRatio: "1 / 1" }}
+                            >
+                                <img
+                                    src={referencePreviews[cropCharacterId]}
+                                    alt=""
+                                    className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                                />
+                                <div
+                                    className="absolute cursor-move border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
+                                    style={{
+                                        left,
+                                        top,
+                                        width: square,
+                                        height: square,
+                                        borderRadius: 4,
+                                    }}
+                                    onPointerDown={handlePointerDown}
+                                    onPointerMove={handlePointerMove}
+                                    onPointerUp={handlePointerUp}
+                                    onPointerCancel={handlePointerUp}
+                                />
+                            </div>
+                            <label className="flex items-center gap-3">
+                                <span className="ts-12 opacity-70 whitespace-nowrap">方框大小</span>
+                                <input
+                                    type="range"
+                                    min={20}
+                                    max={90}
+                                    step={1}
+                                    value={Math.round(value.size * 100)}
+                                    className="ui-slider flex-1"
+                                    onChange={event => {
+                                        const size = Number(event.target.value) / 100;
+                                        setCropDraft(prev => ({
+                                            size,
+                                            x: Math.min(prev.x, 1 - size),
+                                            y: Math.min(prev.y, 1 - size),
+                                        }));
+                                    }}
+                                />
+                                <span className="ts-12 tabular-nums opacity-60 w-10 text-right">{Math.round(value.size * 100)}%</span>
+                            </label>
+                            <p className="menu-desc">拖动方框对齐脸部，生图时只把这块区域作为参考，锁脸会明显更准。</p>
+                        </div>
+                            </div>
+                            <div className="modal-footer" data-ui="modal-footer">
+                                <button className="ui-btn ui-btn-outline" onClick={() => setCropDraft({ x: 0.27, y: 0.12, size: 0.46 })}>重置</button>
+                                <button className="ui-btn ui-btn-outline" onClick={() => setCropCharacterId(null)}>取消</button>
+                                <button
+                                    className="ui-btn ui-btn-primary"
+                                    onClick={() => {
+                                        patchReference(cropCharacterId, { faceCrop: value });
+                                        setCropCharacterId(null);
+                                    }}
+                                >
+                                    保存选区
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {pendingDeleteOpenAiPresetId && (
                 <ConfirmDialog

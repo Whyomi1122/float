@@ -50,10 +50,12 @@ const IMAGE_MODEL_HINTS = [
   "wan",
 ];
 
-function mergePrompt(description: string, extraPrompt: string): string {
+function mergePrompt(description: string, extraPrompt: string, featurePrompt = ""): string {
   const main = description.trim();
   const extra = extraPrompt.trim();
-  return extra ? `${main}\n\n${extra}` : main;
+  const feature = featurePrompt.trim();
+  const base = extra ? `${main}\n\n${extra}` : main;
+  return feature ? `${base}\n\n${feature}` : base;
 }
 
 function base64ToBlob(b64: string, mimeType: string): Blob {
@@ -94,8 +96,11 @@ function loadDataUrlImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-async function normalizeReferenceImageForEdit(dataUrl: string): Promise<string> {
-  if (dataUrlMimeType(dataUrl) === "image/png") return dataUrl;
+async function normalizeReferenceImageForEdit(
+  dataUrl: string,
+  crop?: { x: number; y: number; size: number },
+): Promise<string> {
+  if (!crop && dataUrlMimeType(dataUrl) === "image/png") return dataUrl;
   if (typeof document === "undefined") return dataUrl;
 
   try {
@@ -105,11 +110,23 @@ async function normalizeReferenceImageForEdit(dataUrl: string): Promise<string> 
     if (!width || !height) return dataUrl;
 
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    const normalizedSize = crop ? Math.max(0.18, Math.min(1, crop.size)) : 1;
+    const sourceSize = Math.max(1, Math.round(Math.min(width, height) * normalizedSize));
+    const sourceX = crop
+      ? Math.round(Math.max(0, Math.min(width - sourceSize, crop.x * width)))
+      : 0;
+    const sourceY = crop
+      ? Math.round(Math.max(0, Math.min(height - sourceSize, crop.y * height)))
+      : 0;
+    canvas.width = crop ? sourceSize : width;
+    canvas.height = crop ? sourceSize : height;
     const context = canvas.getContext("2d");
     if (!context) return dataUrl;
-    context.drawImage(image, 0, 0, width, height);
+    if (crop) {
+      context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, sourceSize, sourceSize);
+    } else {
+      context.drawImage(image, 0, 0, width, height);
+    }
     return canvas.toDataURL("image/png");
   } catch {
     return dataUrl;
@@ -750,6 +767,12 @@ export async function generateImageFromConfiguredApi(params: {
     const positiveParts: string[] = [];
     if (activePreset.positivePrompt?.trim()) positiveParts.push(activePreset.positivePrompt.trim());
     if (description) positiveParts.push(description);
+    // 角色专属人物特征提示词（NAI 分支单独开关，避免破坏画面）
+    const naiReference = params.characterId ? settings.characterReferences[params.characterId] : undefined;
+    const naiFeature = naiReference?.enabled !== false && naiReference?.novelAiFeaturePromptEnabled !== false
+      ? (naiReference?.featurePrompt ?? "").trim()
+      : "";
+    if (naiFeature) positiveParts.push(naiFeature);
     const fullPrompt = positiveParts.join(", ");
 
     const data = settings.requestMode === "direct"
@@ -780,15 +803,16 @@ export async function generateImageFromConfiguredApi(params: {
   if (!openaiSettings.apiKey.trim() || !openaiSettings.baseUrl.trim() || !openaiSettings.model.trim()) return null;
 
   const reference = params.characterId ? settings.characterReferences[params.characterId] : undefined;
-  const rawReferenceImageDataUrl = params.useReferenceImage && reference?.assetId
+  const referenceUsable = reference?.enabled !== false;
+  const rawReferenceImageDataUrl = params.useReferenceImage && referenceUsable && reference?.assetId
     ? await getChatImageFromIndexedDB(reference.assetId)
     : null;
   throwIfAborted(params.signal);
   const referenceImageDataUrl = rawReferenceImageDataUrl
-    ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl)
+    ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl, reference?.faceCrop)
     : null;
   throwIfAborted(params.signal);
-  const prompt = mergePrompt(description, openaiSettings.extraPrompt);
+  const prompt = mergePrompt(description, openaiSettings.extraPrompt, referenceUsable ? reference?.featurePrompt : "");
 
   const data = openaiSettings.requestMode === "direct"
     ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })
