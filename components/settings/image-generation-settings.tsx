@@ -927,8 +927,8 @@ export function ImageGenerationSettings() {
                             const ref = settings.characterReferences?.[character.id];
                             const refEnabled = ref?.enabled !== false;
                             return (
-                                <div key={character.id} className="flex flex-col gap-3 py-3">
-                                <div className="flex items-center gap-3">
+                                <div key={character.id} className="flex flex-col gap-3 py-3 px-3">
+                                <div className="flex items-center gap-3 px-1">
                                 <span className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-[var(--c-input)]">
                                     {preview ? (
                                         <img src={preview} alt="" className="h-full w-full object-cover" />
