@@ -56,6 +56,7 @@ import {
   makeStoryRangeLabel,
 } from "@/lib/ensemble-archive";
 import { syncEnsembleArchiveToMemory, removeEnsembleArchiveFromMemory } from "@/lib/ensemble-memory-bridge";
+import { deliverToChat } from "@/lib/ensemble-delivery";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import {
@@ -1018,6 +1019,7 @@ function TurnActionBar({
   onSwitch,
   onEdit,
   onDelete,
+  onDeliver,
 }: {
   turn: EnsembleTurn;
   versions?: string[];
@@ -1029,6 +1031,8 @@ function TurnActionBar({
   onSwitch: (dir: -1 | 1) => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** 投递到聊天 App（仅 AI 幕、且有说话人时才提供）。 */
+  onDeliver?: () => void;
 }) {
   const total = versions?.length ?? 1;
   const atFirst = index <= 0;
@@ -1088,6 +1092,16 @@ function TurnActionBar({
       >
         <Pencil size={12} />
       </button>
+      {onDeliver && (
+        <button
+          type="button"
+          onClick={onDeliver}
+          className="p-1 hover:text-black/70"
+          title="投递到聊天"
+        >
+          <Send size={12} />
+        </button>
+      )}
       <button
         type="button"
         onClick={onDelete}
@@ -1997,18 +2011,32 @@ ${userPovRule}
       //   · 用户口径：全员并标注归属 / 读同一角色在单聊的记忆 / 共用单聊那套库
       //   · `EnsembleCastMember.id` 即真实 characterId → 逐角色检索，天然实现"读同角色记忆"
       //   · 关闭时只注入「不得引用线下记忆」的约束，不检索（省 token）
+      // ── 05 单聊记忆注入（用户口径 2026-10-18）──
+      //   · 只有「单人群像」（cast 仅 1 位角色）才真正注入：一个用户面具 + 一个角色，不会抢戏。
+      //   · 多人群像一律不注入"角色与用户的私聊"——会把无关私事塞进多人场景，跑题且别人接不住。
+      //     多人的连贯性由下方 C-2 交叉记忆负责（角色之间互相记得）。
+      //   · 另外仍需「线上互通」开关打开。
+      const isSoloScript = script.cast.length === 1;
+      const soloInjectionEnabled = !!script.onlineSync && isSoloScript;
       const memoryResult = await buildEnsembleMemoryBlock(
         script.cast.map((c) => ({ id: c.id, name: c.name })),
         script.turns
           .slice(-10)
           .map((t) => t.content)
           .join("\n"),
-        { enabled: !!script.onlineSync }
+        { enabled: soloInjectionEnabled }
       );
-      const memoryBlock = script.onlineSync
-        ? memoryResult.text ||
-          "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。"
-        : "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
+      let memoryBlock: string;
+      if (!script.onlineSync) {
+        memoryBlock = "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
+      } else if (!isSoloScript) {
+        memoryBlock =
+          "\n【线上互通：多人场景】本剧本有多位角色，不注入你们各自的单聊记忆。请只依据剧本内已发生的剧情与其他角色的关系（见下方人物关系）来写，不要凭空提起剧本外的私下交谈。";
+      } else {
+        memoryBlock =
+          memoryResult.text ||
+          "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。";
+      }
 
       // ── 05b CROSS MEMORY · 交叉记忆（C-2 · 2026-10-18）──
       // 只带「在场角色彼此之间」的认知，防止多人剧情里关系没有来历（突然变熟/突然敌对）。
@@ -3852,6 +3880,29 @@ ${lastSpeakerNote}
                           setEditingTurnId(turn.id);
                         }}
                         onDelete={() => requestDeleteTurn(turn)}
+                        onDeliver={
+                          !isUser && turn.senderName
+                            ? () => {
+                                const member = currentScript.cast.find(
+                                  (c) => c.name === turn.senderName
+                                );
+                                if (!member) {
+                                  setToast("找不到说话的角色");
+                                  return;
+                                }
+                                const result = deliverToChat({
+                                  characterId: member.id,
+                                  characterName: member.name,
+                                  content: turn.content,
+                                });
+                                setToast(
+                                  result.ok
+                                    ? `已投递到聊天 · ${member.name}`
+                                    : `投递失败：${result.error}`
+                                );
+                              }
+                            : undefined
+                        }
                       />
                     </div>
                   </div>
