@@ -43,6 +43,7 @@ import {
 } from "@/lib/ensemble-worldbook";
 import {
   buildEnsembleMemoryBlock,
+  buildEnsembleCrossMemoryBlock,
   type RoleMemoryBlock,
 } from "@/lib/ensemble-memory";
 import {
@@ -2008,6 +2009,19 @@ ${userPovRule}
         ? memoryResult.text ||
           "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。"
         : "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
+
+      // ── 05b CROSS MEMORY · 交叉记忆（C-2 · 2026-10-18）──
+      // 只带「在场角色彼此之间」的认知，防止多人剧情里关系没有来历（突然变熟/突然敌对）。
+      // 与上面全员注入分开放：交叉记忆放最后，权重更低，避免抢主线。
+      const crossResult = await buildEnsembleCrossMemoryBlock(
+        script.cast.map((c) => ({ id: c.id, name: c.name })),
+        script.turns
+          .slice(-10)
+          .map((t) => t.content)
+          .join("\n"),
+        { enabled: !!script.onlineSync, maxPerRole: 3 }
+      );
+      const crossMemoryBlock = crossResult.text;
       // 记忆日志（供「触发日志」面板查看本幕用了谁的记忆）
       setMemoryLog({
         blocks: memoryResult.blocks,
@@ -2093,7 +2107,7 @@ ${script.openingMessage.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}${povBlock}
-${sceneBlock}${openingBlock}${memoryBlock}${archiveBlock}${worldBookBlock}${timeBlock}${outputLenRule}
+${sceneBlock}${openingBlock}${memoryBlock}${crossMemoryBlock}${archiveBlock}${worldBookBlock}${timeBlock}${outputLenRule}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 

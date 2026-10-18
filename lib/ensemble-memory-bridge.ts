@@ -50,11 +50,12 @@ export async function syncEnsembleArchiveToMemory(
     return { written: okIds.length, characterIds: okIds };
 }
 
-/** 取剧本里所有"真实角色"的 id（群像 cast 成员都带 characterId）。 */
+/** 取剧本里所有"真实角色"的 id。
+ *  注意：EnsembleCastMember 的 id 本身就是 Character.id（群像演员表直接复用角色 id）。 */
 export function collectCastCharacterIds(script: EnsembleScript): string[] {
     const ids = new Set<string>();
     for (const member of script.cast ?? []) {
-        const id = (member as { characterId?: string }).characterId;
+        const id = member?.id;
         if (typeof id === "string" && id.trim()) ids.add(id);
     }
     return [...ids];
