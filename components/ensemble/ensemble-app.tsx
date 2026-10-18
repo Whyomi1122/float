@@ -2791,6 +2791,16 @@ ${lastSpeakerNote}
     setCurrentScript(updated);
     saveOrUpdateEnsembleScript(updated);
     setScripts(loadEnsembleScripts());
+
+    // 记忆库那份是独立副本，改了群像归档就要同步过去。
+    // 先按旧内容删掉（进墓碑），再按新内容写一份，避免同一条内容留下两份。
+    const oldEntry = list[lastIndex];
+    if (oldEntry) {
+      void removeEnsembleArchiveFromMemory(updated, oldEntry)
+        .then(() => syncEnsembleArchiveToMemory(updated, next[lastIndex]))
+        .catch(() => undefined);
+    }
+
     // 存完重填草稿：否则 textarea 仍是旧内容，看起来像「没保存」
     refreshArchivePanelFor(updated);
     setToast("档案已保存");

@@ -14,9 +14,6 @@ import { commitArchive } from "./memory-service";
 /** 群像归档在记忆库里使用的元信息键，记忆库页按这个分组显示。 */
 export const ENSEMBLE_MEMORY_SOURCE = "ensemble" as const;
 
-/** 一条群像剧情在记忆库里保留的最大字数（避免一份剧本撑爆归档预算）。 */
-const MAX_BLOCK_CHARS = 900;
-
 export type EnsembleBridgeResult = {
     /** 实际写入或命中去重的角色数。 */
     written: number;
@@ -98,12 +95,16 @@ export async function removeEnsembleArchiveFromMemory(
 /**
  * 拼出写进记忆库的正文。
  * 单条内容全角色共享 —— 保证不同角色看到的是同一份客观事实，不产生视角分歧。
+ *
+ * ⚠️ 不做字数截断（2026-10-18 用户口径）：归档是"全量过一遍"的记忆，
+ *    能留下来的都是筛过的重要剧情，砍掉就是丢记忆。之前 900 字上限会把
+ *    长归档腰斩，记忆库里几乎等于废数据。
  */
 export function buildEnsembleMemoryContent(
     script: EnsembleScript,
     archive: EnsembleArchiveEntry,
 ): string {
-    const raw = (archive.content ?? "").replace(/\s+/g, " ").trim();
+    const raw = (archive.content ?? "").trim();
     if (!raw) return "";
 
     const title = (script.title || "群像剧情").trim();
@@ -118,8 +119,5 @@ export function buildEnsembleMemoryContent(
     head.push(`【群像剧情 · ${title}${when ? ` · ${when}` : ""}】`);
     if (castNames) head.push(`在场：${castNames}`);
 
-    const budget = Math.max(120, MAX_BLOCK_CHARS - head.join("\n").length);
-    const body = raw.length > budget ? `${raw.slice(0, budget)}…` : raw;
-
-    return `${head.join("\n")}\n${body}`;
+    return `${head.join("\n")}\n${raw}`;
 }
