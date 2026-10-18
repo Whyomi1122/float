@@ -365,6 +365,31 @@ export function ImageGenerationSettings() {
                         <Toggle checked={settings.enabled} onChange={(enabled) => updateSettings({ enabled })} className="settings-toggle-control" />
                     </span>
                 </div>
+                {settings.enabled && (
+                    <div className="menu-item" style={{ alignItems: "stretch", flexDirection: "column", gap: 2 }}>
+                        <span className="ts-11 font-semibold tracking-[0.08em] opacity-55" style={{ paddingBottom: 4 }}>
+                            允许自动生图的 APP
+                        </span>
+                        {[
+                            { id: "chat" as const, label: "聊天" },
+                            { id: "diary" as const, label: "日记" },
+                            { id: "forum" as const, label: "论坛" },
+                            { id: "xiaohongshu" as const, label: "小红书" },
+                            { id: "cocreate" as const, label: "共创" },
+                            { id: "story" as const, label: "剧情" },
+                        ].map(item => (
+                            <div key={item.id} className="flex items-center justify-between gap-3 py-2">
+                                <span className="ts-12 text-[var(--c-text)]">{item.label}</span>
+                                <Toggle
+                                    checked={settings.appEnabled?.[item.id] !== false}
+                                    onChange={value => updateSettings({
+                                        appEnabled: { ...(settings.appEnabled ?? {}), [item.id]: value },
+                                    })}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             <div className="menu-group p-4 flex flex-col gap-4">
@@ -948,8 +973,8 @@ export function ImageGenerationSettings() {
                                 </span>
                                 </div>
                                 {ref && (
-                                    <div className="flex flex-col gap-2 pl-14">
-                                        <div className="flex items-center gap-2">
+                                    <div className="flex flex-col gap-3 pl-14">
+                                        <div className="flex flex-wrap items-center gap-2">
                                             <button
                                                 type="button"
                                                 className="ui-btn ui-btn-outline ts-11 !px-2 !py-1"
@@ -961,26 +986,33 @@ export function ImageGenerationSettings() {
                                                 <ScanFace size={14} className="mr-1 inline-block" />
                                                 选取人脸
                                             </button>
-                                            <span className="ts-11 opacity-55">只截取脸部区域送去生图，锁脸更准</span>
+                                            <span className="ts-11 opacity-55">
+                                                {ref.faceCrop ? "已框选脸部区域" : "只截取脸部区域送去生图，锁脸更准"}
+                                            </span>
                                         </div>
-                                        <textarea
-                                            className="ui-input min-h-[64px] w-full resize-y ts-12"
-                                            placeholder={`${character.name} 的固定外观：如 黑色长卷发、灰蓝色眼睛、左眼下小痣`}
-                                            value={ref.featurePrompt ?? ""}
-                                            onChange={event => patchReference(character.id, { featurePrompt: event.target.value })}
-                                        />
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="ts-11 opacity-70">启用参考图</span>
+                                        <div className="flex items-center justify-between gap-2 rounded-xl bg-[var(--c-input)] px-3 py-2">
+                                            <span className="ts-12 text-[var(--c-text)]">启用参考图</span>
                                             <Toggle
                                                 checked={refEnabled}
                                                 onChange={value => patchReference(character.id, { enabled: value })}
                                             />
                                         </div>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="ts-11 opacity-70">NovelAI 也使用人物提示词</span>
-                                            <Toggle
-                                                checked={ref.novelAiFeaturePromptEnabled !== false}
-                                                onChange={value => patchReference(character.id, { novelAiFeaturePromptEnabled: value })}
+                                        <div className="flex flex-col gap-1.5">
+                                            <span className="ts-11 font-semibold tracking-[0.08em] opacity-55">正向提示词 POSITIVE</span>
+                                            <textarea
+                                                className="ui-input min-h-[62px] w-full resize-y ts-12"
+                                                placeholder="如 黑色长卷发, 灰蓝色眼睛, 左眼下有颗小痣"
+                                                value={ref.featurePrompt ?? ""}
+                                                onChange={event => patchReference(character.id, { featurePrompt: event.target.value })}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1.5">
+                                            <span className="ts-11 font-semibold tracking-[0.08em] opacity-55">反向提示词 NEGATIVE</span>
+                                            <textarea
+                                                className="ui-input min-h-[52px] w-full resize-y ts-12"
+                                                placeholder="如 短发, 圆形脸, 浓妆, 眼镜（仅 NovelAI 生效）"
+                                                value={ref.negativePrompt ?? ""}
+                                                onChange={event => patchReference(character.id, { negativePrompt: event.target.value })}
                                             />
                                         </div>
                                     </div>

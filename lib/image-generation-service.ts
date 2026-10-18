@@ -1,4 +1,5 @@
 import type { ImageGenerationSettings, NovelAiPreset } from "./settings-types";
+import type { ContentAppId } from "./settings-types";
 import { loadImageGenerationSettings, DEFAULT_NOVELAI_PRESET } from "./settings-storage";
 import JSZip from "jszip";
 import { getChatImageFromIndexedDB } from "./chat-asset-storage";
@@ -56,6 +57,23 @@ function mergePrompt(description: string, extraPrompt: string, featurePrompt = "
   const feature = featurePrompt.trim();
   const base = extra ? `${main}\n\n${extra}` : main;
   return feature ? `${base}\n\n${feature}` : base;
+}
+
+/** 专属提示词支持「正向xxx 反向xxx」写法，拆成两段分别使用。 */
+export function splitFeaturePrompt(raw: string): { positive: string; negative: string } {
+  const text = (raw ?? "").trim();
+  if (!text) return { positive: "", negative: "" };
+  const match = text.match(/(?:^|\s)(?:反向|negative|Negative)(?:\s*[:：]|\s)\s*/);
+  if (!match || match.index === undefined) {
+    const positive = text.replace(/^(?:正向|positive|Positive)\s*[:：]?\s*/, "").trim();
+    return { positive, negative: "" };
+  }
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+  return {
+    positive: before.replace(/^(?:正向|positive|Positive)\s*[:：]?\s*/, "").trim(),
+    negative: after.trim(),
+  };
 }
 
 function base64ToBlob(b64: string, mimeType: string): Blob {
@@ -530,9 +548,10 @@ async function generateNovelAiDirect(params: {
   apiKey: string;
   preset: NovelAiPreset;
   prompt: string;
+  negativePrompt?: string;
   signal?: AbortSignal;
 }): Promise<ImageGenerationApiResponse> {
-  const { apiKey, preset, prompt, signal } = params;
+  const { apiKey, preset, prompt, negativePrompt, signal } = params;
   throwIfAborted(signal);
 
   const { width, height } = getNovelAiResolution(preset.resolution);
@@ -565,7 +584,7 @@ async function generateNovelAiDirect(params: {
       uncond_scale: 1,
       cfg_rescale: 0,
       noise_schedule: normalizeNovelAiNoiseSchedule(preset.noiseSchedule),
-      negative_prompt: preset.negativePrompt || "",
+      negative_prompt: [preset.negativePrompt || "", negativePrompt || ""].filter(Boolean).join(", "),
     },
   });
 
@@ -618,9 +637,10 @@ async function generateNovelAiViaServer(params: {
   apiKey: string;
   preset: NovelAiPreset;
   prompt: string;
+  negativePrompt?: string;
   signal?: AbortSignal;
 }): Promise<ImageGenerationApiResponse> {
-  const { apiKey, preset, prompt, signal } = params;
+  const { apiKey, preset, prompt, negativePrompt, signal } = params;
   throwIfAborted(signal);
 
   const controller = new AbortController();
@@ -640,7 +660,7 @@ async function generateNovelAiViaServer(params: {
         model: normalizeNovelAiModel(preset.model),
         prompt,
         size: resolution.value,
-        negativePrompt: preset.negativePrompt || "",
+        negativePrompt: [preset.negativePrompt || "", negativePrompt || ""].filter(Boolean).join(", "),
         steps: normalizeNovelAiSteps(preset.steps),
         scale: normalizeNovelAiScale(preset.scale),
         sampler: normalizeNovelAiSampler(preset.sampler),
@@ -745,11 +765,14 @@ export async function generateImageFromConfiguredApi(params: {
   description: string;
   characterId?: string;
   useReferenceImage?: boolean;
+  /** 调用场景；用于按 App 单独开关自动生图。 */
+  app?: ContentAppId;
   settings?: ImageGenerationSettings;
   signal?: AbortSignal;
 }): Promise<ImageGenerationResult | null> {
   const settings = params.settings ?? loadImageGenerationSettings();
   if (!settings.enabled) return null;
+  if (params.app && settings.appEnabled?.[params.app] === false) return null;
 
   const description = params.description.trim();
   if (!description) return null;
@@ -767,17 +790,22 @@ export async function generateImageFromConfiguredApi(params: {
     const positiveParts: string[] = [];
     if (activePreset.positivePrompt?.trim()) positiveParts.push(activePreset.positivePrompt.trim());
     if (description) positiveParts.push(description);
-    // 角色专属人物特征提示词（NAI 分支单独开关，避免破坏画面）
+    // 角色专属人物特征提示词（正向/反向分开使用）
     const naiReference = params.characterId ? settings.characterReferences[params.characterId] : undefined;
-    const naiFeature = naiReference?.enabled !== false && naiReference?.novelAiFeaturePromptEnabled !== false
-      ? (naiReference?.featurePrompt ?? "").trim()
-      : "";
+    const naiReferenceEnabled = naiReference?.enabled !== false;
+    const naiSplit = naiReferenceEnabled
+      ? splitFeaturePrompt(naiReference?.featurePrompt ?? "")
+      : { positive: "", negative: "" };
+    const naiFeature = naiSplit.positive;
+    const naiNegative = [naiSplit.negative, (naiReference?.negativePrompt ?? "").trim()]
+      .filter(Boolean)
+      .join(", ");
     if (naiFeature) positiveParts.push(naiFeature);
     const fullPrompt = positiveParts.join(", ");
 
     const data = settings.requestMode === "direct"
-      ? await generateNovelAiDirect({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, signal: params.signal })
-      : await generateNovelAiViaServer({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, signal: params.signal });
+      ? await generateNovelAiDirect({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, negativePrompt: naiNegative, signal: params.signal })
+      : await generateNovelAiViaServer({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, negativePrompt: naiNegative, signal: params.signal });
 
     throwIfAborted(params.signal);
     const mimeType = data.mimeType || "image/png";
@@ -812,8 +840,8 @@ export async function generateImageFromConfiguredApi(params: {
     ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl, reference?.faceCrop)
     : null;
   throwIfAborted(params.signal);
-  const prompt = mergePrompt(description, openaiSettings.extraPrompt, referenceUsable ? reference?.featurePrompt : "");
-
+  const featureSplit = referenceUsable ? splitFeaturePrompt(reference?.featurePrompt ?? "") : { positive: "", negative: "" };
+  const prompt = mergePrompt(description, openaiSettings.extraPrompt, featureSplit.positive);
   const data = openaiSettings.requestMode === "direct"
     ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })
     : await generateImageViaServerOrProxy({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal });
