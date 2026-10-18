@@ -24,17 +24,18 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
             }
             host = body;
             const saved = Number(sessionStorage.getItem(storageKey) || "0");
-            debug.push(`key=${storageKey} saved=${saved} h=${body.scrollHeight} v=${body.clientHeight} of=${getComputedStyle(body).overflowY} pos=${getComputedStyle(body).position}`);
+            debug.push(`key=${storageKey} saved=${saved} h=${body.scrollHeight} v=${body.clientHeight}`);
             if (saved > 0) {
                 restoring = true;
                 let stableFrames = 0;
                 const restore = () => {
                     if (!host || !restoring) return;
                     if (host.scrollHeight > host.clientHeight + 2) {
-                        host.scrollTop = saved;
+                        // 只在位置不对时才写，避免每次 rAF 都触发新的 scroll 事件
+                        if (Math.abs(host.scrollTop - saved) >= 2) host.scrollTop = saved;
                         if (Math.abs(host.scrollTop - saved) < 2) {
                             stableFrames += 1;
-                            if (stableFrames >= 3) {
+                            if (stableFrames >= 2) {
                                 restoring = false;
                                 debug.push(`restore OK top=${host.scrollTop}`);
                                 window.__scrollDebug = debug.join("\n");
@@ -50,29 +51,35 @@ export function SettingsScrollRestore({ storageKey }: { storageKey: string }) {
             } else {
                 window.__scrollDebug = debug.join("\n");
             }
+            // 恢复期间绝不写入，否则会把刚要恢复的值写成 0
             onScroll = () => {
                 if (restoring || !host) return;
-                sessionStorage.setItem(storageKey, String(host.scrollTop));
-                sessionStorage.setItem(`${storageKey}:last`, String(host.scrollTop));
-                debug.push(`scroll top=${host.scrollTop}`);
+                const top = host.scrollTop;
+                sessionStorage.setItem(storageKey, String(top));
+                debug.push(`scroll top=${top}`);
                 window.__scrollDebug = debug.slice(-12).join("\n");
             };
             host.addEventListener("scroll", onScroll, { passive: true });
         };
         attach();
-        // 恢复过程可能持续几十帧，用卸载时的值兜底，但只在页面确实滚过才覆盖
-        const saveKey = `${storageKey}:last`;
         return () => {
             cancelAnimationFrame(raf);
             if (host && onScroll) {
-                const top = host.scrollTop;
-                const last = Number(sessionStorage.getItem(saveKey) || "0");
-                if (top > 0 || last > 0) sessionStorage.setItem(storageKey, String(top));
+                // 卸载时 body 可能已经被移出文档，scrollTop 会读成 0 —— 绝不能写回
+                const top = host.isConnected ? host.scrollTop : Number(sessionStorage.getItem(storageKey) || "0");
+                if (top > 0) sessionStorage.setItem(storageKey, String(top));
                 host.removeEventListener("scroll", onScroll);
             }
         };
     }, [storageKey]);
     return <span ref={anchorRef} aria-hidden style={{ display: "none" }} />;
+}
+
+/** 打开子页面前主动记下当前滚动位置，不依赖组件卸载时机 */
+export function rememberSettingsScroll() {
+    const body = document.querySelector<HTMLElement>(".user-profile-page-root > .page-body");
+    if (!body) return;
+    sessionStorage.setItem("chat_settings_scroll_top", String(body.scrollTop));
 }
 
 declare global {
@@ -615,21 +622,21 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                     {/* 行为与互动 */}
                     <div className="prefs-block mx-4">
                         <span className="prefs-block-label">行为与互动</span>
-                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowMomentsSettings(true); }}>
+                        <button className="prefs-row text-left" onClick={() => { rememberSettingsScroll(); window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowMomentsSettings(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">朋友圈互动</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">自动发帖、评论节奏、点赞概率与翻译</span>
                             </div>
                             <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
                         </button>
-                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowFollowUpEditor(true); }}>
+                        <button className="prefs-row text-left" onClick={() => { rememberSettingsScroll(); window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowFollowUpEditor(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">追发规则与延迟控制</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">设定角色的主动回复频率与时间间隔</span>
                             </div>
                             <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
                         </button>
-                        <button className="prefs-row text-left" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowPushSettings(true); }}>
+                        <button className="prefs-row text-left" onClick={() => { rememberSettingsScroll(); window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowPushSettings(true); }}>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">离线推送与定时消息</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">后台推送、安静时段、定时主动消息</span>
