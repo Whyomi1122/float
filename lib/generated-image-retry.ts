@@ -77,6 +77,7 @@ export async function generateAndApplyChatGeneratedImage(
             description,
             characterId,
             useReferenceImage: effectiveUseReference,
+            app: "chat",
             signal: options?.signal,
         });
         if (!generated) throw new Error("生图配置未启用或不完整");
@@ -157,6 +158,7 @@ export async function retryMomentGeneratedPhoto(
             description,
             characterId: post.authorType === "character" ? post.authorId : undefined,
             useReferenceImage: effectiveUseReference,
+            app: "chat",
         });
         if (!generated) throw new Error("生图配置未启用或不完整");
 

@@ -1227,6 +1227,7 @@ export async function generateMomentPhotoUrl(
             description,
             characterId,
             useReferenceImage,
+            app: "chat",
             signal,
         });
         throwIfAborted(signal);

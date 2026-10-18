@@ -372,23 +372,26 @@ export function ImageGenerationSettings() {
                         </span>
                         {[
                             { id: "chat" as const, label: "聊天" },
-                            { id: "diary" as const, label: "日记" },
-                            { id: "forum" as const, label: "论坛" },
-                            { id: "xiaohongshu" as const, label: "小红书" },
-                            { id: "cocreate" as const, label: "共创" },
-                            { id: "story" as const, label: "剧情" },
-                        ].map(item => (
-                            <div key={item.id} className="flex items-center justify-between gap-3 py-2">
-                                <span className="ts-12 text-[var(--c-text)]">{item.label}</span>
-                                <Toggle
-                                    checked={settings.appEnabled?.[item.id] !== false}
-                                    onChange={value => updateSettings({
-                                        appEnabled: { ...(settings.appEnabled ?? {}), [item.id]: value },
-                                    })}
-                                />
-                            </div>
-                        ))}
-                    </div>
+                            { id: "ensemble" as const, label: "群像" },
+                            { id: "dwelling" as const, label: "栖所" },
+                            { id: "reading" as const, label: "漫卷" },
+                            { id: "diary" as const, label: "手记" },
+                            { id: "checkphone" as const, label: "查手机" },
+                            { id: "music" as const, label: "音乐" },
+                        ].map(item => {
+                            const globalEnabled = settings.appEnabled?.[item.id];
+                            return (
+                                <div key={item.id} className="flex items-center justify-between gap-3 py-2">
+                                    <span className="ts-12 text-[var(--c-text)]">{item.label}</span>
+                                    <Toggle
+                                        checked={globalEnabled === true}
+                                        onChange={value => updateSettings({
+                                            appEnabled: { ...(settings.appEnabled ?? {}), [item.id]: value },
+                                        })}
+                                    />
+                                </div>
+                            );
+                        })}                    </div>
                 )}
             </div>
 
@@ -973,7 +976,7 @@ export function ImageGenerationSettings() {
                                 </span>
                                 </div>
                                 {ref && (
-                                    <div className="flex flex-col gap-3 pl-14">
+                                    <div className="flex flex-col gap-3 pl-[52px] pr-4">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <button
                                                 type="button"

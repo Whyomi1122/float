@@ -772,7 +772,7 @@ export async function generateImageFromConfiguredApi(params: {
 }): Promise<ImageGenerationResult | null> {
   const settings = params.settings ?? loadImageGenerationSettings();
   if (!settings.enabled) return null;
-  if (params.app && settings.appEnabled?.[params.app] === false) return null;
+  if (params.app && settings.appEnabled?.[params.app] !== true) return null;
 
   const description = params.description.trim();
   if (!description) return null;
