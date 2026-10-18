@@ -42,6 +42,8 @@ export type EnsembleTurn = {
    * ⚠️ 存字符串而非对象：与 kv-db 的 string 契约一致，避免嵌套结构被 kv 吞掉。
    */
   statusData?: string;
+  /** 分镜配图地址（横版场景图）；生成后挂在这一轮下方。 */
+  storyboardUrl?: string;
 };
 
 export type EnsembleScript = {
@@ -98,6 +100,17 @@ export type EnsembleScript = {
    *   · "all"          = 群像内全部文字（含标题栏 / 输入框 / 页脚元信息）。
    */
   fontScope?: "story" | "all";
+  /**
+   * 分镜配图：是否给每轮剧情生成一张横版场景图。
+   * ⚠️ 开关只管后续轮次，已生成过的图不受影响；开启后下一轮开始生效。
+   */
+  storyboardEnabled?: boolean;
+  /** 分镜配图画面比例，缺省 16:9（横版，多人同框更合适）。 */
+  storyboardAspect?: "16:9" | "3:2" | "4:3";
+  /** 每轮生成几张，缺省 1。 */
+  storyboardCount?: number;
+  /** 分镜配图的额外画风要求（拼在提示词后面）。 */
+  storyboardPrompt?: string;
   /**
    * 当前会话**正文字号**（px，绝对数值，可预期）。
    * 群像设计基准：对白/叙述/旁白 = 14px、角色名 = 12px。

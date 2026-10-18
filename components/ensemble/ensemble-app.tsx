@@ -84,6 +84,7 @@ import {
   saveEnsembleFontData,
   loadEnsembleFontData,
 } from "@/lib/ensemble-storage";
+import { generateStoryboardImage } from "@/lib/ensemble-storyboard";
 import { hydrateKvDb } from "@/lib/kv-db";
 import { ensureSettingsStorageHydrated } from "@/lib/settings-storage";
 import {
@@ -1189,6 +1190,7 @@ export function EnsembleApp({
   const [showTimeSheet, setShowTimeSheet] = useState(false);
   /** 世界书绑定子弹窗（2026-10-09 M2-b） */
   const [showWorldBookSheet, setShowWorldBookSheet] = useState(false);
+  const [showStoryboardSheet, setShowStoryboardSheet] = useState(false);
   /** 世界书触发日志子弹窗（2026-10-09 M2-a） */
   const [showWorldBookLogSheet, setShowWorldBookLogSheet] = useState(false);
   /** 世界书绑定草稿：选中的世界书 id 集合（保存前） */
@@ -2392,6 +2394,19 @@ ${lastSpeakerNote}
       let updated = appendEnsembleTurn(script.id, nextTurn) ?? script;
       setCurrentScript(updated);
       setScripts(loadEnsembleScripts());
+
+      // 分镜配图：开开关后从下一轮开始生效，异步生成不阻塞剧情
+      if (script.storyboardEnabled) {
+        void (async () => {
+          const outcome = await generateStoryboardImage(script, nextTurn);
+          if (!outcome.ok || !outcome.url) return;
+          const tagged = updateEnsembleTurn(script.id, nextTurn.id, { storyboardUrl: outcome.url });
+          if (tagged) {
+            setCurrentScript(tagged);
+            setScripts(loadEnsembleScripts());
+          }
+        })();
+      }
       return replyContent;
     } catch (e) {
       console.error("AI turn generation failed:", e);
@@ -3700,6 +3715,18 @@ ${lastSpeakerNote}
                     />
                   )}
 
+                  {turn.storyboardUrl && (
+                    <div className="mt-2">
+                      <img
+                        src={turn.storyboardUrl}
+                        alt=""
+                        className="w-full rounded-xl object-cover"
+                        style={{ aspectRatio: "16 / 9" }}
+                        loading="lazy"
+                      />
+                    </div>
+                  )}
+
                   {/* 元信息 + 操作（1008 抄 chill 格式）
                       · 上方一道虚线分隔
                       · 每行 **左标签 + 右值**（两端对齐，labels 淡、值等宽右对齐）
@@ -3959,6 +3986,8 @@ ${lastSpeakerNote}
                 // 杀青归档（2026-10-10）：打开面板即刷新统计
                 refreshArchivePanel();
                 setShowArchiveSheet(true);
+              } else if (id === "storyboard") {
+                setShowStoryboardSheet(true);
               }
             }}
           />
@@ -4497,6 +4526,71 @@ ${lastSpeakerNote}
               · 只存 id 引用（worldBookIds），内容实时从「设置 → 世界书」读，避免快照过期。
               · 未勾选任何 = 不注入（等价于关闭）。
               · 条目级的 constant / 关键词 / sticky 逻辑由 lib/ensemble-worldbook.ts 处理，本面板不涉及。 */}
+          {showStoryboardSheet && currentScript && (
+            <MiniSheet
+              title="分镜配图"
+              subtitle="STORYBOARD · 横版场景图"
+              onClose={() => {
+                setShowStoryboardSheet(false);
+                setShowToolsSheet(true);
+              }}
+            >
+              <div className="bg-white rounded-[16px] p-4">
+                <div className="text-[11px] leading-relaxed text-black/45">
+                  开启后，<span className="text-black/70 font-medium">下一轮</span>剧情开始，每轮自动生成一张横版场景图。
+                  <br />· 已生成过的图不会被修改或删除；
+                  <br />· 需要先在「设置 → 生图」总开关打开，并允许「群像」生图；
+                  <br />· 生成失败不影响剧情，只是这一轮没有配图。
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[16px] p-2">
+                <div className="flex items-center justify-between gap-3 px-3 py-3">
+                  <div className="flex flex-col">
+                    <span className="text-[13px] font-medium text-black/80">开启分镜配图</span>
+                    <span className="text-[11px] text-black/40">从下一轮开始生效</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextScript = {
+                        ...currentScript,
+                        storyboardEnabled: !currentScript.storyboardEnabled,
+                      };
+                      saveOrUpdateEnsembleScript(nextScript);
+                      setCurrentScript(nextScript);
+                      setScripts(loadEnsembleScripts());
+                    }}
+                    className={`w-[46px] h-[27px] rounded-full shrink-0 transition-colors relative ${
+                      currentScript.storyboardEnabled ? "bg-[#BDD4E3]" : "bg-black/15"
+                    }`}
+                    aria-pressed={!!currentScript.storyboardEnabled}
+                  >
+                    <span
+                      className={`absolute top-[3px] w-[21px] h-[21px] rounded-full bg-white shadow transition-all ${
+                        currentScript.storyboardEnabled ? "left-[22px]" : "left-[3px]"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="px-3 pb-3">
+                  <div className="text-[11px] font-medium text-black/45 mb-1.5">额外画风要求（可留空）</div>
+                  <textarea
+                    className="w-full min-h-[70px] rounded-[12px] bg-black/[0.04] px-3 py-2 text-[12px] outline-none resize-y"
+                    placeholder="如 油画质感, 暖色调, 浅景深"
+                    value={currentScript.storyboardPrompt ?? ""}
+                    onChange={(event) => {
+                      const nextScript = { ...currentScript, storyboardPrompt: event.target.value };
+                      setCurrentScript(nextScript);
+                      saveOrUpdateEnsembleScript(nextScript);
+                    }}
+                  />
+                </div>
+              </div>
+            </MiniSheet>
+          )}
+
           {showWorldBookSheet && (() => {
             const allBooks = loadWorldBooks();
             return (
