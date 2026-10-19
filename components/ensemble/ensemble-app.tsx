@@ -56,8 +56,7 @@ import {
   makeStoryRangeLabel,
 } from "@/lib/ensemble-archive";
 import { syncEnsembleArchiveToMemory, removeEnsembleArchiveFromMemory } from "@/lib/ensemble-memory-bridge";
-import { deliverToChat } from "@/lib/ensemble-delivery";
-import type { ApiConfig } from "@/lib/settings-types";
+import { deliverToChat, describePendingSessions } from "@/lib/ensemble-delivery";import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import {
   resolveVoiceConfig,
@@ -3407,6 +3406,11 @@ ${lastSpeakerNote}
             }
             subtitle={`${currentScript.cast.length} CAST${
               activePersona ? ` · ${activePersona.name}` : ""
+            }${
+              (() => {
+                const hint = describePendingSessions(currentScript.id);
+                return hint ? ` · ${hint}` : "";
+              })()
             }`}
             /* 顶栏返回 = 离开本剧本，回剧本列表。
                面板的返回统一交给工作区左上角的小返回键（见下方 workspaceBackBtn），
@@ -3894,6 +3898,9 @@ ${lastSpeakerNote}
                                   characterId: member.id,
                                   characterName: member.name,
                                   content: turn.content,
+                                  scriptId: currentScript.id,
+                                  scriptTitle: currentScript.title || "未命名剧本",
+                                  turnId: turn.id,
                                 });
                                 setToast(
                                   result.ok

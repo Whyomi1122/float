@@ -125,8 +125,14 @@ export type ChatMessage = {
         | "group_admin_notice"
         | "media_file"
         | `plugin:${string}`; // 聊天插件自定义消息类型（由注册该 kind 的插件渲染气泡）
+    /** 聊天插件自定义消息类型（由注册该 kind 的插件渲染气泡） */
     origin?: "chat" | "reading_discuss" | "custom_app" | "custom_app_background" | "story_floating_phone" | "story_online";
-    mediaUrl?: string;
+    /**
+     * 所属的群像「剧情对话段」id（见 lib/ensemble-delivery.ts）。
+     * 有值 = 这条消息是剧情的一部分，不进聊天 App 的长期记忆总结，
+     * 而是随【返回剧情】归入群像剧本归档。
+     */
+    deliverySessionId?: string;    mediaUrl?: string;
     mediaData?: {
         amount?: number;          // 红包/转账金额
         count?: number;           // 红包个数
@@ -1861,7 +1867,7 @@ export async function persistMessageVoiceAudio(
 
 export function updateChatMessage(
     messageId: string,
-    patch: Partial<Pick<ChatMessage, "content" | "mediaType" | "mediaUrl" | "mediaData">>,
+    patch: Partial<Pick<ChatMessage, "content" | "mediaType" | "mediaUrl" | "mediaData" | "deliverySessionId">>,
 ): ChatMessage | null {
     const idx = _messagesCache.findIndex(m => m.id === messageId);
     if (idx === -1) return null;
