@@ -10,6 +10,7 @@ import {
     closeDeliverySession,
     formatTranscriptAsNarration,
     loadSessionTranscript,
+    loadDeliverySessions,
     markSessionOpened,
     sanitizeChatLine,
 } from "@/lib/ensemble-delivery";
@@ -1181,13 +1182,21 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     /**
      * 当前会话是不是「剧情对话段」的聊天室。
      * 是的话，模型回复要清洗成微信格式，而不是线下剧本格式。
+     *
+     * ⚠️ 不要用「会话里已有 deliverySessionId 的消息」判断：
+     *    投递的第一条消息可能还没写进内存，进群聊第一轮就变成 false，
+     *    于是模型继续吐线下剧本格式 —— 用户看到的就是这个。
+     *    这里改为「本会话对应某段未关闭/未放弃的剧情对话段」，进房那一刻就成立。
      */
-    const isStoryDeliverySession = useMemo(
-        () => loadSessionTranscript().some(
-            t => t.session.chatSessionId === session?.id && t.messages.length > 0,
-        ),
-        [session?.id, messages.length],
-    );
+    const isStoryDeliverySession = useMemo(() => {
+        if (!session) return false;
+        try {
+            return loadDeliverySessions().some(s => s.chatSessionId === session.id);
+        } catch {
+            // 判断失败就按剧情模式处理：宁可多洗一遍，也不让剧本体泄漏到聊天里
+            return true;
+        }
+    }, [session?.id, messages.length]);
 
     /**
      * 把聊天里的一条消息以「旁白」形式搬进群像剧本（没有进行中的剧情对话段时用）。

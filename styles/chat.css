@@ -95,7 +95,9 @@
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* 消息区止于输入栏顶部 —— 输入栏被键盘顶起时，消息区跟着收缩，
+     绝不能压在输入栏/键盘下面（否则上移补偿一叠加，整个屏幕就被顶飞）。 */
+  bottom: var(--chat-bottom-reserve, 120px);
   flex: none;
   min-height: 0;
   overflow-y: auto;
@@ -106,9 +108,11 @@
   scroll-padding-bottom: calc(var(--chat-bottom-reserve, 120px) + 18px);
 }
 
+/* 消息区已经靠 bottom 预留了输入栏高度，这里只留一点点呼吸，
+   否则输入栏高度会被重复计算（底部多出半个屏幕的空白）。 */
 .chat-app .chat-room-wrapper > .page-body::after {
   content: "";
-  flex: 0 0 var(--chat-bottom-reserve, 120px);
+  flex: 0 0 0;
   width: 1px;
   min-height: 0;
   pointer-events: none;

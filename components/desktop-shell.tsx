@@ -965,20 +965,16 @@ function useAndroidCaretKeyboardLift() {
       }
 
       // ── 聊天室特殊处理 ──
-      // 聊天室的布局是「消息区 absolute 铺满 + 输入栏贴底」，
-      // 浏览器把输入栏顶到键盘上方后，它已经完整可见。
-      // 再整体上移 phone-shell，消息区就会被推出屏幕顶（用户反馈：发消息时屏幕整个跳上去）。
-      // 注意：不能查 element.closest(".chat-room-wrapper")，因为聊天输入框是
-      // 通过 portal 挂到 body 上的，不在那个容器里。改用「输入框是否在手机屏幕内」判断。
-      const screenEl = element.closest(".phone-shell") ?? document.querySelector(".phone-shell");
-      const inPhoneScreen = !!screenEl && screenEl.contains(element);
-      if (inPhoneScreen) {
-        const screenRect = screenEl.getBoundingClientRect();
-        // 输入栏已经整块落在键盘上方 → 不需要再上移
-        if (targetRect.bottom <= keyboardTop - 4 && screenRect.top >= -2) {
-          applyLift(0);
-          return;
-        }
+      // 聊天室布局是「消息区 absolute 铺满 + 输入栏贴底」，浏览器把输入栏顶到
+      // 键盘上方后它已经完整可见；再整体上移 phone-shell，消息区就会被推出屏幕顶。
+      //
+      // ⚠️ 不能查 element.closest(".chat-room-wrapper") / shellEl.contains(element)：
+      //    聊天输入框是 portal 挂到 body 上的，两者都永远为 false，
+      //    于是上移逻辑照常触发 —— 这就是「一发消息屏幕整块跳上去」的原因。
+      //    这里只看「输入栏是否已经落在键盘上方」，与元素挂在哪无关。
+      if (targetRect.bottom <= keyboardTop - 2) {
+        applyLift(0);
+        return;
       }
 
       const naturalBottom = targetRect.bottom + currentLift;
