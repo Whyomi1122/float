@@ -11,7 +11,36 @@
 //   · 聊天 App 的长期记忆总结只吃普通聊天，跳过带 deliverySessionId 的消息
 //   · 剧情模式下的内容归到群像剧本自己的归档里
 
-import { createOrGetSession, pushChatMessage, loadChatMessages, updateChatMessage } from "./chat-storage";
+import {
+    createOrGetSession,
+    createGroupSession,
+    saveChatSessions,
+    loadChatSessions,
+    pushChatMessage,
+    loadChatMessages,
+    updateChatMessage,
+} from "./chat-storage";
+
+/**
+ * 找到（或创建）与某个剧本演员表一致的群聊会话。
+ * 群聊的 participantIds 按集合比较，避免每次投递都新建一个重复群。
+ */
+export function ensureEnsembleGroupSession(params: {
+    scriptId: string;
+    scriptTitle: string;
+    participantIds: string[];
+}): string {
+    const ids = [...new Set(params.participantIds)].sort();
+    const existing = loadChatSessions().find(s => {
+        if (!s.isGroup || !s.participantIds) return false;
+        const a = [...new Set(s.participantIds)].sort();
+        return a.length === ids.length && a.every((v, i) => v === ids[i]);
+    });
+    if (existing) return existing.id;
+
+    const created = createGroupSession(params.scriptTitle || "剧情群聊", ids);
+    return created.id;
+}
 
 /** 一段剧情对话（投递起点 → 返回剧情终点）。 */
 export type DeliverySession = {
@@ -78,7 +107,9 @@ export type DeliveryResult =
 
 /**
  * 投递：把群像里的一幕投到聊天 App，并开启一段剧情对话段。
- * 如果该角色已有未归入的段，直接复用（避免一次投递开两段）。
+ *
+ * @param target 投递目标：单聊某个角色，或整个剧本对应的群聊。
+ *               单人群像默认只用单聊；多人群像由用户选择。
  */
 export function deliverToChat(params: {
     characterId: string;
@@ -87,6 +118,8 @@ export function deliverToChat(params: {
     scriptId: string;
     scriptTitle: string;
     turnId: string;
+    /** 投递目标；省略时按单聊角色处理。 */
+    target?: { kind: "direct"; characterId: string } | { kind: "group"; participantIds: string[] };
     /** 非角色台词（旁白 / 多人混合段）时可显式指定投递给谁。 */
     forceNew?: boolean;
 }): DeliveryResult {
@@ -95,9 +128,22 @@ export function deliverToChat(params: {
     if (!params.characterId) return { ok: false, error: "缺少角色信息" };
 
     try {
-        const session = createOrGetSession(params.characterId);
+        const isGroup = params.target?.kind === "group";
+        let chatSessionId: string;
+        if (params.target?.kind === "group") {
+            chatSessionId = ensureEnsembleGroupSession({
+                scriptId: params.scriptId,
+                scriptTitle: params.scriptTitle,
+                participantIds: params.target.participantIds,
+            });
+        } else {
+            const directId =
+                params.target?.kind === "direct" ? params.target.characterId : params.characterId;
+            chatSessionId = createOrGetSession(directId).id;
+        }
+
         const message = pushChatMessage({
-            sessionId: session.id,
+            sessionId: chatSessionId,
             role: "assistant",
             content,
             senderName: params.characterName,
@@ -129,7 +175,7 @@ export function deliverToChat(params: {
         }
 
         // 把这条投递消息标记归属，方便归档时跳过
-        markMessagesAsDelivery(session.id, message.id, deliverySessionId);
+        markMessagesAsDelivery(chatSessionId, message.id, deliverySessionId);
 
         return { ok: true, sessionId: deliverySessionId, messageId: message.id };
     } catch (error) {
@@ -160,7 +206,8 @@ function markMessagesAsDelivery(chatSessionId: string, fromMessageId: string, de
  */
 export function closeDeliverySession(params: {
     deliverySessionId: string;
-    characterId: string;
+    /** 兼容旧调用：可省略，省略时按 id 扫描全部会话。 */
+    characterId?: string;
 }): { session: DeliverySession; transcript: { role: string; senderName?: string; content: string; at: number }[] } | null {
     const list = loadDeliverySessions();
     const target = list.find(s => s.id === params.deliverySessionId);
@@ -168,16 +215,24 @@ export function closeDeliverySession(params: {
 
     let transcript: { role: string; senderName?: string; content: string; at: number }[] = [];
     try {
-        const chatSession = createOrGetSession(params.characterId);
-        const messages = loadChatMessages(chatSession.id);
-        transcript = messages
-            .filter(m => m.deliverySessionId === params.deliverySessionId && m.content?.trim())
-            .map(m => ({
-                role: m.role,
-                senderName: m.senderName,
-                content: m.content.trim(),
-                at: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
-            }));
+        // 剧情段可能落在单聊，也可能落在群聊 —— 按 id 扫所有会话最稳
+        const allSessions = loadChatSessions();
+        for (const sess of allSessions) {
+            const messages = loadChatMessages(sess.id);
+            const hit = messages.filter(
+                m => m.deliverySessionId === params.deliverySessionId && m.content?.trim(),
+            );
+            if (hit.length === 0) continue;
+            transcript.push(
+                ...hit.map(m => ({
+                    role: m.role,
+                    senderName: m.senderName,
+                    content: m.content.trim(),
+                    at: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+                })),
+            );
+        }
+        transcript.sort((a, b) => a.at - b.at);
     } catch {
         transcript = [];
     }
@@ -197,6 +252,15 @@ export function formatTranscriptAsNarration(
         return `${who}：${m.content}`;
     });
     return `（你们在手机上聊了起来）\n${lines.join("\n")}`;
+}
+
+/** 放弃一段未归入的剧情对话（不写进剧本，只解除挂起状态）。 */
+export function discardDeliverySession(deliverySessionId: string): boolean {
+    const list = loadDeliverySessions();
+    const target = list.find(s => s.id === deliverySessionId);
+    if (!target || target.endedAt) return false;
+    saveDeliverySessions(list.map(s => (s.id === deliverySessionId ? { ...s, endedAt: Date.now() } : s)));
+    return true;
 }
 
 /** 未归入的段落摘要，用于群像顶部常驻提示。 */
