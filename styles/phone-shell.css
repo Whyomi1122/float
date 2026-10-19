@@ -1105,17 +1105,23 @@
     --phone-screen-height: 100lvh;
   }
 
+  /*
+   * ⚠️ 这里必须都用变量，不能写死 100lvh：
+   *    键盘弹出时 JS 会把 --phone-screen-height 收到可视高度，
+   *    如果 html/body/.app-root 写死 100lvh，外壳就依然占满整屏，
+   *    贴底的输入栏会停在键盘下面（用户看到「先出键盘，再跳出输入框」）。
+   */
   html,
   body {
     overflow: hidden;
     width: 100%;
-    height: 100lvh;
+    height: var(--phone-screen-height, 100lvh);
     background: var(--c-page-body-bg);
   }
 
   .app-root {
     width: 100vw;
-    height: 100lvh;
+    height: var(--phone-screen-height, 100lvh);
     padding: 0;
     display: flex;
     justify-content: flex-start;
@@ -1171,7 +1177,7 @@
 
   .app-root.splash-root {
     width: 100vw;
-    height: 100lvh;
+    height: var(--phone-screen-height, 100lvh);
     margin: 0;
     padding: 0;
     display: flex;
