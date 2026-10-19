@@ -9,22 +9,24 @@
   html, body {
     overflow: hidden;
     width: 100%;
-    /* 这里刻意用 100lvh，和项目当前写法一致 */
-    height: 100lvh;
+    /* 方案：用 --vh-h 由 JS 写入真实可视高度，兜底 100dvh。
+       注意不能写 100lvh —— 移动端 lvh 是「工具条收起时的最大高度」，
+       比当前可见高度还大，贴底的输入栏会被推到屏幕外。 */
+    height: var(--vh-h, 100dvh);
     background: #e8e2d6;
     font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   }
   .app-root {
     width: 100vw;
-    height: 100lvh;
+    height: var(--vh-h, 100dvh);
     display: flex;
     overflow: hidden;
   }
-  .phone-shell-wrap { width: 100vw; height: 100lvh; }
+  .phone-shell-wrap { width: 100vw; height: var(--vh-h, 100dvh); }
   .phone-shell {
     position: relative;
     width: 100vw;
-    height: 100lvh;
+    height: var(--vh-h, 100dvh);
     overflow: hidden;
     background: #eef2f5;
     display: flex;
@@ -137,6 +139,11 @@
     padding: 9px 12px;
     font-size: 12px;
   }
+  /* 键盘弹出后把焦点框高亮，方便确认「输入栏到底在不在」 */
+  .chat-input-bar.is-focused textarea {
+    border-color: #2f7d4f;
+    box-shadow: 0 0 0 2px rgba(47,125,79,0.22);
+  }
 </style>
 </head>
 <body>
@@ -186,9 +193,16 @@
   var baselineInnerH = window.innerHeight;
   var focusAt = 0;
 
+  /** 把真实可视高度写进 CSS 变量 */
+  function syncViewportHeight() {
+    var h = vv ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty('--vh-h', Math.round(h) + 'px');
+  }
+
   function n(v) { return Math.round(v * 10) / 10; }
 
   function render() {
+    syncViewportHeight();
     var vvH = vv ? vv.height : window.innerHeight;
     var vvTop = vv ? vv.offsetTop : 0;
     var innerH = window.innerHeight;
