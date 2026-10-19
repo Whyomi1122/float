@@ -205,6 +205,8 @@ export function deliverToChat(params: {
             role: "assistant",
             content,
             senderName: params.characterName,
+            // ⚠️ 群聊里没有这个字段就渲染不出角色头像，会掉成通用卡通头像
+            senderCharacterId: params.characterId,
         });
 
         // 已有未归入的段就复用，否则开一段新的

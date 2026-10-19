@@ -1188,46 +1188,101 @@ type EnsembleView = "personas" | "scripts" | "create" | "workspace";
  * 群像正文是线下剧本格式，混着 [旁白] / [动作] / [心理] / 舞台说明 / 场景标题。
  * 投递到聊天室必须只剩对白 —— 用户明确要求「格式都是线上的微信格式」。
  */
-function extractDeliverableLines(content: string): string[] {
+/** 投递候选：一句真正能发出去的台词 + 这一句属于谁。 */
+type DeliverableLine = { text: string; speaker: string | null };
+
+/** [旁白] [动作] [心理] [叙述] [对白] 这类块标记。 */
+const BLOCK_TAG_RE = /^\[(旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统|对白|台词)\]\s*[:：]?\s*/;
+/** 只算「不是台词」的块标记：这些块下面的内容整段丢弃。 */
+const NON_DIALOGUE_TAG_RE = /^\[(旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统)\]\s*[:：]?\s*/;
+/** 判断一整行是不是「角色名：」的行首。 */
+function matchSpeakerHeader(line: string): string | null {
+  const m = line.match(/^([^\s：:\[\]【】（）()]{1,16})\s*(?:[（(][^）)]{0,20}[)）])?\s*[：:]\s*$/);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * 从一幕正文里抽出「可以当微信消息发出去」的台词，并记下每句的说话人。
+ *
+ * 群像正文是线下剧本格式，典型长这样：
+ * ```
+ * ［旁白］:
+ * 窗外的夜雨渐渐密了起来……
+ * 金成帝：
+ * ［动作］:
+ * 他坐进车里拉起手刹……
+ * ［对白］:
+ * 「문 제대로 잠갔냐.」
+ * 门好好反锁了吗。
+ * ```
+ * 投递到聊天室必须只剩对白 —— 用户明确要求「格式都是线上的微信格式」。
+ */
+function extractDeliverableLines(content: string): DeliverableLine[] {
   const raw = content ?? "";
-  const lines: string[] = [];
+  const out: DeliverableLine[] = [];
+  let speaker: string | null = null;
+  /** 当前是否处在「旁白 / 动作 / 心理」块里 —— 里面的每一行都不是台词。 */
+  let inNonDialogueBlock = false;
 
   for (const rawLine of raw.split(/\r?\n/)) {
     let line = rawLine.trim();
     if (!line) continue;
 
-    // 整行带括号的舞台说明 / 心理描写 / 旁白块，整行丢掉
-    if (/^[（(【\[].*[)）】\]]$/.test(line) && !/["“”「」]/.test(line)) continue;
-    // 纯场景标题/分隔符
-    if (/^(场景|时间|地点|转场|幕|第.{1,4}幕|—{2,}|-{3,}|=+$)/.test(line)) continue;
+    // 1) 块标记：[旁白] [动作] [对白] …（半角/全角括号都认）
+    const tag = line.match(/^[\[［【](旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统|对白|台词)[\]］】]\s*[:：]?\s*/);
+    if (tag) {
+      inNonDialogueBlock = NON_DIALOGUE_TAG_RE.test(line);
+      line = line.slice(tag[0].length).trim();
+      // 「［对白］:」单独一行时后面才是台词，这行本身没内容
+      if (!line) continue;
+    }
 
-    // 去掉行首的 [旁白] [动作] [心理] （OS） 等标记
-    line = line
-      .replace(/^\[(旁白|动作|心理|场景|说明|环境|内心|画外音|系统)\]\s*/g, "")
-      .replace(/^[（(](旁白|动作|心理|场景|说明|环境|内心|画外音)[)）]\s*/g, "")
-      .trim();
-    // 去掉行首的说话人前缀：「角色名：」「角色名:」「角色名（情绪）：」
-    line = line.replace(/^[^：:]{1,16}[（(][^）)]*[)）]\s*[：:]\s*/, "");
-    line = line.replace(/^[^：:]{1,16}[：:]\s*/, "");
-    line = line.trim();
+    // 2) 「角色名：」单独一行 → 记录说话人并跳过
+    const header = matchSpeakerHeader(line);
+    if (header) {
+      speaker = header;
+      continue;
+    }
 
-    // 去掉整行被括号包住的表演提示（角色名被去掉了，剩下的还带括号就还是动作）
+    // 3) 非台词块里的内容整段丢弃（旁白 / 动作 / 心理）
+    if (inNonDialogueBlock) continue;
+
+    // 4) 纯场景标题 / 分隔符
+    if (/^(场景|时间|地点|转场|幕|第.{1,4}幕)$/.test(line)) continue;
+    if (/^[—\-=＝]{3,}$/.test(line)) continue;
+
+    // 5) 行内还带块标记（「[动作]:他……」跟内容在同一行）
+    const inlineTag = line.match(NON_DIALOGUE_TAG_RE);
+    if (inlineTag) {
+      inNonDialogueBlock = true;
+      continue;
+    }
+
+    // 6) 行首的人名 + 内容：「金成帝：门好好反锁了吗。」
+    const named = line.match(/^([^\s：:\[\]【】（）()]{1,16})\s*(?:[（(][^）)]{0,20}[)）])?\s*[：:]\s*(.+)$/);
+    if (named) {
+      speaker = named[1].trim();
+      line = named[2].trim();
+    }
+
+    // 7) 整行被括号包住的舞台说明，整行丢掉
     if (!line) continue;
-    if (/^[（(].*[)）]$/.test(line) && !/["“”「」]/.test(line)) continue;
+    if (/^[（(［\[【].*[)）］\]】]$/.test(line) && !/["“”「」『』]/.test(line)) continue;
 
-    // 去掉行内的「（低声）」这类括号提示，但保留引号里的内容
+    // 8) 去掉行内「（低声）」这类括号提示
     const cleaned = line
       .replace(/[（(][^（）()]{0,24}[)）]/g, "")
       .replace(/\s{2,}/g, " ")
       .trim();
     if (!cleaned) continue;
-    // 太短的不像台词（比如 "……" "嗯。" 保留，单个标点丢掉）
     if (!/[\u4e00-\u9fa5a-zA-Z0-9가-힣]/.test(cleaned)) continue;
-    lines.push(cleaned);
+    out.push({ text: cleaned, speaker });
   }
 
   // 一句都抽不出来就退回原文，至少别让用户无从下手
-  return lines.length > 0 ? lines : (raw.trim() ? [raw.trim()] : []);
+  if (out.length > 0) return out;
+  const fallback = raw.trim();
+  return fallback ? [{ text: fallback, speaker: null }] : [];
 }
 
 export function EnsembleApp({
@@ -1267,13 +1322,14 @@ export function EnsembleApp({
   const [deliverPicker, setDeliverPicker] = useState<{
     turn: EnsembleTurn;
     member: EnsembleCastMember;
-    /** 从该幕正文里抽出来的可选台词（已去掉旁白/动作/心理）。 */
-    lines: string[];
+    /** 从该幕正文里抽出来的可选台词（已去掉旁白/动作/心理，附说话人）。 */
+    lines: DeliverableLine[];
   } | null>(null);
   /** 杀青前确认：还有未归入的聊天，是否一起注入总结。 */
   const [wrapConfirm, setWrapConfirm] = useState<{ count: number } | null>(null);
   /** 投递落点选择阶段：先选台词，再选单聊/群聊。 */
-  const [deliverTargetStage, setDeliverTargetStage] = useState(false);  const [deliverLine, setDeliverLine] = useState<string | null>(null);
+  const [deliverTargetStage, setDeliverTargetStage] = useState(false);
+  const [deliverLine, setDeliverLine] = useState<DeliverableLine | null>(null);
 
   /** 打开投递面板：抽出这一幕里「能当微信消息发出去」的台词。 */
   const openDeliverPicker = (turn: EnsembleTurn, member: EnsembleCastMember) => {
@@ -1284,33 +1340,51 @@ export function EnsembleApp({
     setDeliverLine(lines.length > 0 ? lines[lines.length - 1] : null);
   };
 
+  /** 这一句到底是谁说的：优先按台词自带的说话人，其次退回「点投递的那个角色」。 */
+  const resolveSpeaker = (
+    member: EnsembleCastMember,
+    line: DeliverableLine | null,
+  ): EnsembleCastMember => {
+    const name = line?.speaker?.trim();
+    if (name && currentScript) {
+      const hit = currentScript.cast.find(c => c.name === name);
+      if (hit) return hit;
+    }
+    return member;
+  };
+
   /** 真正执行投递。target 决定了落在单聊还是群聊。 */
   const doDeliverToChat = (
     turn: EnsembleTurn,
     member: EnsembleCastMember,
     target: { kind: "direct"; characterId: string } | { kind: "group"; participantIds: string[] },
     contentOverride?: string,
+    lineOverride?: DeliverableLine | null,
   ) => {
     if (!currentScript) return;
-    const content = (contentOverride ?? turn.content).trim();
+    const line = lineOverride !== undefined ? lineOverride : deliverLine;
+    const content = (contentOverride ?? line?.text ?? turn.content).trim();
     if (!content) {
       setToast("这一句是空的，换一句吧");
       return;
     }
+    // ⚠️ 必须按「这句是谁说的」投，不能一律用点投递的那个角色
+    const speaker = resolveSpeaker(member, line);
     const result = deliverToChat({
-      characterId: member.id,
-      characterName: member.name,
+      characterId: speaker.id,
+      characterName: speaker.name,
       content,
       scriptId: currentScript.id,
       scriptTitle: currentScript.title || "未命名剧本",
       turnId: turn.id,
-      target,
+      target:
+        target.kind === "direct" ? { kind: "direct", characterId: speaker.id } : target,
     });
     if (!result.ok) {
       setToast(`投递失败：${result.error}`);
       return;
     }
-    setToast(`已投递 · ${member.name}`);
+    setToast(`已投递 · ${speaker.name}`);
     setDeliverPicker(null);
     setDeliverLine(null);
     setDeliverTargetStage(false);
@@ -4879,10 +4953,10 @@ ${lastSpeakerNote}
                   </div>
                   <div className="bg-white rounded-[16px] overflow-hidden max-h-[46vh] overflow-y-auto">
                     {deliverPicker.lines.map((line, idx) => {
-                      const active = deliverLine === line;
+                      const active = deliverLine?.text === line.text && deliverLine?.speaker === line.speaker;
                       return (
                         <button
-                          key={`${idx}-${line.slice(0, 12)}`}
+                          key={`${idx}-${line.text.slice(0, 12)}`}
                           type="button"
                           className="w-full text-left px-4 py-3 flex items-start gap-3"
                           style={active ? { background: "rgba(0,0,0,0.04)" } : undefined}
@@ -4897,8 +4971,13 @@ ${lastSpeakerNote}
                           >
                             {active && <Check size={11} color="#fff" strokeWidth={3} />}
                           </span>
-                          <span className="text-[13px] leading-relaxed text-black/80 whitespace-pre-wrap break-words">
-                            {line}
+                          <span className="flex-1 min-w-0">
+                            {line.speaker && (
+                              <span className="block text-[10px] text-black/35 mb-[2px]">{line.speaker}</span>
+                            )}
+                            <span className="block text-[13px] leading-relaxed text-black/80 whitespace-pre-wrap break-words">
+                              {line.text}
+                            </span>
                           </span>
                         </button>
                       );
@@ -4921,10 +5000,10 @@ ${lastSpeakerNote}
                 <>
                   <div className="bg-white rounded-[16px] p-4">
                     <div className="text-[10px] text-black/40 mb-1">
-                      {deliverPicker.member.name} · 将发送这一句
+                      {resolveSpeaker(deliverPicker.member, deliverLine).name} · 将发送这一句
                     </div>
                     <div className="text-[13px] leading-relaxed text-black/80 max-h-[110px] overflow-y-auto whitespace-pre-wrap">
-                      {deliverLine}
+                      {deliverLine?.text}
                     </div>
                   </div>
                   <div className="bg-white rounded-[16px] p-2">
@@ -4935,14 +5014,20 @@ ${lastSpeakerNote}
                         doDeliverToChat(
                           deliverPicker.turn,
                           deliverPicker.member,
-                          { kind: "direct", characterId: deliverPicker.member.id },
-                          deliverLine ?? undefined,
+                          {
+                            kind: "direct",
+                            characterId: resolveSpeaker(deliverPicker.member, deliverLine).id,
+                          },
+                          deliverLine?.text ?? undefined,
+                          deliverLine,
                         );
                       }}
                     >
                       <span className="flex flex-col items-start">
                         <span className="text-[13px] text-black/80">投到单聊</span>
-                        <span className="text-[11px] text-black/40">只给 {deliverPicker.member.name}</span>
+                        <span className="text-[11px] text-black/40">
+                          只给 {resolveSpeaker(deliverPicker.member, deliverLine).name}
+                        </span>
                       </span>
                       <ChevronRight size={14} className="text-black/25" />
                     </button>
@@ -4960,7 +5045,8 @@ ${lastSpeakerNote}
                                 kind: "group",
                                 participantIds: currentScript.cast.map(c => c.id),
                               },
-                              deliverLine ?? undefined,
+                              deliverLine?.text ?? undefined,
+                              deliverLine,
                             );
                           }}
                         >
