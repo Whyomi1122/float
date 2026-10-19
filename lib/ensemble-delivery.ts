@@ -356,6 +356,59 @@ export function loadSessionTranscript(deliverySessionId?: string): {
     });
 }
 
+/**
+ * 把一句「线下剧本味」的文字洗成「线上微信味」。
+ *
+ * 模型经常把动作、神态、心理和台词混成一条：
+ *   （他停好车，单手搭在方向盘上扫了眼屏幕）【大清早吃那么腻】"那家蛋黄酱放得齁死人。"
+ * 聊天软件会原样发出去 —— 那就不是微信消息了。
+ * 这里做**只减不加**的清洗：剥掉括号/方括号里的表演与心理，去掉包住台词的引号，
+ * 台词本身一个字都不改。
+ */
+export function sanitizeChatLine(input: string): string {
+    let s = (input ?? "").replace(/\r/g, "");
+    if (!s.trim()) return "";
+
+    // 1) 剥掉成对的 （…）【…】［…］ 包裹内容，反复剥到稳定（防嵌套）
+    for (let i = 0; i < 6; i += 1) {
+        const next = s
+            .replace(/[（(][^（()）]*[）)]/g, "")
+            .replace(/[【\[［][^【】\[\]［］]*[】\]］]/g, "");
+        if (next === s) break;
+        s = next;
+    }
+
+    // 2) 去掉包裹整句台词的引号
+    s = s.replace(/^[\s"'“”‘’「」『』]+/, "").replace(/[\s"'“”‘’「」『』]+$/, "");
+
+    // 3) 去掉孤立的块标记（[旁白]: / ［动作］）
+    s = s.replace(/^[\[［【][^\]］】]{1,6}[\]］】]\s*[:：]?\s*/g, "");
+
+    // 4) 收拢空白
+    s = s
+        .split("\n")
+        .map(line => line.replace(/[ \t]{2,}/g, " ").trim())
+        .filter((line, idx, arr) => line !== "" || (idx > 0 && arr[idx - 1] !== ""))
+        .join("\n")
+        .trim();
+
+    return s;
+}
+
+/** 这一句洗完之后还像不像「一条能发出去的聊天消息」。 */
+export function looksLikeChatMessage(s: string): boolean {
+    return !!s && /[\u4e00-\u9fa5a-zA-Z0-9가-힣]/.test(s);
+}
+
+/** 把一段原文按行清洗，用于投递候选列表。 */
+export function sanitizeChatBlock(input: string): string[] {
+    return (input ?? "")
+        .replace(/\r/g, "")
+        .split("\n")
+        .map(line => sanitizeChatLine(line))
+        .filter(looksLikeChatMessage);
+}
+
 /** 已录入聊天的幕（turn）→ 录入时间，供群像在用户卡片上打标记。 */
 export function getDeliveredTurnIds(scriptId: string): Record<string, number> {
     const out: Record<string, number> = {};

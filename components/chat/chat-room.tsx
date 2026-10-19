@@ -11,6 +11,7 @@ import {
     formatTranscriptAsNarration,
     loadSessionTranscript,
     markSessionOpened,
+    sanitizeChatLine,
 } from "@/lib/ensemble-delivery";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse, type ParsedMessagePart } from "@/lib/rich-message-parser";
@@ -1178,6 +1179,17 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [bringBackMessage, setBringBackMessage] = useState<ChatMessage | null>(null);
 
     /**
+     * 当前会话是不是「剧情对话段」的聊天室。
+     * 是的话，模型回复要清洗成微信格式，而不是线下剧本格式。
+     */
+    const isStoryDeliverySession = useMemo(
+        () => loadSessionTranscript().some(
+            t => t.session.chatSessionId === session?.id && t.messages.length > 0,
+        ),
+        [session?.id, messages.length],
+    );
+
+    /**
      * 把聊天里的一条消息以「旁白」形式搬进群像剧本（没有进行中的剧情对话段时用）。
      * 用旁白而不是角色台词：不破坏角色边界，剧情又能自然接上。
      */
@@ -1217,12 +1229,15 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         const narration = formatTranscriptAsNarration(session, transcript);
         appendEnsembleTurn(session.scriptId, {
             id: `turn_${Date.now()}_dlv`,
-            senderType: "narration",
+            senderType: "character",
+            senderId: "from_chat",
             senderName: "来自聊天",
             content: narration,
             timestamp: new Date().toISOString(),
+            rawText: narration,
         });
         showChatToast(`已归入《${session.scriptTitle}》· ${transcript.length} 句`);
+        window.dispatchEvent(new CustomEvent("float:ensemble-updated"));
     };
 
     // 进入会话即标记「这段剧情已经打开过」，群像那边据此提示是否已录入聊天记录
@@ -2646,7 +2661,11 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 const draft = buildAssistantMessageDraft(part, {
                     sessionId: session.id,
                     role: "assistant",
-                    content: part.content,
+                    // 剧情对话段里，模型偶尔会把「（动作）【心理】"台词"」写成一条
+                    // 线上消息。这里只做减法的清洗，保证聊天软件里是干净的微信格式。
+                    content: isStoryDeliverySession
+                        ? sanitizeChatLine(part.content)
+                        : part.content,
                     mediaType: part.mediaType,
                     mediaData: part.mediaData,
                     responseBatchId,

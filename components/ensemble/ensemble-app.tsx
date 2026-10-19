@@ -24,6 +24,7 @@ import {
   Square,
   Type,
   Upload,
+  MessageCircle,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -56,7 +57,7 @@ import {
   makeStoryRangeLabel,
 } from "@/lib/ensemble-archive";
 import { syncEnsembleArchiveToMemory, removeEnsembleArchiveFromMemory } from "@/lib/ensemble-memory-bridge";
-import { deliverToChat, describePendingSessions, getPendingSessions, discardDeliverySession, loadSessionTranscript, getDeliveredTurnIds } from "@/lib/ensemble-delivery";
+import { deliverToChat, describePendingSessions, getPendingSessions, discardDeliverySession, loadSessionTranscript, getDeliveredTurnIds, sanitizeChatLine } from "@/lib/ensemble-delivery";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import {
@@ -1269,19 +1270,14 @@ function extractDeliverableLines(content: string): DeliverableLine[] {
     if (!line) continue;
     if (/^[（(［\[【].*[)）］\]】]$/.test(line) && !/["“”「」『』]/.test(line)) continue;
 
-    // 8) 去掉行内「（低声）」这类括号提示
-    const cleaned = line
-      .replace(/[（(][^（）()]{0,24}[)）]/g, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-    if (!cleaned) continue;
+    // 8) 洗掉残留的括号表演、心理块和包住台词的引号
+    const cleaned = sanitizeChatLine(line);
     if (!/[\u4e00-\u9fa5a-zA-Z0-9가-힣]/.test(cleaned)) continue;
-    out.push({ text: cleaned, speaker });
-  }
+    out.push({ text: cleaned, speaker });  }
 
   // 一句都抽不出来就退回原文，至少别让用户无从下手
   if (out.length > 0) return out;
-  const fallback = raw.trim();
+  const fallback = sanitizeChatLine(raw);
   return fallback ? [{ text: fallback, speaker: null }] : [];
 }
 
@@ -1363,9 +1359,10 @@ export function EnsembleApp({
   ) => {
     if (!currentScript) return;
     const line = lineOverride !== undefined ? lineOverride : deliverLine;
-    const content = (contentOverride ?? line?.text ?? turn.content).trim();
+    // 最后一道保险：即便台词来源有污染，投出去的一定是干净的微信格式
+    const content = sanitizeChatLine(contentOverride ?? line?.text ?? turn.content);
     if (!content) {
-      setToast("这一句是空的，换一句吧");
+      setToast("这一句洗完之后是空的，换一句吧");
       return;
     }
     // ⚠️ 必须按「这句是谁说的」投，不能一律用点投递的那个角色
@@ -2400,6 +2397,13 @@ ${sceneBlock}${openingBlock}${memoryBlock}${crossMemoryBlock}${archiveBlock}${wo
     每个角色开口**之前**，建议先用一个 ［叙述］/［动作］ 块写他当下的动作或
     神态，再写 ［对白］。这样读者先看到「他在做什么」，再听到「他说什么」，
     画面感更强，也更利于系统排版。不要把动作塞进 ［对白］ 块里。
+
+    【节奏许可 · 但绝不能合并】
+        上一条只是建议。如果这一轮只想写动作＋一句话，可以**省略**［叙述］块，
+        但**台词必须仍然单独放在［对白］块里**。
+        ⚠️ 严禁把动作、神态、心理和台词写进同一个块 —— 尤其是严禁写成
+           （他停好车，扫了眼屏幕）【心里话】说出口的话 这种混排。
+           这个 APP 会把［对白］块原样发到聊天软件里，一旦混排就会被对方看见。
 
 ═══════════ 选角：这一幕谁上场，由你按剧情决定 ═══════════
 这是群像剧，核心是**多角色在同一幕里真实互动**，不是轮流独白。
@@ -3795,6 +3799,79 @@ ${lastSpeakerNote}
               const isNarrationTurn = turn.senderType === "narration";
               const isNarrator = isNarrationTurn || turn.senderId === "narration";
               const castChar = currentScript.cast.find((c) => c.id === turn.senderId);
+
+              // ── 「来自聊天」卡：聊天室聊完返回剧情后的整段对话 ──
+              // 它是一个独立条目，不是旁白（以前误设 senderType="narration" 被整块隐藏了）
+              if (turn.senderName === "来自聊天" || turn.senderId === "from_chat") {
+                return (
+                  <div key={turn.id}>
+                    <div className="flex items-center gap-2 px-[10px] pt-3 pb-1.5">
+                      <span
+                        className="shrink-0 font-mono text-black/20 tabular-nums"
+                        style={{ fontSize: TYPE.MICRO }}
+                      >
+                        {formatMinute(turn.timestamp).slice(-5)}
+                      </span>
+                      <span
+                        className="flex-1 h-px"
+                        style={{
+                          backgroundImage:
+                            "repeating-linear-gradient(to right, rgba(0,0,0,0.07) 0 1px, transparent 1px 4px)",
+                        }}
+                      />
+                      <span
+                        className="shrink-0 font-mono text-black/20 tabular-nums"
+                        style={{ fontSize: TYPE.MICRO }}
+                      >
+                        {String(fullIndex).padStart(3, "0")}
+                      </span>
+                    </div>
+                    <div
+                      className="group bg-white rounded-[14px] px-0 border border-dotted border-black/[0.16] shadow-[0_1px_3px_rgba(0,0,0,0.03)]"
+                      style={{ paddingTop: 18, paddingBottom: 16 }}
+                    >
+                      <div
+                        className="flex items-center gap-2 pl-[9px] pr-[10px] pt-[26px] pb-4"
+                      >
+                        <span className="shrink-0 w-[20px] h-[20px] rounded-[5px] flex items-center justify-center"
+                          style={{ background: "rgba(34,120,80,0.85)" }}>
+                          <MessageCircle size={9} strokeWidth={0} className="fill-white text-white" />
+                        </span>
+                        <span
+                          className="shrink-0 font-medium tracking-[0.16em] text-black/45"
+                          style={{ fontSize: TYPE.MICRO - 2 }}
+                        >
+                          来自聊天
+                        </span>
+                        <span
+                          className="flex-1 h-px"
+                          style={{
+                            backgroundImage:
+                              "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
+                          }}
+                        />
+                        <span
+                          className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dashed border-black/[0.18] text-black/30 tracking-[0.08em]"
+                          style={{ fontSize: TYPE.MICRO - 3 }}
+                        >
+                          CHAT
+                        </span>
+                      </div>
+                      <div
+                        className="whitespace-pre-wrap break-words text-black/70"
+                        style={{
+                          paddingLeft: tpx(FRAME_BODY_INSET),
+                          paddingRight: tpx(FRAME_TEXT_INSET),
+                          fontSize: tpx(15),
+                          lineHeight: 1.95,
+                        }}
+                      >
+                        {turn.content}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
               // ── 旁白卡：黑底 P 图标 + NARRATION 标签 ──
               // 仅用于「非帧模型」的历史旁白 turn（旧数据 / 用户手发旁白）。
