@@ -6,9 +6,11 @@ import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXm
 import type { StateValue } from "@/lib/chat-storage";
 import { loadEnsembleScripts, appendEnsembleTurn, type EnsembleScript } from "@/lib/ensemble-storage";
 import {
-    getOpenSessionForCharacter,
+    findOpenSession,
     closeDeliverySession,
     formatTranscriptAsNarration,
+    loadSessionTranscript,
+    markSessionOpened,
 } from "@/lib/ensemble-delivery";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse, type ParsedMessagePart } from "@/lib/rich-message-parser";
@@ -1199,14 +1201,19 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
      * 触发条件 —— 该角色名下存在「投递了但还没返回」的对话段。
      */
     const handleReturnToStory = (deliverySessionId: string) => {
-        if (!character) return;
-        const result = closeDeliverySession({ deliverySessionId, characterId: character.id });
+        // ⚠️ 群聊里没有 character，之前这里直接 return，用户点了等于没点
+        const result = closeDeliverySession({ deliverySessionId });
         setBringBackMessage(null);
         if (!result) {
             showChatToast("这段已经归入过剧情了");
             return;
         }
         const { session, transcript } = result;
+        if (transcript.length === 0) {
+            // 一句都没捞到就别写空旁白，直接告知
+            showChatToast("这段没有找到聊天内容，已丢弃");
+            return;
+        }
         const narration = formatTranscriptAsNarration(session, transcript);
         appendEnsembleTurn(session.scriptId, {
             id: `turn_${Date.now()}_dlv`,
@@ -1217,6 +1224,19 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         });
         showChatToast(`已归入《${session.scriptTitle}》· ${transcript.length} 句`);
     };
+
+    // 进入会话即标记「这段剧情已经打开过」，群像那边据此提示是否已录入聊天记录
+    useEffect(() => {
+        const target = findOpenSession({
+            characterId: character?.id ?? null,
+            sessionId: session.id,
+            participantIds: session.participantIds,
+        });
+        if (!target) return;
+        // 只有真的已经带着剧情消息，才算录入过
+        const hasContent = loadSessionTranscript(target.id)[0]?.messages.length > 0;
+        if (hasContent) markSessionOpened(target.id);
+    }, [session.id, character?.id]);
     // Emoji panel
     const [showEmojiPanel, setShowEmojiPanel] = useState(false);
     const [showStickerPanel, setShowStickerPanel] = useState(false);
@@ -6619,7 +6639,11 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
             {/* ── 返回剧情 / 带回剧情 ── */}
             {bringBackMessage && (() => {
-                const openSession = character ? getOpenSessionForCharacter(character.id) : null;
+                const openSession = findOpenSession({
+                    characterId: character?.id ?? null,
+                    sessionId: session?.id ?? null,
+                    participantIds: session?.participantIds,
+                });
                 // 有进行中的剧情对话段 → 走「返回剧情」，整段打包归入剧本
                 if (openSession) {
                     return (
