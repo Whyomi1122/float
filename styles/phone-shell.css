@@ -9,6 +9,15 @@
   font-family: var(--app-font-family);
 }
 
+/*
+ * 键盘弹出：手机壳收缩到可视视口高度，贴底的输入栏就会自己贴到键盘上沿。
+ * 以前靠 JS 给整壳加 translateY 补偿，会把消息区顶出屏幕顶（屏幕「跳上去」）。
+ * 这里放在文件顶层、不带媒体查询 —— 桌面调试和移动端行为一致，也方便排查。
+ */
+:root[data-keyboard-open="1"] {
+  --phone-screen-height: var(--phone-visible-height, 100dvh);
+}
+
 /* Outer metal mid-frame (stainless steel band) */
 .phone-case {
   position: relative;
@@ -1094,12 +1103,6 @@
     --phone-screen-width: 100vw;
     /* 大视口高度：键盘没弹出时就是整屏，和以前一样 */
     --phone-screen-height: 100lvh;
-  }
-
-  /* 键盘弹出时手机壳收到可视视口高度 —— 输入栏贴底才不会被键盘盖住。
-     以前靠 JS 整体上移来补偿，会把消息区顶出屏幕；现在改成壳子自己收缩。 */
-  :root[data-keyboard-open="1"] {
-    --phone-screen-height: var(--phone-visible-height, 100dvh);
   }
 
   html,

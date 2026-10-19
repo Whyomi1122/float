@@ -924,10 +924,9 @@ function useAndroidCaretKeyboardLift() {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
     const root = document.documentElement;
-    if (!/Android/i.test(navigator.userAgent)) {
-      root.style.removeProperty("--mobile-keyboard-lift");
-      return;
-    }
+    // 以前这里只在 Android 上跑；结果 iOS / 桌面调试时手机壳不收缩，
+    // 输入栏会被键盘盖住。收缩逻辑对谁都是对的，去掉这个限制。
+    root.style.removeProperty("--mobile-keyboard-lift");
 
     const mobileMq = window.matchMedia("(max-width: 500px) and (hover: none) and (pointer: coarse)");
     const viewport = window.visualViewport;
