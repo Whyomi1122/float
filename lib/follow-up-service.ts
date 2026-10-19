@@ -171,6 +171,13 @@ export function stopFollowUpService() {
 export function scheduleFollowUp(sessionId: string, count: number, stateValues?: StateValue[]) {
     const config = loadFollowUpConfig();
 
+    // 主动发送总开关（默认关闭）：关着就彻底不排程，角色不会自己找你说话
+    if (!config.enabled) {
+        clearFollowUpSchedule(sessionId);
+        cancelFollowUpBailout(sessionId);
+        return;
+    }
+
     if (!stateValues || stateValues.length === 0) {
         console.log(`[FollowUp] No state values, not scheduling.`);
         clearFollowUpSchedule(sessionId);

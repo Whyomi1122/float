@@ -740,8 +740,24 @@ function FollowUpSettingsEditor({ onBack }: { onBack: () => void }) {
             <SettingsScrollRestore storageKey="followup_settings_scroll_top" />
             <div className="page-menu profile-settings-menu">
                 <p className="menu-group-desc mx-2">
-                    焦虑值越高，角色追得越急；低于 {config.anxietyThreshold} 时不追发。不回复时最多主动发 {IDLE_RECONNECT_MAX_CONSECUTIVE} 次，你回复后重新计数。
+                    {config.enabled
+                        ? `焦虑值越高，角色追得越急；低于 ${config.anxietyThreshold} 时不追发。不回复时最多主动发 ${IDLE_RECONNECT_MAX_CONSECUTIVE} 次，你回复后重新计数。`
+                        : "主动发送已关闭：角色不会在你没说话的时候自己发消息。等角色记忆完善后再考虑打开。"}
                 </p>
+                <div className="menu-group">
+                    <div className="menu-item">
+                        <div className="menu-label-group">
+                            <span className="menu-label">允许主动发送</span>
+                            <span className="menu-desc">关掉后角色永不主动发消息（推荐保持关闭）</span>
+                        </div>
+                        <div className="menu-right">
+                            <Toggle
+                                checked={config.enabled}
+                                onChange={v => updateConfig({ enabled: v })}
+                            />
+                        </div>
+                    </div>
+                </div>
                 <div className="menu-group">
                     <div className="menu-item">
                         <div className="menu-label-group">

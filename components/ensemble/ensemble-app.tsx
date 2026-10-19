@@ -1195,7 +1195,7 @@ type DeliverableLine = { text: string; speaker: string | null };
 /** [旁白] [动作] [心理] [叙述] [对白] 这类块标记。 */
 const BLOCK_TAG_RE = /^\[(旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统|对白|台词)\]\s*[:：]?\s*/;
 /** 只算「不是台词」的块标记：这些块下面的内容整段丢弃。 */
-const NON_DIALOGUE_TAG_RE = /^\[(旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统)\]\s*[:：]?\s*/;
+const NON_DIALOGUE_TAG_RE = /^[\[［【](旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统)[\]］】]\s*[:：]?\s*/;
 /** 判断一整行是不是「角色名：」的行首。 */
 function matchSpeakerHeader(line: string): string | null {
   const m = line.match(/^([^\s：:\[\]【】（）()]{1,16})\s*(?:[（(][^）)]{0,20}[)）])?\s*[：:]\s*$/);
@@ -1224,15 +1224,21 @@ function extractDeliverableLines(content: string): DeliverableLine[] {
   let speaker: string | null = null;
   /** 当前是否处在「旁白 / 动作 / 心理」块里 —— 里面的每一行都不是台词。 */
   let inNonDialogueBlock = false;
+  /** 当前所处的台词块（[对白]）—— 只有它里面的内容才算台词。 */
+  let inDialogueBlock = false;
 
   for (const rawLine of raw.split(/\r?\n/)) {
     let line = rawLine.trim();
     if (!line) continue;
 
-    // 1) 块标记：[旁白] [动作] [对白] …（半角/全角括号都认）
-    const tag = line.match(/^[\[［【](旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统|对白|台词)[\]］】]\s*[:：]?\s*/);
+    // 1) 块标记：[旁白] [动作] [对白］［叙述］…（半角/全角括号都认）
+    const tag = line.match(
+      /^[\[［【](旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统|对白|台词)[\]］】]\s*[:：]?\s*/,
+    );
     if (tag) {
-      inNonDialogueBlock = NON_DIALOGUE_TAG_RE.test(line);
+      const isDialogue = tag[1] === "对白" || tag[1] === "台词";
+      inDialogueBlock = isDialogue;
+      inNonDialogueBlock = !isDialogue;
       line = line.slice(tag[0].length).trim();
       // 「［对白］:」单独一行时后面才是台词，这行本身没内容
       if (!line) continue;
@@ -1256,6 +1262,7 @@ function extractDeliverableLines(content: string): DeliverableLine[] {
     const inlineTag = line.match(NON_DIALOGUE_TAG_RE);
     if (inlineTag) {
       inNonDialogueBlock = true;
+      inDialogueBlock = false;
       continue;
     }
 
@@ -1270,10 +1277,17 @@ function extractDeliverableLines(content: string): DeliverableLine[] {
     if (!line) continue;
     if (/^[（(［\[【].*[)）］\]】]$/.test(line) && !/["“”「」『』]/.test(line)) continue;
 
-    // 8) 洗掉残留的括号表演、心理块和包住台词的引号
+    // 8) ⚠️ 不在 [对白] 块里、也没有引号包着 —— 这多半是叙述/动作，
+    //    不能当台词投出去。
+    //    之前这里不管三七二十一全收，所以「窗外的夜雨渐渐密了起来……」
+    //    「他坐进车里拉起手刹……」都被当成台词了。
+    if (!inDialogueBlock && !/["“”「」『』]/.test(line)) continue;
+
+    // 9) 洗掉残留的括号表演、心理块和包住台词的引号
     const cleaned = sanitizeChatLine(line);
     if (!/[\u4e00-\u9fa5a-zA-Z0-9가-힣]/.test(cleaned)) continue;
-    out.push({ text: cleaned, speaker });  }
+    out.push({ text: cleaned, speaker });
+  }
 
   // 一句都抽不出来就退回原文，至少别让用户无从下手
   if (out.length > 0) return out;

@@ -964,15 +964,19 @@ function useAndroidCaretKeyboardLift() {
         return;
       }
 
-      // ── 聊天室特殊处理 ──
-      // 聊天室布局是「消息区 absolute 铺满 + 输入栏贴底」，浏览器把输入栏顶到
-      // 键盘上方后它已经完整可见；再整体上移 phone-shell，消息区就会被推出屏幕顶。
+      // ── 聊天室：一律不上移 ──
+      // 聊天室布局是「消息区 + 输入栏贴底」，浏览器本来就会把输入栏顶到键盘上方。
+      // 再整体上移 phone-shell，消息区就会被推出屏幕顶（用户看到：一发消息整个屏幕跳上去）。
       //
-      // ⚠️ 不能查 element.closest(".chat-room-wrapper") / shellEl.contains(element)：
-      //    聊天输入框是 portal 挂到 body 上的，两者都永远为 false，
-      //    于是上移逻辑照常触发 —— 这就是「一发消息屏幕整块跳上去」的原因。
-      //    这里只看「输入栏是否已经落在键盘上方」，与元素挂在哪无关。
-      if (targetRect.bottom <= keyboardTop - 2) {
+      // ⚠️ 不能靠「光标是否已在键盘上方」来动态判断：
+      //    多行输入框、表情/加号面板、页面滚动都会让那一瞬间不成立，
+      //    于是上移逻辑被反复触发 —— 这就是「第一次发还是抬」的原因。
+      //    聊天输入框自身会贴在键盘上方，这里直接一律放弃上移，最稳。
+      if (element.closest(".chat-input-bar") || element.hasAttribute("data-chat-input")) {
+        applyLift(0);
+        return;
+      }
+      if (targetRect.top <= keyboardTop - 2) {
         applyLift(0);
         return;
       }

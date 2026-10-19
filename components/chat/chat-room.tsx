@@ -759,7 +759,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     ];
 
     return (
-        <div className="chat-input-bar chat-room-main-pane flex flex-col" data-ui="input">
+        <div className="chat-input-bar chat-input-dock chat-room-main-pane flex flex-col" data-ui="input">
             {theaterMode && (
                 <div className="chat-theater-mode-strip" role="status">
                     <span className="chat-theater-mode-icon" aria-hidden="true">
@@ -1042,6 +1042,7 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
                 ref={textareaRef}
                 rows={1}
                 value={inputText}
+                data-chat-input="1"
                 onChange={e => {
                     inputTextRef.current = e.target.value;
                     setInputText(e.target.value);
