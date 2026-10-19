@@ -63,7 +63,7 @@ import { cancelBailoutKey } from "@/lib/push-bailout-client";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { AlertCircle, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, Search, X } from "lucide-react";
-import { setDebugChatState } from "@/lib/debug-store";
+import { setDebugChatState, setDebugRawReply } from "@/lib/debug-store";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { setChatActive } from "@/lib/music-action-queue";
 import { getMusicControlBridge } from "@/lib/music-control-bridge";
@@ -98,6 +98,7 @@ import { extractTextToolDirectiveText } from "@/lib/text-tool-protocol";
 import { emitChatPluginEvent, getChatPluginHookBus, runChatPluginTransform } from "@/lib/chat-plugin-hooks";
 import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin-runtime";
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
+import { ChatInspectWidget } from "@/components/chat/chat-inspect-widget";
 
 // ── Call system message detection ──────────────────────────
 // Call messages are stored with user/assistant role for correct prompt alternation,
@@ -2692,6 +2693,20 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 }, guard);
                 throwIfGenerationStopped(guard);
                 const msg = pushChatMessage(draft);
+                // 调试挂件：记下模型原样回包 + 清洗后的对照
+                setDebugRawReply({
+                    timestamp: new Date().toISOString(),
+                    appId: "chat",
+                    sessionId: session.id,
+                    characterName: r.characterName,
+                    model: "—",
+                    raw: r.responseText || "",
+                    sanitized: isStoryDeliverySession ? sanitizeChatLine(part.content) : undefined,
+                    parts: [draft.content],
+                    note: isStoryDeliverySession
+                        ? "剧情对话段 · 已清洗成微信格式"
+                        : "聊天室",
+                });
                 imageReplacementTasks.push(scheduleGeneratedImageReplacement(msg, r.characterId, guard));
                 if (attachHere) attachedState = true;
                 savedAnyPart = true;
@@ -5553,6 +5568,14 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
             {/* 全屏特效层（表情雨/礼花），不拦截任何触摸操作 */}
             <ChatScreenEffectOverlay active={activeScreenEffect} onDone={() => setActiveScreenEffect(null)} />
+            {/* 剧情对话段的检查挂件：随时看清这间房带了什么进来 */}
+            <ChatInspectWidget
+                session={session}
+                messages={messages}
+                characterName={character?.name ?? null}
+                isGroup={!!session.isGroup}
+                enabled={isStoryDeliverySession}
+            />
             {/* Header */}
             <header className="page-header chat-room-main-pane" data-ui="header">
                 <div className="page-header-safe-area" />
