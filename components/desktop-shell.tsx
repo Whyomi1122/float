@@ -924,9 +924,10 @@ function useAndroidCaretKeyboardLift() {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
     const root = document.documentElement;
-    // 以前这里只在 Android 上跑；结果 iOS / 桌面调试时手机壳不收缩，
-    // 输入栏会被键盘盖住。收缩逻辑对谁都是对的，去掉这个限制。
-    root.style.removeProperty("--mobile-keyboard-lift");
+    if (!/Android/i.test(navigator.userAgent)) {
+      root.style.removeProperty("--mobile-keyboard-lift");
+      return;
+    }
 
     const mobileMq = window.matchMedia("(max-width: 500px) and (hover: none) and (pointer: coarse)");
     const viewport = window.visualViewport;
@@ -950,8 +951,6 @@ function useAndroidCaretKeyboardLift() {
       const element = focusedElement;
       if (!element || document.activeElement !== element || !mobileMq.matches || !viewport) {
         applyLift(0);
-        root.removeAttribute("data-keyboard-open");
-        root.style.removeProperty("--phone-visible-height");
         return;
       }
 
@@ -962,16 +961,9 @@ function useAndroidCaretKeyboardLift() {
 
       if (keyboardInset < 80) {
         applyLift(0);
-        root.removeAttribute("data-keyboard-open");
-        root.style.removeProperty("--phone-visible-height");
         return;
       }
 
-      // 键盘确实弹出了：让手机壳收缩到可视视口高度，
-      // 这样「贴底」的输入栏自然贴到键盘上沿，不需要整体上移。
-      // Android 的 100lvh 不会随键盘变化，不收缩的话输入栏会被键盘盖住。
-      root.setAttribute("data-keyboard-open", "1");
-      root.style.setProperty("--phone-visible-height", `${Math.round(viewport.height + viewport.offsetTop)}px`);
       // ── 聊天室：一律不上移 ──
       // 聊天室布局是「消息区 + 输入栏贴底」，浏览器本来就会把输入栏顶到键盘上方。
       // 再整体上移 phone-shell，消息区就会被推出屏幕顶（用户看到：一发消息整个屏幕跳上去）。
@@ -1009,9 +1001,6 @@ function useAndroidCaretKeyboardLift() {
     const handleFocusOut = () => {
       focusedElement = null;
       applyLift(0);
-      // 键盘收起：手机壳立刻恢复整屏高度
-      root.removeAttribute("data-keyboard-open");
-      root.style.removeProperty("--phone-visible-height");
     };
 
     const handleCaretMove = () => {
