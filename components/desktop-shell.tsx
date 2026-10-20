@@ -1063,11 +1063,7 @@ export function DesktopShell({ initialThemeProfile, initialThemeAssets }: Deskto
   const handleMusicOverlayControllerChange = useCallback((controller: MusicOverlayController | null) => {
     musicOverlayControllerRef.current = controller;
   }, []);
-  // 键盘不再靠「整块壳上移」处理。
-  // 壳高 --app-vh 已实时跟随 visualViewport.height 收缩，输入框自然落在可视区底部；
-  // 旧的 useAndroidCaretKeyboardLift 是在键盘弹完之后才算出位移量、再带动画上移一次，
-  // 表现为「键盘先弹完、输入框后整块跳上来」，且与 --app-vh 双重作用。已停用。
-  // （如需回滚，找回本文件 git 历史中的 useAndroidCaretKeyboardLift 与 .phone-screen 的 transform）
+  useAndroidCaretKeyboardLift();
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [layout, setLayout] = useState<DesktopLayout>(DEFAULT_LAYOUT);
   // Dock is an ordered icon-id list (max DOCK_MAX), kept disjoint from `layout`.

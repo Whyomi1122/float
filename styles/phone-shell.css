@@ -1140,8 +1140,12 @@
        .app-root 被裁掉，底部栏随之顶回可视区。上移量可在「状态栏」弹窗里按设备调节，
        让它约等于真实状态栏高度即可铺满。0 = 不上移（iOS 等能全屏的浏览器保持 0）。 */
     margin-top: calc(-1 * var(--status-bar-drop, 0px));
-    /* 键盘不再用 transform 上移整块壳：壳高已跟随 --app-vh 实时收缩，
-       双重上移会让输入框在键盘弹完之后再被推一次。.phone-screen 不做纵向位移。 */
+    transform: translate3d(0, calc(-1 * var(--mobile-keyboard-lift, 0px)), 0);
+    /* 壳高 already 跟随 --app-vh 实时收缩，再给 transform 加过渡会让键盘弹起时
+       输入框"晚半拍"再归位（先弹键盘、后弹输入框）。这里只保留极短过渡，
+       避免设备旋转/状态栏偏移时生硬跳变。 */
+    transition: transform 0.02s linear;
+    will-change: transform;
   }
 
   .phone-shell-wrap .phone-case {
