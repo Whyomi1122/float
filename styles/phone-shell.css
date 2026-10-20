@@ -1092,20 +1092,29 @@
 
   :root {
     --phone-screen-width: 100vw;
-    --phone-screen-height: 100lvh;
+    /*
+     * ⚠️ 不要用 100lvh：
+     *    移动端 lvh 是「浏览器工具条收起时的最大高度」，比当前可见高度还大。
+     *    实测（Chrome / Edge Android）可视高度 668~716，而 100lvh 算出 772，
+     *    整个壳子比屏幕高 56~104px，贴底的输入栏直接被推出屏幕外。
+     *    --app-vh 由 JS 写入 visualViewport.height，键盘弹出时会同步缩小，
+     *    输入栏因此自然地贴住键盘上沿。
+     */
+    --app-vh: 100dvh;
+    --phone-screen-height: var(--app-vh);
   }
 
   html,
   body {
     overflow: hidden;
     width: 100%;
-    height: 100lvh;
+    height: var(--app-vh);
     background: var(--c-page-body-bg);
   }
 
   .app-root {
     width: 100vw;
-    height: 100lvh;
+    height: var(--app-vh);
     padding: 0;
     display: flex;
     justify-content: flex-start;
@@ -1161,7 +1170,7 @@
 
   .app-root.splash-root {
     width: 100vw;
-    height: 100lvh;
+    height: var(--app-vh);
     margin: 0;
     padding: 0;
     display: flex;

@@ -6,6 +6,7 @@ import { ChatReasoningVisibilityController } from "@/components/chat-reasoning-v
 import { CSSImportEnhancer } from "@/components/css-import-enhancer";
 import { PWAManifestInjector } from "@/components/pwa-manifest-injector";
 import { PWARegistrar } from "@/components/pwa-registrar";
+import { ViewportHeightSync } from "@/components/viewport-height-sync";
 import "../styles/fonts.css";
 import "./globals.css";
 
@@ -15,6 +16,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
+  // 键盘弹出时让布局跟着可视区域缩小，输入栏才能自然贴住键盘上沿
+  interactiveWidget: "resizes-content",
 };
 
 export const metadata: Metadata = {
@@ -40,6 +43,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body>
+        <ViewportHeightSync />
         <PWAManifestInjector />
         <PWARegistrar />
         <CSSImportEnhancer />

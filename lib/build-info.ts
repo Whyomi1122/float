@@ -18,9 +18,19 @@ export const BUILD_INFO = {
     /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
     commit: "2026.10.18",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.18-23",
+    version: "2026.10.20-1",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.20-1",
+            title: "修复输入栏看不见 · 客户端高度算错",
+            items: [
+                "根因：手机壳高度用了 100lvh，移动端这个值比可见高度大 56~104px，贴底的输入栏被推出屏幕外",
+                "改为用 visualViewport.height 写入 --app-vh，壳子高度永远等于真实可视区域",
+                "键盘弹出时壳子自动收缩，输入栏自然贴在键盘上方，不再需要整体上移补偿",
+                "viewport 加了 interactive-widget=resizes-content，让浏览器配合缩放布局",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.18-23",
             title: "回退键盘布局改动",
