@@ -3215,15 +3215,9 @@
 }
 
 .chat-info-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  color: var(--icon-color, var(--c-text-title));
-  background: color-mix(in srgb, var(--icon-color, var(--c-text-title)) 10%, var(--c-page-body-bg));
-  box-shadow: none;
+  /* 聊天页设置统一为无图标文字列表（与剧情页设置一致）：保留元素但完全隐藏、不占位。
+     这样所有 ChatInfoIcon 调用处无需改动，也不会出现缩进错位。 */
+  display: none;
 }
 
 .profile-settings-menu .menu-label-group > .menu-label {

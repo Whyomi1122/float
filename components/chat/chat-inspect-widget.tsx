@@ -170,6 +170,16 @@ export function ChatInspectWidget({ session, messages, characterName, isGroup, e
                                         value={isStory ? "剧情对话段（回复会清洗成微信格式）" : "普通聊天"}
                                         tone={isStory ? "good" : "plain"}
                                     />
+                                    {(delivery?.session.originContent ?? "") ? (
+                                        <div className="rounded-[12px] bg-black/[0.03] px-3 py-2.5">
+                                            <div className="text-[11px] text-black/40 mb-1">
+                                                从群像带回的台词
+                                            </div>
+                                            <div className="text-[13px] leading-[1.7] text-black/75 whitespace-pre-wrap break-words">
+                                                {delivery?.session.originContent}
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     <Row label="消息总数" value={`${messages.length} 条`} />
                                     <Row
                                         label="带剧情标记的消息"

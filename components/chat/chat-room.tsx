@@ -5584,7 +5584,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     <button className="page-back-btn" type="button" onClick={onBack} aria-label="返回">
                         <ChevronLeft size={24} strokeWidth={1.5} />
                     </button>
-                    <span className="page-title" style={{ position: 'relative' }}>
+                    <span className="page-title" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
+                        <span>
                         {offlineMode ? "线下 · " : ""}
                         {session.isGroup
                             ? `${session.groupName || "群聊"}(${(session.participantIds?.length || 0) + (session.isSpectator ? 0 : 1)})`
@@ -5594,6 +5595,10 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                 {offlineMode ? "线下生成中" : "对方正在输入"}<span className="chat-typing-dots"><i/><i/><i/></span>
                             </span>
                         )}
+                        </span>
+                        {isStoryDeliverySession ? (
+                            <span className="text-[10px] tracking-[0.08em] text-black/35 mt-0.5">剧情模式</span>
+                        ) : null}
                     </span>
                     <span className="page-header-right chat-room-header-actions">
                         <button

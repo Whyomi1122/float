@@ -1030,7 +1030,8 @@ function TurnActionBar({
   inline?: boolean;
   onReroll: () => void;
   onSwitch: (dir: -1 | 1) => void;
-  onEdit: () => void;
+  /** 编辑本幕。不传则不显示编辑按钮（如「来自聊天」卡）。 */
+  onEdit?: () => void;
   onDelete: () => void;
   /** 投递到聊天 App（仅 AI 幕、且有说话人时才提供）。 */
   onDeliver?: () => void;
@@ -1085,14 +1086,16 @@ function TurnActionBar({
           <RefreshCw size={12} className={isRerolling ? "animate-spin" : ""} />
         </button>
       )}
-      <button
-        type="button"
-        onClick={onEdit}
-        className="p-1 hover:text-black/70"
-        title="编辑本幕"
-      >
-        <Pencil size={12} />
-      </button>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="p-1 hover:text-black/70"
+          title="编辑本幕"
+        >
+          <Pencil size={12} />
+        </button>
+      )}
       {onDeliver && (
         <button
           type="button"
@@ -3881,6 +3884,33 @@ ${lastSpeakerNote}
                         }}
                       >
                         {turn.content}
+                      </div>
+                      {/* 底部操作栏：只保留删除（这段对话不是模型生成，重roll/投递无意义） */}
+                      <div
+                        className="flex items-center justify-end pt-2"
+                        style={{ paddingLeft: tpx(FRAME_BODY_INSET), paddingRight: tpx(FRAME_TEXT_INSET) }}
+                      >
+                        <TurnActionBar
+                          turn={turn}
+                          versions={[]}
+                          index={0}
+                          isRerolling={false}
+                          canReroll={false}
+                          inline
+                          onReroll={() => {}}
+                          onSwitch={() => {}}
+                          onDelete={() => {
+                            setConfirmState({
+                              title: "删除这段聊天记录？",
+                              message: "这一段「来自聊天」的对话将从剧情里移除，无法恢复。聊天室里的原记录不受影响。",
+                              confirmLabel: "删除",
+                              onConfirm: () => {
+                                removeOneRoll(turn.id);
+                                setConfirmState(null);
+                              },
+                            });
+                          }}
+                        />
                       </div>
                     </div>
                   </div>

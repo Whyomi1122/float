@@ -29,12 +29,18 @@ export function useViewportHeightVar(): void {
             root.style.setProperty("--app-vh", `${Math.round(h)}px`);
         };
 
+        /**
+         * 同步写入，不要放进 requestAnimationFrame。
+         * 键盘弹起的顺序是：系统先缩小 visualViewport（输入框被原生顶上），
+         * 若我们再延迟一帧才写 --app-vh，壳子要晚一帧才收，用户看到的就是
+         * 「输入法先弹出来、输入框后弹出来」。这里必须同帧跟上。
+         */
         const schedule = () => {
-            if (raf) return;
-            raf = window.requestAnimationFrame(() => {
+            if (raf) {
+                window.cancelAnimationFrame(raf);
                 raf = 0;
-                apply();
-            });
+            }
+            apply();
         };
 
         apply();
