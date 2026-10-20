@@ -45,7 +45,7 @@ type Sample = {
     docScroll: number;
 };
 
-const MAX_MS = 3000;
+const MAX_MS = 20000;
 
 function describeEl(el: Element | null): string {
     if (!el) return "-";
@@ -191,34 +191,46 @@ export default function KeyboardLabPage() {
             <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                 <button
                     onClick={start}
-                    disabled={recording}
                     style={{
-                        padding: "10px 18px",
+                        padding: "12px 20px",
                         borderRadius: 10,
-                        background: recording ? "#ddd" : "#111",
+                        background: "#111",
                         color: "#fff",
                         fontWeight: 600,
                     }}
                 >
-                    {recording ? "记录中…" : "开始记录"}
+                    {recording ? "重新开始" : "开始记录"}
                 </button>
                 <button
                     onClick={stop}
-                    disabled={!recording}
-                    style={{ padding: "10px 18px", borderRadius: 10, background: "#eee", fontWeight: 600 }}
+                    style={{
+                        padding: "12px 20px",
+                        borderRadius: 10,
+                        background: samples.length || recording ? "#111" : "#eee",
+                        color: samples.length || recording ? "#fff" : "#333",
+                        fontWeight: 700,
+                    }}
                 >
-                    停止
+                    {recording ? "停止（记录中）" : "停止"}
                 </button>
                 <button
                     onClick={() => {
                         setSamples([]);
                         setError("");
                     }}
-                    style={{ padding: "10px 18px", borderRadius: 10, background: "#eee", fontWeight: 600 }}
+                    style={{ padding: "12px 20px", borderRadius: 10, background: "#eee", fontWeight: 600 }}
                 >
                     清空
                 </button>
             </div>
+
+            <p style={{ color: "#888", marginBottom: 12, fontSize: 12 }}>
+                {recording
+                    ? `正在记录：已录 ${samples.length} 帧。去点输入框，等键盘弹完再收起，然后回来按「停止」。`
+                    : samples.length
+                      ? `已录 ${samples.length} 帧，可以复制下面的数据了。`
+                      : "还没开始。"}
+            </p>
 
             {summary && (
                 <div style={{ background: "#f6f6f6", padding: 12, borderRadius: 10, marginBottom: 12 }}>
@@ -233,8 +245,31 @@ export default function KeyboardLabPage() {
             {samples.length > 0 && (
                 <>
                     <div style={{ marginBottom: 6, fontWeight: 700 }}>精简版（只显示变化行）——复制这段给我</div>
+                    <button
+                        onClick={() => {
+                            const ta = document.querySelector("textarea[data-kb-out]") as HTMLTextAreaElement | null;
+                            if (!ta) return;
+                            ta.select();
+                            try {
+                                void navigator.clipboard.writeText(compact);
+                            } catch {
+                                document.execCommand("copy");
+                            }
+                        }}
+                        style={{
+                            padding: "8px 16px",
+                            borderRadius: 8,
+                            background: "#111",
+                            color: "#fff",
+                            fontWeight: 600,
+                            marginBottom: 8,
+                        }}
+                    >
+                        一键复制
+                    </button>
                     <textarea
                         readOnly
+                        data-kb-out
                         value={compact}
                         onFocus={() => {
                             // 本页自身也聚焦输入框，避免污染采样：仅在非记录态允许
