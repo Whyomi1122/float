@@ -37,16 +37,6 @@ function SolidBackIcon({ size = 17 }: { size?: number }) {
   );
 }
 
-/* 触发 AI 续写用的星芒图标，与群像一体式发送键的“空输入”态一致 */
-function SolidSparkleIcon({ size = 17 }: { size?: number }) {  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-      <path d="M20 3v4" />
-      <path d="M22 5h-4" />
-    </svg>
-  );
-}
-
 function MiniPhoneIcon({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -68,7 +58,6 @@ import {
   getStoryRenderSignature,
   rebuildStorySessionRenderCache,
 } from "@/lib/story-engine";
-import type { StoryOnlineMessage } from "@/lib/story-parser";
 import {
   createOrGetStorySession,
   createStoryGroup,
@@ -82,7 +71,9 @@ import {
   loadStorySessionsForOwner,
   loadStorySchemeRepository,
   pushStoryMessage,
+  resolveActiveQuickInputScheme,
   saveStorySchemeRepository,
+  STORY_DEFAULT_QUICK_INPUT_OPTIONS,
   STORY_SCHEME_REPO_EVENT,
   deleteStoryMessage,
   deleteStoryMessagesFrom,
@@ -96,7 +87,9 @@ import {
   type StoryGroup,
   type StoryOwnerType,
 } from "@/lib/story-storage";
-import { bumpChatSessionUnread, createOrGetSession, hydrateChatStorage, loadChatMessages, loadChatSessions, pushChatMessage } from "@/lib/chat-storage";
+import { createOrGetSession, hydrateChatStorage, loadChatMessages, loadChatSessions, markChatSessionRead, pushChatMessage } from "@/lib/chat-storage";
+import { flattenCompletionResult, generateChatCompletion } from "@/lib/chat-engine";
+import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 import { parseAIResponse } from "@/lib/rich-message-parser";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { STORY_CSS_EXAMPLE } from "@/lib/css-examples";
@@ -126,22 +119,11 @@ const STORY_VOICE_CACHE_LIMIT = 24;
 const STORY_ACTIVE_CHARACTER_KEY = "story-last-active-character-id";
 const STORY_ACTIVE_TARGET_KEY = "story-last-active-target-v1";
 const STORY_ACTIVE_PAGE_MAP_KEY = "story-active-page-map-v1";
-const FLOATING_BALL_POS_KEY = "story-floating-ball-pos-v1";
+const DEFAULT_AUTO_READING_SPEED = 36;
 
 registerKvMigration(STORY_ACTIVE_CHARACTER_KEY);
 registerKvMigration(STORY_ACTIVE_TARGET_KEY);
 registerKvMigration(STORY_ACTIVE_PAGE_MAP_KEY);
-registerKvMigration(FLOATING_BALL_POS_KEY);
-
-function loadFloatingBallPos(): { x: number; y: number } | null {
-  try {
-    const parsed = JSON.parse(kvGet(FLOATING_BALL_POS_KEY) || "null");
-    if (parsed && typeof parsed.x === "number" && typeof parsed.y === "number") {
-      return { x: parsed.x, y: parsed.y };
-    }
-  } catch {}
-  return null;
-}
 
 type StoryActiveTarget = { ownerType: StoryOwnerType; ownerId: string };
 
@@ -299,21 +281,76 @@ function StoryGeneratingIndicator({
 const StoryComposer = memo(function StoryComposer({
   isGenerating,
   appendRequest,
-  hasPendingDrafts,
+  voiceEnabled,
+  voicePlaying,
+  voiceProgress,
   onSend,
   onContinue,
+  autoReadingEnabled,
+  autoReading,
+  currentReadExpanded,
+  canAutoRead,
+  onToggleAutoReading,
+  onCurrentReadControl,
   onStop,
+  onPlayNext,
+  quickInputEnabled,
+  quickInputOptions,
+  quickInputCursor,
 }: {
   isGenerating: boolean;
   appendRequest: StoryComposerAppendRequest | null;
-  hasPendingDrafts: boolean;
+  voiceEnabled: boolean;
+  voicePlaying: boolean;
+  voiceProgress: { current: number; total: number };
   onSend: (text: string) => void;
   onContinue: () => void;
+  autoReadingEnabled: boolean;
+  autoReading: boolean;
+  currentReadExpanded: boolean;
+  canAutoRead: boolean;
+  onToggleAutoReading: () => void;
+  onCurrentReadControl: () => void;
   onStop: () => void;
+  onPlayNext: () => void;
+  quickInputEnabled: boolean;
+  quickInputOptions: string[];
+  quickInputCursor: "left" | "middle" | "right";
 }) {
   const [draft, setDraft] = useState("");
+  const [quickPanelOpen, setQuickPanelOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastAppendIdRef = useRef<number | null>(null);
+  // 记录输入框最近一次选区/光标：点快捷选项时按钮会抢走焦点，
+  // 这时 selectionStart 已经不可靠，用这个 ref 兜底
+  const lastSelectionRef = useRef<{ start: number; end: number } | null>(null);
+
+  const rememberSelection = (el: HTMLTextAreaElement) => {
+    lastSelectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
+  };
+
+  const insertQuickOption = (option: string) => {
+    const sel = lastSelectionRef.current;
+    const start = Math.min(sel ? sel.start : draft.length, draft.length);
+    const end = Math.max(start, Math.min(sel ? sel.end : draft.length, draft.length));
+    const nextDraft = draft.slice(0, start) + option + draft.slice(end);
+    // 光标落点：左边=插入内容之前；中间=成对符号正中（单字符视作末尾）；右边=插入内容之后
+    const caretOffset = quickInputCursor === "left"
+      ? 0
+      : quickInputCursor === "right"
+        ? option.length
+        : Math.ceil(option.length / 2);
+    const caret = start + caretOffset;
+    setDraft(nextDraft);
+    lastSelectionRef.current = { start: caret, end: caret };
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      resizeStoryComposerTextarea(textarea);
+      textarea.focus({ preventScroll: true });
+      textarea.setSelectionRange(caret, caret);
+    });
+  };
 
   useEffect(() => {
     if (!appendRequest || appendRequest.id === lastAppendIdRef.current) return;
@@ -333,7 +370,7 @@ const StoryComposer = memo(function StoryComposer({
       return;
     }
     const text = draft.trim();
-    if (!text && !hasPendingDrafts) return;
+    if (!text) return;
     setDraft("");
     requestAnimationFrame(() => {
       const textarea = textareaRef.current;
@@ -343,14 +380,92 @@ const StoryComposer = memo(function StoryComposer({
   };
 
   return (
-    <div className="story-composer">
+    <div className="story-composer" data-quick-input={quickInputEnabled ? "true" : undefined}>
+      {quickInputEnabled && quickPanelOpen && quickInputOptions.length > 0 ? (
+        <div className="story-quick-panel" role="toolbar" aria-label="快捷输入面板">
+          {quickInputOptions.map((option, index) => (
+            <button
+              key={`${index}-${option}`}
+              type="button"
+              className="story-quick-chip"
+              onClick={() => insertQuickOption(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="story-sequence-play"
+        data-enabled={voiceEnabled ? "true" : undefined}
+        data-playing={voicePlaying ? "true" : undefined}
+        onClick={onPlayNext}
+        disabled={voicePlaying}
+        aria-label="播放下一句角色对白"
+        title="播放下一句"
+      >
+        <span aria-hidden="true">{voicePlaying ? "…" : "▶"}</span>
+        {voiceProgress.total > 0 ? (
+          <small>{voiceProgress.current}/{voiceProgress.total}</small>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        className="story-continue-btn"
+        onClick={onContinue}
+        disabled={isGenerating}
+      >
+        续写
+      </button>
+      {quickInputEnabled ? (
+        <button
+          type="button"
+          className="story-quick-input-btn"
+          data-open={quickPanelOpen ? "true" : undefined}
+          onClick={() => setQuickPanelOpen((open) => !open)}
+          aria-expanded={quickPanelOpen}
+          aria-label={quickPanelOpen ? "收起快捷输入面板" : "展开快捷输入面板"}
+        >
+          输入
+        </button>
+      ) : null}
+      {autoReadingEnabled ? (
+        <>
+          <button
+            type="button"
+            className="story-auto-read-btn"
+            data-reading={autoReading ? "true" : undefined}
+            onClick={onToggleAutoReading}
+            disabled={!autoReading && !canAutoRead}
+            aria-label={autoReading ? "停止自动阅读" : "从最新角色消息开始自动阅读"}
+          >
+            {autoReading ? "停止" : "自动"}
+          </button>
+          <button
+            type="button"
+            className="story-current-read-btn"
+            data-expanded={currentReadExpanded ? "true" : undefined}
+            onClick={onCurrentReadControl}
+            disabled={!canAutoRead}
+            aria-label={currentReadExpanded ? "从当前位置开始自动阅读" : "展开当前位置阅读按钮"}
+            title="从当前位置开始阅读"
+          >
+            <BookOpenIcon width={14} height={14} aria-hidden="true" />
+            {currentReadExpanded ? <span>从当前位置开始阅读</span> : null}
+          </button>
+        </>
+      ) : null}
       <textarea
         ref={textareaRef}
         rows={1}
         value={draft}
-        onFocus={(event) => { resizeStoryComposerTextarea(event.currentTarget); }}
+        onFocus={(event) => { resizeStoryComposerTextarea(event.currentTarget); rememberSelection(event.currentTarget); }}
+        onSelect={(event) => rememberSelection(event.currentTarget)}
+        onKeyUp={(event) => rememberSelection(event.currentTarget)}
         onChange={(event) => {
           setDraft(event.target.value);
+          rememberSelection(event.currentTarget);
           resizeStoryComposerTextarea(event.currentTarget);
         }}
         onKeyDown={(event) => {
@@ -361,35 +476,15 @@ const StoryComposer = memo(function StoryComposer({
         }}
         placeholder="你该怎么回应"
       />
-      {/* 一体式发送键：有输入 → 发送；空输入 → 触发 AI 续写（对齐群像） */}
-      {isGenerating ? (
-        <button
-          className="story-send-btn is-generating"
-          onClick={submit}
-          aria-label="停止剧情生成"
-          title="停止剧情生成"
-        >
-          <StopIcon width={17} height={17} />
-        </button>
-      ) : draft.trim() || hasPendingDrafts ? (
-        <button
-          className="story-send-btn"
-          onClick={submit}
-          aria-label="发送剧情输入"
-          title={draft.trim() ? "发送" : "提交悬浮小手机的线上消息"}
-        >
-          <PaperAirplaneIcon width={17} height={17} className="story-send-icon" />
-        </button>
-      ) : (
-        <button
-          className="story-send-btn is-trigger"
-          onClick={onContinue}
-          aria-label="触发 AI 续写"
-          title="触发 AI 续写"
-        >
-          <SolidSparkleIcon size={17} />
-        </button>
-      )}
+      <button
+        className={`story-send-btn${isGenerating ? " is-generating" : ""}`}
+        onClick={submit}
+        aria-label={isGenerating ? "停止剧情生成" : "发送剧情输入"}
+        title={isGenerating ? "停止剧情生成" : "发送剧情输入"}
+        disabled={!isGenerating && !draft.trim()}
+      >
+        {isGenerating ? <StopIcon width={17} height={17} /> : <PaperAirplaneIcon width={17} height={17} className="story-send-icon" />}
+      </button>
     </div>
   );
 });
@@ -401,11 +496,9 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [schemeRepoVersion, setSchemeRepoVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [floatingPhoneOpen, setFloatingPhoneOpen] = useState(false);
-  const [floatingBallPos, setFloatingBallPos] = useState<{ x: number; y: number } | null>(null);
   const [floatingGroupSessionId, setFloatingGroupSessionId] = useState("");
   const [floatingChatDraft, setFloatingChatDraft] = useState("");
-  // 悬浮小手机“发送”只是存草稿，等剧情页触发键时才连同剧情输入一起提交进剧情。
-  const [floatingPendingDrafts, setFloatingPendingDrafts] = useState<string[]>([]);
+  const [floatingChatGenerating, setFloatingChatGenerating] = useState(false);
   const [floatingChatVersion, setFloatingChatVersion] = useState(0);
   const [activeCharacterId, setActiveCharacterId] = useState<string>("");
   const [activeGroupId, setActiveGroupId] = useState<string>("");
@@ -432,8 +525,9 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [quickStoryIndependent, setQuickStoryIndependent] = useState(false);
   const [playingVoiceSegmentId, setPlayingVoiceSegmentId] = useState<string | null>(null);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
-  // [临时诊断] 线上消息投递过程，确认后移除。
-  const [onlineDebug, setOnlineDebug] = useState<string | null>(null);
+  const [voiceSequenceProgress, setVoiceSequenceProgress] = useState({ current: 0, total: 0 });
+  const [autoReading, setAutoReading] = useState(false);
+  const [currentReadExpanded, setCurrentReadExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const shellInnerRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
@@ -454,6 +548,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const voicePlaybackRef = useRef<{ abort: () => void } | null>(null);
   const voiceRequestIdRef = useRef(0);
   const voiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceSequenceIndexRef = useRef(0);
   const miniPhoneScrollRef = useRef<HTMLDivElement | null>(null);
   const autoStartedSessionIdsRef = useRef(new Set<string>());
 
@@ -556,10 +651,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
 
   useEffect(() => {
     mountedRef.current = true;
-    // 剧情 App 需要访问聊天 App 的会话/消息（悬浮小手机、线上消息投递），启动时先 hydrate 一次。
-    void hydrateChatStorage().then(() => {
-      if (mountedRef.current) setFloatingChatVersion((value) => value + 1);
-    });
     return () => {
       mountedRef.current = false;
       voiceRequestIdRef.current += 1;
@@ -572,6 +663,8 @@ export function StoryApp({ onClose }: StoryAppProps) {
   }, []);
 
   useEffect(() => {
+    voiceSequenceIndexRef.current = 0;
+    setVoiceSequenceProgress({ current: 0, total: 0 });
     voiceRequestIdRef.current += 1;
     voicePlaybackRef.current?.abort();
     voicePlaybackRef.current = null;
@@ -583,54 +676,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
     const node = miniPhoneScrollRef.current;
     if (!node) return;
     node.scrollTop = node.scrollHeight;
-  }, [floatingChatVersion, floatingPhoneOpen]);
-
-  useEffect(() => {
-    const stored = loadFloatingBallPos();
-    if (stored) setFloatingBallPos(stored);
-  }, []);
-
-  function handleFloatingBallPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
-    const ball = event.currentTarget;
-    const host = shellInnerRef.current;
-    if (!host) return;
-    const hostRect = host.getBoundingClientRect();
-    const ballRect = ball.getBoundingClientRect();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const originLeft = ballRect.left - hostRect.left;
-    const originTop = ballRect.top - hostRect.top;
-    let moved = false;
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      if (!moved && Math.hypot(dx, dy) < 4) return;
-      moved = true;
-      const maxLeft = hostRect.width - ballRect.width;
-      const maxTop = hostRect.height - ballRect.height;
-      const nextLeft = Math.min(Math.max(originLeft + dx, 0), Math.max(maxLeft, 0));
-      const nextTop = Math.min(Math.max(originTop + dy, 0), Math.max(maxTop, 0));
-      setFloatingBallPos({ x: nextLeft, y: nextTop });
-    };
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      if (!moved) {
-        setFloatingChatVersion((value) => value + 1);
-        setFloatingPhoneOpen(true);
-        return;
-      }
-      setFloatingBallPos((current) => {
-        if (current) kvSet(FLOATING_BALL_POS_KEY, JSON.stringify(current));
-        return current;
-      });
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  }
+  }, [floatingChatGenerating, floatingChatVersion, floatingPhoneOpen]);
 
   function activateStorySession(session: StorySession) {
     setActiveSessionId(session.id);
@@ -681,6 +727,11 @@ export function StoryApp({ onClose }: StoryAppProps) {
       setReady(true);
     });
   }, []);
+
+  useEffect(() => {
+    setAutoReading(false);
+    setCurrentReadExpanded(false);
+  }, [activeSessionId]);
 
   // Listen for live CSS updates from 小卷
   useEffect(() => {
@@ -809,6 +860,74 @@ export function StoryApp({ onClose }: StoryAppProps) {
     return messages.slice(-visibleMessageCount);
   }, [messages, visibleMessageCount]);
   const hasMoreMessages = visibleMessages.length < messages.length;
+
+  const startAutoReading = useCallback((from: "latest" | "current") => {
+    const node = scrollRef.current;
+    if (!node || messages.length === 0) return;
+    autoBottomLockRef.current = false;
+
+    if (from === "latest" && latestAssistantMessageId) {
+      const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(latestAssistantMessageId)
+        : latestAssistantMessageId.replace(/["\\]/g, "\\$&");
+      const latest = node.querySelector<HTMLElement>(`[data-story-message-id="${escapedId}"]`);
+      if (latest) {
+        const nodeRect = node.getBoundingClientRect();
+        const latestRect = latest.getBoundingClientRect();
+        const target = node.scrollTop + latestRect.top - nodeRect.top - node.clientHeight / 2;
+        node.scrollTop = Math.max(0, Math.min(node.scrollHeight - node.clientHeight, Math.round(target)));
+      }
+    }
+
+    setCurrentReadExpanded(false);
+    requestAnimationFrame(() => setAutoReading(true));
+  }, [latestAssistantMessageId, messages.length]);
+
+  useEffect(() => {
+    if (!autoReading) return;
+    const node = scrollRef.current;
+    if (!node) {
+      setAutoReading(false);
+      return;
+    }
+
+    const speed = Math.max(12, Math.min(120, uiPrefs.autoReadingSpeed ?? DEFAULT_AUTO_READING_SPEED));
+    const previousScrollBehavior = node.style.getPropertyValue("scroll-behavior");
+    const previousScrollBehaviorPriority = node.style.getPropertyPriority("scroll-behavior");
+    // iOS PWA 会让 CSS smooth scrolling 和逐帧 scrollTop 互相抢位置。
+    node.style.setProperty("scroll-behavior", "auto", "important");
+    let frame = 0;
+    let previousTime = performance.now();
+    // Safari 会把不足 1px 的 scrollTop 写入取整；单独累计目标位置后再写整数，
+    // 慢速（默认每帧约 0.6px）也能稳定前进。
+    let desiredScrollTop = node.scrollTop;
+    const tick = (time: number) => {
+      const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+      if (desiredScrollTop >= maxScrollTop - 1) {
+        node.scrollTop = maxScrollTop;
+        setAutoReading(false);
+        return;
+      }
+      const elapsed = Math.min(64, time - previousTime);
+      previousTime = time;
+      desiredScrollTop = Math.min(maxScrollTop, desiredScrollTop + (speed * elapsed) / 1000);
+      node.scrollTop = Math.floor(desiredScrollTop);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (previousScrollBehavior) {
+        node.style.setProperty("scroll-behavior", previousScrollBehavior, previousScrollBehaviorPriority);
+      } else {
+        node.style.removeProperty("scroll-behavior");
+      }
+    };
+  }, [autoReading, uiPrefs.autoReadingSpeed]);
+
+  useEffect(() => {
+    if (!uiPrefs.autoReadingEnabled && autoReading) setAutoReading(false);
+  }, [autoReading, uiPrefs.autoReadingEnabled]);
 
   const loadMoreMessages = useCallback(() => {
     if (!hasMoreMessages) return;
@@ -1191,39 +1310,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
     voiceNoticeTimerRef.current = setTimeout(() => setVoiceNotice(null), 2600);
   }, []);
 
-  // 把剧情正文里声明的“线上消息”投递到聊天 App（写消息 + 未读红点），并在剧情页弹提示。
-  // 记忆保持“一份”：消息只是写进聊天 App 的同一份记录，不再另存。
-  const deliverOnlineMessages = useCallback((events: StoryOnlineMessage[], currentCharId: string) => {
-    if (!events.length) { setOnlineDebug("events=0"); return; }
-    const sessions = loadChatSessions();
-    let delivered = 0;
-    const log: string[] = [`events=${events.length}`, `sessions=${sessions.length}`, `charId=${currentCharId}`, `charName=${currentCharacter?.name || "?"}`];
-    for (const event of events) {
-      let session: ReturnType<typeof loadChatSessions>[number] | undefined;
-      if (event.kind === "group") {
-        session = sessions.find((item) => item.isGroup && (item.groupName || "") === event.target)
-          || sessions.find((item) => item.isGroup && (item.groupName || "").includes(event.target))
-          || sessions.find((item) => item.isGroup && item.participantIds?.includes(currentCharId));
-      } else {
-        session = sessions.find((item) => !item.isGroup && item.contactId === currentCharId)
-          || sessions.find((item) => !item.isGroup && currentCharacter?.id && item.contactId === currentCharacter.id);
-      }
-      log.push(`[${event.kind}/${event.target}]→${session ? session.id : "NULL"}`);
-      if (!session) continue;
-      // 内容原样投递（语言随正文，不翻译、不拆解）
-      const content = event.content.trim();
-      if (!content) continue;
-      pushChatMessage({ sessionId: session.id, role: "assistant", content, origin: "story_online" });
-      bumpChatSessionUnread(session.id, 1);
-      delivered += 1;
-    }
-    setOnlineDebug(log.join(" ") + ` delivered=${delivered}`);
-    if (delivered > 0) {
-      setFloatingChatVersion((value) => value + 1);
-      showVoiceNotice(delivered === 1 ? "他给你发来一条线上消息" : `收到 ${delivered} 条线上消息`);
-    }
-  }, [currentCharacter?.id, currentCharacter?.name, showVoiceNotice]);
-
   const playStoryVoice = useCallback(async (segment: StoryVoiceSegment): Promise<boolean> => {
     if (!activeCharacterId || !segment.text.trim()) return false;
 
@@ -1284,26 +1370,69 @@ export function StoryApp({ onClose }: StoryAppProps) {
     void playStoryVoice(segment);
   }, [playStoryVoice]);
 
+  const collectStoryVoiceSegments = useCallback((): StoryVoiceSegment[] => {
+    const stage = scrollRef.current;
+    if (!stage) return [];
+    const assistantRows = Array.from(stage.querySelectorAll<HTMLElement>('.story-row[data-role="assistant"]'));
+    const latestRowWithDialogue = assistantRows.reverse().find((row) => row.querySelector("[data-story-voice-segment]"));
+    if (!latestRowWithDialogue) return [];
+    return Array.from(latestRowWithDialogue.querySelectorAll<HTMLElement>("[data-story-voice-segment]")).flatMap((element) => {
+      const id = element.dataset.storyVoiceSegment;
+      const encodedText = element.dataset.storyVoiceText;
+      if (!id || !encodedText) return [];
+      return [{
+        id,
+        text: decodeURIComponent(encodedText),
+        speaker: element.dataset.storyVoiceSpeaker
+          ? decodeURIComponent(element.dataset.storyVoiceSpeaker)
+          : undefined,
+      }];
+    });
+  }, []);
+
+  const handlePlayNextStoryVoice = useCallback(async () => {
+    if (!uiPrefs.voiceEnabled) {
+      showVoiceNotice("请先在剧情语音中开启语音");
+      return;
+    }
+    if (playingVoiceSegmentId) return;
+    const segments = collectStoryVoiceSegments();
+    if (segments.length === 0) {
+      showVoiceNotice("当前页面还没有可播放的角色对白");
+      return;
+    }
+
+    let index = voiceSequenceIndexRef.current;
+    if (index >= segments.length) {
+      const restart = window.confirm("已经播放完，是否从头开始？");
+      if (!restart) return;
+      index = 0;
+      voiceSequenceIndexRef.current = 0;
+    }
+    setVoiceSequenceProgress({ current: index + 1, total: segments.length });
+    const completed = await playStoryVoice(segments[index]);
+    if (!completed) return;
+
+    const nextIndex = index + 1;
+    if (nextIndex < segments.length) {
+      voiceSequenceIndexRef.current = nextIndex;
+      return;
+    }
+
+    voiceSequenceIndexRef.current = segments.length;
+  }, [collectStoryVoiceSegments, playStoryVoice, playingVoiceSegmentId, showVoiceNotice, uiPrefs.voiceEnabled]);
+
   async function handleSend(userTextInput: string) {
     const userText = userTextInput.trim();
-    const hasPendingDrafts = floatingPendingDrafts.some((item) => item.trim());
-    if (!activeSessionId || (!userText && !hasPendingDrafts) || isGenerating) return;
+    if (!activeSessionId || !userText || isGenerating) return;
     const sessionId = activeSessionId;
     const characterId = activeCharacterId;
-
-    // 先把悬浮小手机待提交的草稿写入聊天 App（线上消息），拿到注入文本
-    const committedDrafts = commitFloatingPendingDrafts(sessionId, characterId);
-    // 顺序：线上（悬浮）在前，剧情输入框在后，合并成一条用户消息
-    const injectedParts: string[] = [];
-    if (committedDrafts.length) injectedParts.push(`【线上聊天】\n${committedDrafts.map((t) => `我：${t}`).join("\n")}`);
-    if (userText) injectedParts.push(userText);
-    const committedUserText = injectedParts.join("\n\n").trim();
 
     const userMessage = pushStoryMessage({
       sessionId,
       role: "user",
-      rawContent: committedUserText,
-      renderedContent: committedUserText,
+      rawContent: userText,
+      renderedContent: userText,
     });
     setMessages((prev) => [...prev, userMessage]);
     setStorageVersion((value) => value + 1);
@@ -1341,14 +1470,6 @@ export function StoryApp({ onClose }: StoryAppProps) {
         setMessages(loadStoryMessages(sessionId)); // 按会话从存储重读，杜绝跨会话串消息
       }
       setStorageVersion((value) => value + 1);
-
-      // 剧情里角色发出的“线上消息”→ 投递到聊天 App（带未读红点 + 剧情页提示）
-      if (result.onlineMessages?.length && !currentSession?.independentStory) {
-        void (async () => {
-          await hydrateChatStorage(); // 确保会话缓存已就绪，否则找不到目标会话
-          deliverOnlineMessages(result.onlineMessages!, characterId);
-        })();
-      }
 
       const memoryCharacterIds = currentSession?.participantIds?.length ? currentSession.participantIds : [characterId];
       const storyCharacters = memoryCharacterIds
@@ -1456,34 +1577,89 @@ export function StoryApp({ onClose }: StoryAppProps) {
     });
   }, [activeCharacterId, activeSessionId, currentSession?.autoStartPrompt, ready]);
 
-  // 悬浮小手机的“发送”只把内容存为待提交草稿（不生成、不入剧情）。真正的生成与写入发生在剧情页触发键。
-  function handleFloatingChatSend() {
+  async function handleFloatingChatSend() {
     const text = floatingChatDraft.trim();
-    if (!text) return;
-    setFloatingPendingDrafts((prev) => [...prev, text]);
+    if (!text || !activeCharacterId || floatingChatGenerating) return;
+    const storySessionId = activeSessionId;
+    const characterId = activeCharacterId;
+    const characterName = currentCharacter?.name || "角色";
+    const userName = userIdentity?.name || "用户";
     setFloatingChatDraft("");
-  }
-
-  // 剧情页触发（本轮触发键）：把悬浮小手机的待提交草稿写入聊天 App，并返回用于注入剧情的文本。
-  // 顺序：线上（悬浮）在前、剧情框在后；只写聊天 App，不生成角色的线上回复（回复由剧情本轮一起产生）。
-  function commitFloatingPendingDrafts(storySessionId: string, characterId: string): string[] {
-    const drafts = floatingPendingDrafts.filter((item) => item.trim());
-    if (!drafts.length) return [];
-    const lines: string[] = [];
-    void (async () => {
+    setFloatingChatGenerating(true);
+    try {
       await hydrateChatStorage();
       const chatSession = activeGroup ? floatingChatSession : createOrGetSession(characterId);
-      if (chatSession) {
-        const userName = userIdentity?.name || "用户";
-        drafts.forEach((text) => {
-          pushChatMessage({ sessionId: chatSession.id, role: "user", content: text, origin: "story_floating_phone" });
-          lines.push(`${userName}：${text}`);
+      if (!chatSession) throw new Error("若没有群聊建议先建一个群聊");
+      pushChatMessage({ sessionId: chatSession.id, role: "user", content: text, origin: "story_floating_phone" });
+      setFloatingChatVersion((value) => value + 1);
+
+      const history = loadChatMessages(chatSession.id);
+      const replyLines: string[] = [];
+      if (activeGroup) {
+        const results = await generateGroupChatCompletion(chatSession, history, undefined, { appTags: ["group_chat", "text"] });
+        if (!results.length) throw new Error("群聊没有返回可显示的聊天内容");
+        results.forEach((result) => {
+          const parsed = parseAIResponse(result.responseText, []);
+          const parts = parsed.parts.length ? parsed.parts : [{ content: result.responseText }];
+          parts.forEach((part, index) => {
+            pushChatMessage({
+              sessionId: chatSession.id, role: "assistant", content: part.content,
+              mediaType: part.mediaType, mediaData: part.mediaData,
+              senderCharacterId: result.characterId, senderName: result.characterName,
+              origin: "story_floating_phone",
+              statusPanel: index === 0 ? (parsed.statusPanel || undefined) : undefined,
+              innerMonologue: index === 0 ? (parsed.innerMonologue || undefined) : undefined,
+              stateValues: index === 0 && parsed.stateValues.length ? parsed.stateValues : undefined,
+              freshStateValues: index === 0 && parsed.freshStateValues.length ? parsed.freshStateValues : undefined,
+            });
+            const visible = part.content.trim() || part.mediaData?.label || (part.mediaType ? `[${part.mediaType}]` : "");
+            if (visible) replyLines.push(`${result.characterName}：${visible}`);
+          });
         });
-        setFloatingChatVersion((value) => value + 1);
+      } else {
+        const completion = await generateChatCompletion(chatSession, history, { appTags: ["chat", "text"], appId: "chat" });
+        const rawReply = flattenCompletionResult(completion).trim();
+        if (!rawReply) throw new Error("角色没有返回可显示的聊天内容");
+        const previousState = [...history].reverse().find((item) => item.stateValues?.length)?.stateValues || [];
+        const parsed = parseAIResponse(rawReply, previousState);
+        const parts = parsed.parts.length ? parsed.parts : [{ content: rawReply }];
+        parts.forEach((part, index) => {
+          pushChatMessage({
+            sessionId: chatSession.id, role: "assistant", content: part.content,
+            mediaType: part.mediaType, mediaData: part.mediaData,
+            senderCharacterId: characterId, senderName: characterName, origin: "story_floating_phone",
+            statusPanel: index === 0 ? (parsed.statusPanel || undefined) : undefined,
+            innerMonologue: index === 0 ? (parsed.innerMonologue || undefined) : undefined,
+            stateValues: index === 0 && parsed.stateValues.length ? parsed.stateValues : undefined,
+            freshStateValues: index === 0 && parsed.freshStateValues.length ? parsed.freshStateValues : undefined,
+          });
+          const visible = part.content.trim() || part.mediaData?.label || (part.mediaType ? `[${part.mediaType}]` : "");
+          if (visible) replyLines.push(`${characterName}：${visible}`);
+        });
       }
-    })();
-    setFloatingPendingDrafts([]);
-    return drafts;
+
+      const stamp = new Date().toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      const transcript = [
+        `【线上聊天 · ${stamp}】`,
+        `${userName}：${text}`,
+        ...replyLines,
+      ].join("\n");
+      if (storySessionId) {
+        pushStoryMessage({ sessionId: storySessionId, role: "system", rawContent: transcript, renderedContent: transcript });
+        if (activeSessionIdRef.current === storySessionId) setMessages(loadStoryMessages(storySessionId));
+      }
+      // 这轮聊天就在悬浮小手机里完成，用户已经看过，不在剧情 APP 外保留未读红点。
+      markChatSessionRead(chatSession.id);
+      setFloatingChatVersion((value) => value + 1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "悬浮聊天发送失败";
+      const chatSession = floatingChatSession || loadChatSessions().find((item) => item.contactId === characterId && !item.isGroup);
+      if (chatSession) pushChatMessage({ sessionId: chatSession.id, role: "system", content: `⚠️ ${message}` });
+      setFloatingChatVersion((value) => value + 1);
+      showVoiceNotice(message);
+    } finally {
+      setFloatingChatGenerating(false);
+    }
   }
 
   function handleStopGeneration() {
@@ -1674,6 +1850,11 @@ export function StoryApp({ onClose }: StoryAppProps) {
   }
 
   // 快捷输入面板：选项与光标位置来自公用仓库中当前角色选中的方案；选项全空时回落默认符号
+  const activeQuickInputScheme = resolveActiveQuickInputScheme(uiPrefs, schemeRepo);
+  const quickInputOptionsRaw = activeQuickInputScheme.options.filter((item) => item.trim());
+  const quickInputOptions = quickInputOptionsRaw.length > 0 ? quickInputOptionsRaw : STORY_DEFAULT_QUICK_INPUT_OPTIONS;
+  const quickInputCursor = activeQuickInputScheme.cursor ?? "middle";
+
   if (!ready) return null;
 
   if (characters.length === 0) {
@@ -2009,29 +2190,35 @@ export function StoryApp({ onClose }: StoryAppProps) {
         <div className="story-voice-notice" role="status">{voiceNotice}</div>
       ) : null}
 
-      {onlineDebug ? (
-        <div style={{ position: "absolute", left: 6, right: 6, bottom: 4, zIndex: 999, fontSize: 10, lineHeight: 1.3, color: "#b91c1c", background: "rgba(255,255,255,.92)", border: "1px solid #fca5a5", borderRadius: 6, padding: "4px 6px", wordBreak: "break-all" }} onClick={() => setOnlineDebug(null)}>
-          [online-debug] {onlineDebug}（点我关闭）
-        </div>
-      ) : null}
-
       <StoryComposer
         isGenerating={isGenerating}
         appendRequest={composerAppendRequest}
-        hasPendingDrafts={floatingPendingDrafts.some((item) => item.trim())}
+        voiceEnabled={Boolean(uiPrefs.voiceEnabled)}
+        voicePlaying={Boolean(playingVoiceSegmentId)}
+        voiceProgress={voiceSequenceProgress}
         onSend={(text) => { void handleSend(text); }}
         onContinue={() => { void handleSend("继续"); }}
+        autoReadingEnabled={Boolean(uiPrefs.autoReadingEnabled)}
+        autoReading={autoReading}
+        currentReadExpanded={currentReadExpanded}
+        canAutoRead={messages.length > 0}
+        onToggleAutoReading={() => {
+          if (autoReading) setAutoReading(false);
+          else startAutoReading("latest");
+        }}
+        onCurrentReadControl={() => {
+          if (!currentReadExpanded) setCurrentReadExpanded(true);
+          else startAutoReading("current");
+        }}
         onStop={handleStopGeneration}
+        onPlayNext={() => { void handlePlayNextStoryVoice(); }}
+        quickInputEnabled={Boolean(uiPrefs.quickInputEnabled)}
+        quickInputOptions={quickInputOptions}
+        quickInputCursor={quickInputCursor}
       />
 
       {storySettings.floatingPhoneEnabled ? (
-        <button
-          className="story-floating-phone-ball"
-          type="button"
-          onPointerDown={handleFloatingBallPointerDown}
-          style={floatingBallPos ? { left: floatingBallPos.x, top: floatingBallPos.y, right: "auto", bottom: "auto" } : undefined}
-          aria-label="打开悬浮小手机"
-        ><MiniPhoneIcon size={18} /></button>
+        <button className="story-floating-phone-ball" type="button" onClick={() => { setFloatingChatVersion((value) => value + 1); setFloatingPhoneOpen(true); }} aria-label="打开悬浮小手机"><MiniPhoneIcon size={18} /></button>
       ) : null}
       {floatingPhoneOpen ? (
         <div className="story-mini-phone-overlay" onClick={() => setFloatingPhoneOpen(false)}>
@@ -2043,22 +2230,13 @@ export function StoryApp({ onClose }: StoryAppProps) {
               ) : <p className="story-mini-phone-group-empty">若没有群聊建议先建一个群聊</p>
             ) : null}
             <div className="story-mini-phone-messages" ref={miniPhoneScrollRef}>
-              {floatingChatMessages.length || floatingPendingDrafts.length ? (
-                <>
-                  {floatingChatMessages.map((message) => (
-                    <div key={message.id} data-role={message.role}>
-                      <small>{message.role === "user" ? (userIdentity?.name || "我") : (message.senderName || currentCharacter.name)} · {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
-                      <p>{message.content || message.mediaData?.label || (message.mediaType ? `[${message.mediaType}]` : "")}</p>
-                    </div>
-                  ))}
-                  {floatingPendingDrafts.map((text, index) => (
-                    <div key={`pending-${index}`} data-role="user" data-pending="true">
-                      <small>{userIdentity?.name || "我"} · 待发送</small>
-                      <p>{text}</p>
-                    </div>
-                  ))}
-                </>
-              ) : <p className="story-mini-phone-empty">{activeGroup && !floatingChatSession ? "若没有群聊建议先建一个群聊" : "还没有线上聊天记录"}</p>}
+              {floatingChatMessages.length ? floatingChatMessages.map((message) => (
+                <div key={message.id} data-role={message.role}>
+                  <small>{message.role === "user" ? (userIdentity?.name || "我") : (message.senderName || currentCharacter.name)} · {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
+                  <p>{message.content || message.mediaData?.label || (message.mediaType ? `[${message.mediaType}]` : "")}</p>
+                </div>
+              )) : <p className="story-mini-phone-empty">{activeGroup && !floatingChatSession ? "若没有群聊建议先建一个群聊" : "还没有线上聊天记录"}</p>}
+              {floatingChatGenerating ? <div className="story-mini-phone-typing"><i /><i /><i /></div> : null}
             </div>
             <div className="story-mini-phone-composer">
               <textarea
@@ -2068,14 +2246,14 @@ export function StoryApp({ onClose }: StoryAppProps) {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    handleFloatingChatSend();
+                    void handleFloatingChatSend();
                   }
                 }}
                 placeholder={activeGroup && !floatingChatSession ? "若没有群聊建议先建一个群聊" : "发消息…"}
-                disabled={Boolean(activeGroup && !floatingChatSession)}
+                disabled={floatingChatGenerating || Boolean(activeGroup && !floatingChatSession)}
               />
-              <button type="button" onClick={handleFloatingChatSend} disabled={!floatingChatDraft.trim() || Boolean(activeGroup && !floatingChatSession)} aria-label="存为待发送消息">
-                <PaperAirplaneIcon width={14} />
+              <button type="button" onClick={() => { void handleFloatingChatSend(); }} disabled={!floatingChatDraft.trim() || floatingChatGenerating || Boolean(activeGroup && !floatingChatSession)} aria-label="发送消息">
+                {floatingChatGenerating ? <span>···</span> : <PaperAirplaneIcon width={14} />}
               </button>
             </div>
           </section>

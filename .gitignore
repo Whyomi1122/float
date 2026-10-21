@@ -28,6 +28,3 @@ tools/weixin-local-assistant/config.txt
 *.ts.net.crt
 *.ts.net.key
 /public/models/world-builder/
-
-# local backups (not for repo)
-_backup/

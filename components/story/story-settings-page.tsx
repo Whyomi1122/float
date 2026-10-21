@@ -9,10 +9,11 @@ import { StoryPaginationManager, type StoryBranchCreateInput } from "@/component
 import { downloadFile } from "@/lib/download-utils";
 import type { Character } from "@/lib/character-types";
 import type { PresetConfig } from "@/lib/settings-types";
-import type { StoryCharacterSettings, StoryGroup, StoryProseStyleScheme, StorySchemeRepository, StorySession, StoryTailScheme, StoryUiPrefs } from "@/lib/story-storage";
+import type { StoryCharacterSettings, StoryGroup, StoryProseStyleScheme, StoryQuickInputScheme, StorySchemeRepository, StorySession, StoryTailScheme, StoryUiPrefs } from "@/lib/story-storage";
 import {
   STORY_DEFAULT_STATUS_RENDER,
   STORY_DEFAULT_THEATER_RENDER,
+  STORY_DEFAULT_QUICK_INPUT_OPTIONS,
 } from "@/lib/story-storage";
 
 // 兼容旧导入（story-app-base 从这里取渲染画布常量）
@@ -393,12 +394,63 @@ function SchemeEditor({
   );
 }
 
+function QuickOptionsEditor({
+  options,
+  onChange,
+}: {
+  options: string[];
+  onChange: (options: string[]) => void;
+}) {
+  const updateOption = (index: number, value: string) => {
+    onChange(options.map((item, i) => (i === index ? value : item)));
+  };
+  const removeOption = (index: number) => {
+    onChange(options.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="story-quick-options-editor">
+      <div className="story-settings-subhead">
+        <strong>快捷选项</strong>
+        <button className="story-settings-mini-add" type="button" onClick={() => onChange([...options, ""])}><PlusIcon width={13} />增加</button>
+      </div>
+      <div className="story-quick-options">
+        {options.map((option, index) => (
+          <div key={index} className="story-quick-option-item">
+            <input
+              value={option}
+              maxLength={16}
+              placeholder="符号或短语"
+              onChange={(event) => updateOption(index, event.target.value)}
+            />
+            <button
+              type="button"
+              aria-label="删除快捷选项"
+              disabled={options.length <= 1}
+              onClick={() => removeOption(index)}
+            >
+              <TrashIcon width={13} />
+            </button>
+          </div>
+        ))}
+        {!options.length ? <p className="story-settings-empty">没有选项，点“增加”添加。</p> : null}
+      </div>
+      <p className="story-settings-note">留空的选项不会显示在面板里；删除全部后剧情页会使用默认选项 “” 「」 ，？ ……。</p>
+    </div>
+  );
+}
+
 export function StorySettingsPage(props: StorySettingsPageProps) {
   const normalized = useMemo(() => normalizeSettings(props.settings, props.schemeRepo), [props.settings, props.schemeRepo]);
   const repo = props.schemeRepo;
   // 方案定义 → 公用仓库；启用选择 → 当前角色设置
   const patchRepo = (updates: Partial<StorySchemeRepository>) => {
     props.onSchemeRepoChange({ ...repo, ...updates });
+  };
+  const quickInputActive = repo.quickInputSchemes.find((item) => item.id === props.uiPrefs.activeQuickInputSchemeId) || repo.quickInputSchemes[0];
+  const updateQuickInputScheme = (updates: Partial<StoryQuickInputScheme>) => {
+    if (!quickInputActive) return;
+    patchRepo({ quickInputSchemes: repo.quickInputSchemes.map((item) => item.id === quickInputActive.id ? { ...item, ...updates } : item) });
   };
   const [wallpaperOpen, setWallpaperOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -513,7 +565,6 @@ export function StorySettingsPage(props: StorySettingsPageProps) {
         />
 
         <SettingCard title="剧情预设设置" hint="建议给剧情 APP 单独制作专属预设，避免影响其他应用">
-          <ToggleRow title="不启用默认预设" detail="开启后，本角色剧情完全不走绑定的大预设（含内置默认预设），避免预设指令与剧情设置冲突；仅保留下方剧情专属设置与线上消息等系统协议。" checked={Boolean(normalized.disableBoundPreset)} onChange={(value) => patchSettings({ disableBoundPreset: value })} />
           <label className="story-settings-field"><span>当前角色专属预设名称</span><input value={normalized.presetName} onChange={(event) => patchSettings({ presetName: event.target.value })} /></label>
           <label className="story-settings-field"><span>剧情额外要求</span><textarea value={normalized.extraPrompt || ""} onChange={(event) => patchSettings({ extraPrompt: event.target.value })} placeholder="仅在当前角色的剧情生成中使用" /></label>
           <div className="story-settings-subhead"><strong>专属预设条目</strong><button className="story-settings-mini-add" type="button" onClick={() => patchSettings({ customPromptEntries: [...(normalized.customPromptEntries || []), { id: `story-entry-${Date.now()}`, name: `新条目 ${(normalized.customPromptEntries?.length || 0) + 1}`, content: "", enabled: true }] })}><PlusIcon width={13} />增加</button></div>
@@ -527,9 +578,7 @@ export function StorySettingsPage(props: StorySettingsPageProps) {
             {!normalized.customPromptEntries?.length ? <p className="story-settings-empty">暂无专属条目，可按需要增加；它们只影响当前角色的剧情。</p> : null}
           </div>
           <div className="story-settings-subhead"><strong>操作已绑定大预设条目</strong><small>{props.boundPreset?.name || "未绑定大预设"}</small></div>
-          {normalized.disableBoundPreset ? (
-            <p className="story-settings-empty">已开启“不启用默认预设”，下方条目暂不生效，因此不再显示。</p>
-          ) : availablePrompts.length ? (
+          {availablePrompts.length ? (
             <div className="story-preset-prompt-list">
               {availablePrompts.map((prompt) => (
                 <label key={prompt.identifier}>
@@ -588,6 +637,79 @@ export function StorySettingsPage(props: StorySettingsPageProps) {
             ) : null}
           </div>
           <p className="story-settings-note">远程字体必须是可直接访问的字体文件，并允许跨域加载；否则浏览器会自动回退到默认剧情字体。</p>
+        </SettingCard>
+
+        <SettingCard title="自动阅读" hint="开启后可在“续写”旁启动自动滚动，解放双手阅读">
+          <ToggleRow title="开启自动阅读" detail="可从最新角色消息或当前页面位置开始" checked={Boolean(props.uiPrefs.autoReadingEnabled)} onChange={(value) => props.onUiPrefsChange({ ...props.uiPrefs, autoReadingEnabled: value })} />
+          {props.uiPrefs.autoReadingEnabled ? (
+            <label className="story-auto-reading-speed">
+              <span><strong>阅读速度</strong><small>{props.uiPrefs.autoReadingSpeed ?? 36} 像素/秒</small></span>
+              <input
+                type="range"
+                min={12}
+                max={120}
+                step={4}
+                value={props.uiPrefs.autoReadingSpeed ?? 36}
+                onChange={(event) => props.onUiPrefsChange({ ...props.uiPrefs, autoReadingSpeed: Number(event.target.value) })}
+              />
+              <div><small>慢</small><small>快</small></div>
+            </label>
+          ) : null}
+        </SettingCard>
+
+        <SettingCard title="快捷输入面板" hint="开启后“续写”右侧出现“输入”按钮；方案保存在公用仓库，所有角色共享">
+          <ToggleRow
+            title="开启快捷输入面板"
+            detail="输入框上方展开窄长横幅，点按选项即插入输入框，选项过多可左右滑动"
+            checked={Boolean(props.uiPrefs.quickInputEnabled)}
+            onChange={(value) => props.onUiPrefsChange({ ...props.uiPrefs, quickInputEnabled: value })}
+          />
+          {props.uiPrefs.quickInputEnabled && quickInputActive ? (
+            <>
+              <div className="story-settings-label-row"><label>输入方案</label><span>所有角色共用，当前角色选择启用哪一套</span></div>
+              <div className="story-settings-inline">
+                <select value={quickInputActive.id} onChange={(event) => props.onUiPrefsChange({ ...props.uiPrefs, activeQuickInputSchemeId: event.target.value })}>
+                  {repo.quickInputSchemes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+                <button type="button" aria-label="新增快捷输入方案" onClick={() => {
+                  const id = `quick-${Date.now()}`;
+                  patchRepo({ quickInputSchemes: [...repo.quickInputSchemes, { id, name: `输入方案 ${repo.quickInputSchemes.length + 1}`, options: [...STORY_DEFAULT_QUICK_INPUT_OPTIONS], cursor: "middle" as const }] });
+                  props.onUiPrefsChange({ ...props.uiPrefs, activeQuickInputSchemeId: id });
+                }}><PlusIcon width={15} /></button>
+                <button type="button" aria-label="删除快捷输入方案" disabled={repo.quickInputSchemes.length <= 1} onClick={() => {
+                  if (repo.quickInputSchemes.length <= 1) return;
+                  const next = repo.quickInputSchemes.filter((item) => item.id !== quickInputActive.id);
+                  patchRepo({ quickInputSchemes: next });
+                  props.onUiPrefsChange({ ...props.uiPrefs, activeQuickInputSchemeId: next[0].id });
+                }}><TrashIcon width={14} /></button>
+              </div>
+              <div className="story-quick-cursor-row">
+                <span className="story-quick-cursor-label">插入后光标位置</span>
+                <div className="story-quick-cursor-options" role="radiogroup" aria-label="插入后光标位置">
+                  {([["left", "选项左边"], ["middle", "选项中间"], ["right", "选项右边"]] as const).map(([value, label]) => {
+                    const active = (quickInputActive.cursor ?? "middle") === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        data-active={active ? "true" : undefined}
+                        onClick={() => updateQuickInputScheme({ cursor: value })}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <QuickOptionsEditor
+                options={quickInputActive.options}
+                onChange={(options) => updateQuickInputScheme({ options })}
+              />
+              <p className="story-settings-note">点按面板选项时按上面设置的光标位置插入；“选项中间”适合成对引号，光标会落在引号正中。方案保存在公用仓库，修改会同步影响所有角色。</p>
+            </>
+          ) : null}
         </SettingCard>
 
         <SettingCard title="剧情尾部" hint="状态栏与小剧场方案保存在公用仓库，所有角色共享；每个角色单独选择启用哪一套">

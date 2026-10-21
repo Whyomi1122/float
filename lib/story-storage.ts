@@ -302,8 +302,6 @@ export type StoryCharacterSettings = {
   extraPrompt?: string;
   customPromptEntries?: StoryPromptEntry[];
   enabledPresetPromptIds?: string[];
-  /** 关闭后，绑定的大预设（含内置默认预设）完全不参与本角色剧情生成，仅用剧情专属设置。 */
-  disableBoundPreset?: boolean;
   minChars?: number;
   maxChars?: number;
   userPerspective?: "second" | "third" | "username";

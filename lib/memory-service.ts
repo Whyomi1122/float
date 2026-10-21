@@ -60,32 +60,23 @@ export async function retrieveMemoriesForPrompt(
     return fillByBudget(sorted, budget);
 }
 
-/**
- * 归档：人工确认的长文档，重量级＝世界书同级。
- * 不参与相关度筛选（归档始终注入），仅按 token 预算截断（最新的优先保留）。
- */
-export async function retrieveArchivesForPrompt(
-    characterId: string,
-    config: MemoryConfig,
-): Promise<MemoryEntry[]> {
-    const archives = await loadMemoryEntriesByType(characterId, "archive");
-    if (archives.length === 0) return [];
-    const sorted = [...archives].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    // 归档预算：借用 longTermTokenBudget（归档与大记忆共用一段大预算）
-    return fillByBudget(sorted, config.longTermTokenBudget);
-}
-
 export async function retrieveCoreMemoriesForPrompt(
     characterId: string,
     config: MemoryConfig,
 ): Promise<MemoryEntry[]> {
-    // 核心记忆已砍掉（用户 2026-10-15 决策）：不再生成、不再注入。
-    // 保留函数签名以兼容各引擎调用点，统一返回空。
-    void characterId;
-    void config;
-    return [];
+    const coreEntries = await loadMemoryEntriesByType(characterId, "core");
+    if (coreEntries.length === 0) return [];
+
+    const sorted = [...coreEntries].sort((a, b) => {
+        const aActive = a.metadata?.active ? 1 : 0;
+        const bActive = b.metadata?.active ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+        const aDate = String(a.metadata?.eventDate ?? a.updatedAt ?? a.createdAt);
+        const bDate = String(b.metadata?.eventDate ?? b.updatedAt ?? b.createdAt);
+        return bDate.localeCompare(aDate);
+    });
+
+    return fillByBudget(sorted, config.coreMemoryTokenBudget);
 }
 
 /** Pick entries in order until token budget is exhausted. */
@@ -99,55 +90,4 @@ function fillByBudget(entries: MemoryEntry[], budget: number): MemoryEntry[] {
         used += tokens;
     }
     return result;
-}
-
-/**
- * 写入一条归档（人工确认后调用）。
- * 重量级＝世界书同级；受防污染约束（墓碑 / 指纹去重）。
- */
-export async function commitArchive(
-    characterId: string,
-    content: string,
-    sourceApp: MemoryEntry["sourceApp"] = "chat",
-): Promise<{ success: boolean; error?: string }> {
-    const trimmed = content.trim();
-    if (!trimmed) return { success: false, error: "内容为空" };
-
-    const { computeContentHash } = await import("./memory-types");
-    const { addDeletedHash, isHashedDeleted, saveMemoryEntry } = await import("./memory-storage");
-
-    const hash = computeContentHash(trimmed);
-    if (isHashedDeleted(characterId, hash)) {
-        return { success: false, error: "该内容已被标记删除，忽略" };
-    }
-    const existing = await loadMemoryEntriesByType(characterId, "archive");
-    if (existing.some(e => (e.metadata?.contentHash as string) === hash)) {
-        return { success: true };
-    }
-
-    const now = new Date().toISOString();
-    await saveMemoryEntry({
-        id: `mem_arc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        characterId,
-        sourceApp,
-        type: "archive",
-        content: trimmed,
-        importance: 1.0,
-        createdAt: now,
-        updatedAt: now,
-        metadata: { contentHash: hash, archivedAt: now },
-    });
-    return { success: true };
-}
-
-/** 删除一条归档（进墓碑，防复活）。 */
-export async function deleteArchive(characterId: string, entryId: string): Promise<void> {
-    const { deleteMemoryEntry, addDeletedHash } = await import("./memory-storage");
-    const existing = await loadMemoryEntriesByType(characterId, "archive");
-    const target = existing.find(e => e.id === entryId);
-    if (target) {
-        const { computeContentHash } = await import("./memory-types");
-        addDeletedHash(characterId, computeContentHash(target.content));
-    }
-    await deleteMemoryEntry(entryId);
 }

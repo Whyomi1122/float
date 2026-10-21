@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -21,9 +21,6 @@ import {
   MessageSquare,
   Eraser,
   Play,
-  Square,
-  Type,
-  Upload,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -56,13 +53,6 @@ import {
 } from "@/lib/ensemble-archive";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
-import {
-  resolveVoiceConfig,
-  hasExplicitVoiceBinding,
-  synthesizeSpeech,
-  playAudioBlobViaMediaElement,
-  unlockAudioPlayback,
-} from "@/lib/tts-service";
 import { fetchModelNames } from "@/lib/model-list";
 import { TYPE, LEADING } from "@/components/ensemble/ensemble-tokens";
 import {
@@ -81,8 +71,6 @@ import {
   appendEnsembleTurn,
   deleteEnsembleTurn,
   updateEnsembleTurn,
-  saveEnsembleFontData,
-  loadEnsembleFontData,
 } from "@/lib/ensemble-storage";
 import { hydrateKvDb } from "@/lib/kv-db";
 import { ensureSettingsStorageHydrated } from "@/lib/settings-storage";
@@ -213,39 +201,14 @@ const C_NARR = "#b4b4b8"; // 旁白：更淡的灰（1005 反馈：与正文灰�
 //   曾出现「常量已改成 #b4b4b8，实机仍比正文深」——最可能是被剧本级 customCss
 //   覆盖（注入的 <style> 全文档生效且权重更高）。此处把旁白样式改为行内
 //   style 直接输出，行内优先级最高，任何外部 CSS 都无法再盖掉它。
-// ── 当前会话字号（剧本级 · 绝对 px）──
-//   群像设计基准：对白/叙述/旁白 = 14px、角色名 = 12px（T_* 档位）。
-//   用户设定的「正文字号」即 14 这一档的目标值，其余层级按 原值/14 等比换算。
-//   由 <EnsembleApp> 在渲染前用 syncEnsembleFontSize() 写入当前剧本的 fontSize。
-const ENS_FONT_BASE = 14; // 设计基准（正文 SM 档）
-let ENS_FONT_SIZE = ENS_FONT_BASE;
-/** 当前生效的自定义字体 family 名（无自定义时为 null）。由主组件渲染前同步。 */
-let ENSEMBLE_FONT_FAMILY_ACTIVE: string | null = null;
-/** 供主组件在每次渲染前同步当前剧本的**正文字号**（px，缺省 14）。 */
-function syncEnsembleFontSize(size?: number) {
-  ENS_FONT_SIZE =
-    size && Number.isFinite(size) && size > 0 ? size : ENS_FONT_BASE;
-}
-/** 供主组件在每次渲染前同步当前剧本的字体 family（未设则 null）。 */
-function syncEnsembleFontFamily(family?: string | null) {
-  ENSEMBLE_FONT_FAMILY_ACTIVE = family && family.trim() ? family.trim() : null;
-}
-/** 字号专用：把设计字号按当前「正文 px ÷ 基准 14」等比换算后再走 tpx。 */
-function ts(designPx: number): string {
-  return tpx((designPx * ENS_FONT_SIZE) / ENS_FONT_BASE);
-}
-
 function narrStyle(): React.CSSProperties {
   return {
-    fontSize: ts(T_NARR),
+    fontSize: tpx(T_NARR),
     color: C_NARR,
     fontWeight: 400,
     lineHeight: 1.9,
     opacity: 1,
     fontStyle: "italic",
-    ...(ENSEMBLE_FONT_FAMILY_ACTIVE
-      ? { fontFamily: `"${ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
-      : {}),
   };
 }
 /** 头像尺寸（1008d 回退：按截图1 实测 33px；1005 定稿曾为 35px） */
@@ -379,18 +342,12 @@ function BodyText({
   raw,
   kind = "act",
   inset = FRAME_BODY_INSET,
-  voiceButton,
-  fontFamily,
 }: {
   raw: string;
   kind?: "dialogue" | "inner" | "act";
   /** 左基准（px）。默认与**头像左沿**对齐（1008d：FRAME_BODY_INSET == FRAME_TEXT_INSET）；
       嵌在心理块内时传 0（块自己已有内衬）。 */
   inset?: number;
-  /** 可选：对白段右侧的语音播放键节点（由上层注入，BodyText 只负责挂载）。 */
-  voiceButton?: React.ReactNode;
-  /** 剧本级自定义字体 family（显式下传）。 */
-  fontFamily?: string;
 }) {
   const paras = (raw ?? "")
     .split(/\n+/)
@@ -404,18 +361,10 @@ function BodyText({
   // 行内直出（而非只靠 class）：防止剧本级 customCss 用更高权重覆盖配色/字号
   const headStyle: React.CSSProperties = {
     color,
-    fontSize: ts(size),
+    fontSize: tpx(size),
     fontWeight: 400,
     lineHeight: 1.75,
     opacity: 1,
-    // 剧本级自定义字体：**内联直出**（比 CSS 规则更稳，压过一切外部/继承声明）。
-    //   优先用显式下传的 fontFamily prop，其次退回模块变量。
-    //   注意：font-family 值本身会写 `!important` —— React 的 style 不支持
-    //   `!important`，故这里仍可能被外部 `!important` 规则压住；但已同时注入
-    //   `.ensemble-scope *` 通配规则兜底。
-    ...(fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE
-      ? { fontFamily: `"${fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
-      : {}),
     // 帧级内缩（1008d · 回退到截图1 口径）：
     //   **正文左基准 = 头像左基准**（FRAME_BODY_INSET == FRAME_TEXT_INSET = 30px），
     //   第8轮曾改成「对齐角色名左沿」（55px）→ 实测截图1 并非如此，已回退。
@@ -428,10 +377,7 @@ function BodyText({
   // 1006：对白 +5 → +2（收紧，但仍略大于正文段距）
   const inner = kind === "act" ? GAP_ACT + 3 : GAP_DIALOG + 0;
   // 括号规则（用户定稿 2026-10-04 第5轮）：**无条件剥除**包裹整行的 （），
-  // 包括双语译文行。注意：内置预设实际格式是「原文.（译文）」**同行**包裹，
-  // 不是整行被括号包住；整行剥除只处理「整段都被括号包」的旧数据。
-  // 语音键落点：挂**首段**末尾（与朗读原文同行）。
-  const voiceAnchorIndex = voiceButton ? 0 : -1;
+  // 包括双语译文行。韩语对白的下一行直接写中文，不再用括号包裹。
   return (
     <div
       className={`frame-body frame-${kind} tracking-[0.01em]`}
@@ -441,7 +387,6 @@ function BodyText({
         const shown = /^[（(][\s\S]*[）)]$/.test(p)
           ? p.replace(/^[（(]\s*/, "").replace(/\s*[）)]$/, "")
           : p;
-        const isVoiceAnchor = i === voiceAnchorIndex;
         return (
           <div
             key={i}
@@ -456,8 +401,6 @@ function BodyText({
             style={{ marginTop: i === 0 ? 0 : inner }}
           >
             {shown}
-            {/* 语音播放键：行内贴在**首段**末尾（与所读原文同行）。 */}
-            {isVoiceAnchor ? voiceButton : null}
           </div>
         );
       })}
@@ -466,39 +409,6 @@ function BodyText({
 }
 
 // ──────────────────────────────────────────────────────────────
-/**
- * 朗读文本过滤：双语模式下**只读原文**，丢掉中文译文。
- *
- * 内置预设（`lib/builtin-preset.ts` bilingual_language_format）真实格式是
- * **同一行**：「原文.（译文）」——外语原文后紧贴全角圆括号包中文翻译，
- * 例如 `그래도 고마워.（还是谢谢你。）`。模型也可能用半角 `()`。
- *
- * 规则（不要猜语言、不要挑谚文行）：
- *   1. 取**第一行**（多段对白只读第一句）；
- *   2. 用行尾的 `（译文）` / `(译文)` 切开，朗读 = **括号前的原文**；
- *   3. 没有括号 → 整行都是原文，原样读。
- *
- * 历史坑（2026-10-16）：
- *   · 盲取「含谚文的行」——原文是中文、译文是韩文时会读成译文；
- *   · 只取首行、不剥括号 —— 同行双语会把「韩文+中文译文」整段读出来（本轮修这个）。
- */
-function pickVoiceText(raw: string): string {
-  const text = (raw ?? "").trim();
-  if (!text) return "";
-  const first = text
-    .split(/\n+/)
-    .map((s) => s.trim())
-    .find(Boolean);
-  if (!first) return "";
-  // 行尾译文括号：全角（）优先，半角 () 兜底。非贪婪，避免误吃中间括号。
-  const cut = first.replace(/[（(][^）)]*[）)]\s*$/, "").trim();
-  return cut || first;
-}
-
-/** 剧本会话字体的 font-family 注册名（运行时生成，与具体剧本无关；
-    真正的字形数据在加载时通过 FontFace / @font-face 另行注册）。 */
-const ENSEMBLE_CUSTOM_FONT_FAMILY = "EnsembleCustomFont";
-
 // 帧解析缓存：同一 (content, 演员表) 只解析一次。
 // 渲染经常重跑（编辑、切换版本、滚动重排），缓存可避免反复跑正则。
 // 时间戳格式化：框底 DATE 需要精确到分钟（2026-10 起，此前只显示到日）。
@@ -568,23 +478,11 @@ function EnsembleFrameStream({
   frames,
   cast,
   onAvatarClick,
-  onVoicePlay,
-  playingVoiceKey,
-  turnId,
-  fontFamily,
 }: {
   frames: EnsembleFrame[];
   cast: EnsembleCastMember[];
   /** 点头像 → 打开该幕的状态卡（未启用状态面板时由上层忽略） */
   onAvatarClick?: (speaker: string) => void;
-  /** 点对白行的播放键 → 合成并播放该句语音。 */
-  onVoicePlay?: (key: string, text: string, speaker?: string) => void;
-  /** 正在播放的帧定位键（用于把播放键切换为「停止/加载」态）。 */
-  playingVoiceKey?: string | null;
-  /** 该幕 ID：与帧下标拼成稳定 key，供语音定位。 */
-  turnId?: string;
-  /** 剧本级自定义字体 family（显式下传，确定性优于模块变量）。 */
-  fontFamily?: string;
 }) {
   let lastSpeaker: string | undefined = "\u0000"; // 哨兵：保证首帧必署名
   // 跟踪上一帧是否为旁白，用于给旁白加「上下各 ≥ 一整行」的大段距。
@@ -639,64 +537,11 @@ function EnsembleFrameStream({
         {/* 角色名：置于头像右侧，字号故意小于正文（层级靠字号而非颜色） */}
         <div
           className="frame-name font-semibold tracking-wide"
-          style={{
-            fontSize: ts(T_NAME),
-            color: C_NAME,
-            fontWeight: 600,
-            opacity: 1,
-            ...(fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE
-              ? { fontFamily: `"${fontFamily || ENSEMBLE_FONT_FAMILY_ACTIVE}"` }
-              : {}),
-          }}
+          style={{ fontSize: tpx(T_NAME), color: C_NAME, fontWeight: 600, opacity: 1 }}
         >
           {speaker}
         </div>
       </div>
-    );
-  };
-
-  /** 对白末尾的小播放键：**行内**贴在最后一段文字后。
-      · 未播放 → Play；播放/加载中 → Square（点击停止）。
-      · 16px、极淡，避免抢正文视线；双语模式下挂在中文译句末尾。 */
-  /** 该对白行是否应显示语音键：仅当说话人是剧本 cast 成员、且该角色「显式」绑定了语音。 */
-  const isVoiceEligible = (speaker?: string, speakerId?: string): boolean => {
-    if (!speaker && !speakerId) return false;
-    // 必须在 cast 里能找到（先按 id，再按名字），用户方/临时配角一律不显示
-    const m = speakerId
-      ? cast.find((c) => c.id === speakerId)
-      : cast.find((c) => c.name === speaker);
-    if (!m) return false;
-    // 只看该角色的「显式」语音绑定（全局默认绑定不算），确保只有真正配了音的角色才有键
-    return hasExplicitVoiceBinding(m.id, "ensemble");
-  };
-
-  const renderVoiceButton = (key: string, text: string, speaker?: string, speakerId?: string) => {
-    if (!onVoicePlay || !text.trim()) return undefined;
-    // 双重保险：非 cast 角色一律不出语音键（含「宋佳：」这类落回正文的归属行）
-    if (!isVoiceEligible(speaker, speakerId)) return undefined;
-    const isThis = playingVoiceKey === key;
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onVoicePlay(key, text, speaker);
-        }}
-        className="inline-flex items-center align-middle active:scale-95 transition-transform"
-        style={{
-          marginLeft: tpx(6),
-          width: tpx(16),
-          height: tpx(16),
-          WebkitTapHighlightColor: "transparent",
-        }}
-        title={isThis ? "停止" : "朗读这句"}
-      >
-        {isThis ? (
-          <Square size={tpx(11)} strokeWidth={2.2} color="rgba(0,0,0,0.45)" />
-        ) : (
-          <Play size={tpx(11)} strokeWidth={2.2} color="rgba(0,0,0,0.22)" />
-        )}
-      </button>
     );
   };
 
@@ -790,8 +635,6 @@ function EnsembleFrameStream({
         //   ① 底色块贴合文字宽度（width: fit-content），短句不再拉成通栏长条；
         //   ② 左右内衬由 12/12 收到 **6/6**（用户：「文字两边留空太大了」）；
         //   ③ 左基准对齐角色名（FRAME_BODY_INSET），与其它正文同一条线。
-        // 1015 用户口径修正：**心理块改为整行通栏**（原来 fit-content 贴文字宽度，
-        //   短句会缩成小方块；用户要求整行长方形）。
         if (f.kind === "inner") {
           return (
             <div
@@ -801,19 +644,19 @@ function EnsembleFrameStream({
                 marginTop: tpx(topMargin),
                 marginLeft: tpx(FRAME_BODY_INSET),
                 marginRight: tpx(FRAME_TEXT_INSET),
-                // 整行通栏
-                width: "auto",
-                boxSizing: "border-box",
+                // 自适应核心：宽度由内容决定，上限 100% 时自动折行
+                width: "fit-content",
+                maxWidth: "100%",
                 paddingTop: tpx(6),
                 paddingBottom: tpx(6),
-                paddingLeft: tpx(12),
-                paddingRight: tpx(12),
+                paddingLeft: tpx(6),
+                paddingRight: tpx(6),
                 background: "rgba(0,0,0,0.022)",
                 borderLeft: "2px solid rgba(0,0,0,0.10)",
                 borderRadius: "0 7px 7px 0",
               }}
             >
-              <BodyText raw={f.text} kind="act" inset={0} fontFamily={fontFamily} />
+              <BodyText raw={f.text} kind="act" inset={0} />
             </div>
           );
         }
@@ -828,7 +671,7 @@ function EnsembleFrameStream({
           return (
             <div key={i} className="frame-action" style={{ marginTop: tpx(topMargin) }}>
               {showName && renderBlockHead(f.speaker)}
-              <BodyText raw={f.text} kind="act" fontFamily={fontFamily} />
+              <BodyText raw={f.text} kind="act" />
             </div>
           );
         }
@@ -836,21 +679,7 @@ function EnsembleFrameStream({
         return (
           <div key={i} style={{ marginTop: topMargin }}>
             {showName && renderBlockHead(f.speaker)}
-            <BodyText
-              raw={f.text}
-              kind="dialogue"
-              fontFamily={fontFamily}
-              voiceButton={
-                onVoicePlay && isVoiceEligible(f.speaker, f.speakerId)
-                  ? renderVoiceButton(
-                      `${turnId ?? ""}:${i}`,
-                      f.text,
-                      f.speaker,
-                      f.speakerId
-                    )
-                  : undefined
-              }
-            />
+            <BodyText raw={f.text} kind="dialogue" />
           </div>
         );
       })}
@@ -895,7 +724,6 @@ function MiniSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className="relative bg-[#f2f2f4] rounded-[22px] px-4 pt-5 pb-5 w-full max-w-[420px] max-h-[80%] overflow-y-auto shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
-        data-ens-ui="1"
       >
         <div className="px-1.5 mb-3.5 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -971,7 +799,6 @@ function ConfirmDialog({
       <div
         className="bg-white rounded-2xl w-full max-w-[300px] p-5 shadow-xl border border-black/5 flex flex-col gap-4"
         onClick={(e) => e.stopPropagation()}
-        data-ens-ui="1"
       >
         <div className="space-y-1.5">
           <div className="font-semibold text-sm text-[#1a1a1a]">{title}</div>
@@ -1118,7 +945,7 @@ function EnsembleHeader({
       className="relative z-20 shrink-0 bg-white/80 backdrop-blur-md border-b border-black/[0.06]"
       style={{ paddingTop: "var(--page-header-safe-top, 48px)" }}
     >
-      <div className="grid grid-cols-[44px_1fr_44px] items-center px-3 min-h-[42px]" data-ens-ui="1">
+      <div className="grid grid-cols-[44px_1fr_44px] items-center px-3 min-h-[42px]">
         {showBack ? (
           <button
             type="button"
@@ -1291,16 +1118,6 @@ export function EnsembleApp({
    */
   const [charsInput, setCharsInput] = useState("600");
   const [cssDraft, setCssDraft] = useState("");
-  /** 06 TYPOGRAPHY · 当前会话字体来源（未自定义时为 undefined） */
-  const [fontSourceDraft, setFontSourceDraft] = useState<"upload" | "url" | undefined>(undefined);
-  /** 06 TYPOGRAPHY · 链接字体的 URL */
-  const [fontUrlDraft, setFontUrlDraft] = useState("");
-  /** 06 TYPOGRAPHY · 已上传字体的文件名（仅用于显示「已上传 · xxx.ttf」） */
-  const [fontUploadName, setFontUploadName] = useState("");
-  /** 06 TYPOGRAPHY · 当前会话字号倍率（1=原始设计字） */
-  const [fontSizeDraft, setFontSizeDraft] = useState(14);
-  /** 自定义字体作用范围（"story"=仅剧情正文 / "all"=全部文字） */
-  const [fontScopeDraft, setFontScopeDraft] = useState<"story" | "all">("story");
   /** 子弹窗打开时缓存的 API 列表（避免每次渲染都读 localStorage） */
   const [apiConfigList, setApiConfigList] = useState<ApiConfig[]>([]);
   /** 轻提示：用于「功能尚未接入」等一次性反馈；非空时 1.8s 后自动消失 */
@@ -1342,15 +1159,6 @@ export function EnsembleApp({
   /** 正在编辑的幕 id 与草稿 */
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
   const [editingTurnDraft, setEditingTurnDraft] = useState("");
-
-  // ── 对白语音朗读 ──
-  /** 正在播放/加载的帧定位键（`${turnId}:${frameIndex}`） */
-  const [playingVoiceKey, setPlayingVoiceKey] = useState<string | null>(null);
-  /** 播放链路：请求序号 + 当前播放句柄，用于打断上一句 */
-  const voiceRequestIdRef = useRef(0);
-  const voicePlaybackRef = useRef<{ promise: Promise<void>; abort: () => void } | null>(null);
-  /** 语音 blob 缓存：同一句反复点不重复请求 */
-  const ensembleVoiceCacheRef = useRef<Map<string, Blob>>(new Map());
 
   /** 统一删除确认弹窗：解决原「一点就删、无法挽回」的危险操作 */
   const [confirmState, setConfirmState] = useState<{
@@ -1440,267 +1248,6 @@ export function EnsembleApp({
     ? scripts.filter((s) => !s.personaId || s.personaId === activeId)
     : scripts;
 
-  // ── 对白语音朗读：点播放键 → 解析该角色语音配置 → 合成 → 播放 ──
-  const playEnsembleVoice = useCallback(
-    async (key: string, text: string, speaker?: string) => {
-      // 再次点击同一句 → 打断停止
-      if (playingVoiceKey === key) {
-        try {
-          voicePlaybackRef.current?.abort();
-        } catch { /* ignore */ }
-        voicePlaybackRef.current = null;
-        setPlayingVoiceKey(null);
-        return;
-      }
-      // 打断上一句
-      try {
-        voicePlaybackRef.current?.abort();
-      } catch { /* ignore */ }
-      voicePlaybackRef.current = null;
-
-      const clean = pickVoiceText(text);
-      if (!clean) return;
-
-      // 角色 → 语音绑定：仅按 cast 成员精确匹配（不再回退面具，避免非 cast 角色误播）
-      const castMember = currentScript?.cast?.find((c) => c.name === speaker);
-      if (!castMember) return;
-      const characterId = castMember.id;
-      const voiceConfig = resolveVoiceConfig(characterId, "ensemble");
-      if (!voiceConfig) {
-        setToast("该角色还没绑定语音，去「设置 → 语音」里配一下");
-        window.setTimeout(() => setToast(null), 2600);
-        return;
-      }
-
-      const reqId = ++voiceRequestIdRef.current;
-      setPlayingVoiceKey(key);
-      try {
-        unlockAudioPlayback();
-        let blob = ensembleVoiceCacheRef.current.get(key);
-        if (!blob) {
-          blob = await synthesizeSpeech(clean, voiceConfig) ?? undefined;
-          if (blob) ensembleVoiceCacheRef.current.set(key, blob);
-        }
-        if (!blob) throw new Error("语音合成为空");
-        if (reqId !== voiceRequestIdRef.current) return; // 已被新请求打断
-        const handle = playAudioBlobViaMediaElement(blob);
-        voicePlaybackRef.current = handle;
-        await handle.promise;
-      } catch (err) {
-        if (reqId === voiceRequestIdRef.current) {
-          console.error("[ensemble voice] 播放失败", err);
-          setToast("语音播放失败");
-          window.setTimeout(() => setToast(null), 2600);
-        }
-      } finally {
-        if (reqId === voiceRequestIdRef.current) {
-          setPlayingVoiceKey(null);
-          voicePlaybackRef.current = null;
-        }
-      }
-    },
-    [playingVoiceKey, currentScript, activePersona, setToast]
-  );
-
-  // 卸载时打断正在播放的语音
-  useEffect(() => {
-    return () => {
-      try {
-        voicePlaybackRef.current?.abort();
-      } catch { /* ignore */ }
-    };
-  }, []);
-
-  // ── 06 TYPOGRAPHY · 字体操作 ──
-  /** 上传字体文件：转 base64 → 存 KV（本剧本）→ 记来源=upload。
-      真正的注册在下面的 fontSource effect 里完成（依赖 script 状态更新）。 */
-  const handleEnsembleFontUpload = useCallback(
-    async (file: File) => {
-      if (!currentScript) return;
-      try {
-        if (file.size > 12 * 1024 * 1024) {
-          setToast("字体文件过大（>12MB）");
-          window.setTimeout(() => setToast(null), 2600);
-          return;
-        }
-        const dataUrl: string = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result || ""));
-          reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(file);
-        });
-        if (!dataUrl) throw new Error("读取为空");
-        saveEnsembleFontData(currentScript.id, dataUrl);
-        setFontUploadName(file.name);
-        setFontSourceDraft("upload");
-        // 立即落库到剧本，使 effect 生效
-        const updated: EnsembleScript = {
-          ...currentScript,
-          fontSource: "upload",
-          fontUrl: undefined,
-          fontFamily: ENSEMBLE_CUSTOM_FONT_FAMILY,
-          updatedAt: new Date().toISOString(),
-        };
-        setCurrentScript(updated);
-        saveOrUpdateEnsembleScript(updated);
-        setToast("字体已应用");
-        window.setTimeout(() => setToast(null), 1800);
-      } catch (err) {
-        console.warn("[ensemble] 字体上传失败", err);
-        setToast("字体上传失败");
-        window.setTimeout(() => setToast(null), 2600);
-      }
-    },
-    [currentScript, setToast]
-  );
-
-  /** 使用链接字体：记来源=url（注册在 effect 里注入 @font-face）。 */
-  const handleEnsembleFontUseUrl = useCallback(
-    (url: string) => {
-      if (!currentScript || !url) return;
-      setFontSourceDraft("url");
-      setFontUrlDraft(url);
-      setFontUploadName("");
-      const updated: EnsembleScript = {
-        ...currentScript,
-        fontSource: "url",
-        fontUrl: url,
-        fontFamily: ENSEMBLE_CUSTOM_FONT_FAMILY,
-        updatedAt: new Date().toISOString(),
-      };
-      setCurrentScript(updated);
-      saveOrUpdateEnsembleScript(updated);
-      setToast("字体已应用");
-      window.setTimeout(() => setToast(null), 1800);
-    },
-    [currentScript, setToast]
-  );
-
-  /** 清除自定义字体：删 KV 数据 + 清 source/url。 */
-  const handleEnsembleFontClear = useCallback(() => {
-    if (!currentScript) return;
-    saveEnsembleFontData(currentScript.id, null);
-    setFontSourceDraft(undefined);
-    setFontUrlDraft("");
-    setFontUploadName("");
-    const updated: EnsembleScript = {
-      ...currentScript,
-      fontSource: undefined,
-      fontUrl: undefined,
-      fontFamily: undefined,
-      updatedAt: new Date().toISOString(),
-    };
-    setCurrentScript(updated);
-    saveOrUpdateEnsembleScript(updated);
-  }, [currentScript]);
-
-  // ── 06 TYPOGRAPHY · 自定义字体的运行时注册 ──
-  // 剧本选定的字体在「进入/切换剧本」时注入 document.head（原生 <style>），
-  // **不用 styled-jsx** —— 因为 .frame-body 等是普通 class，不带 jsx-hash，
-  // styled-jsx 的 scoped 选择器根本不匹配（这就是此前「两种方式都不生效」的根因）。
-  //   · upload：字体数据从 KV 取 base64，用 FontFace API 注册进 document.fonts
-  //   · url   ：@font-face 的 src 指向远程链接
-  // 两者都会**同时**注入一条「应用规则」，把正文/对白/旁白/角色名的
-  // font-family 指向注册名（带 !important，压过根节点 font-sans 的继承）。
-  useEffect(() => {
-    const STYLE_ID = "ensemble-custom-font";
-    const family = ENSEMBLE_CUSTOM_FONT_FAMILY;
-    const getStyleEl = (): HTMLStyleElement => {
-      let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-      if (!el) {
-        el = document.createElement("style");
-        el.id = STYLE_ID;
-        document.head.appendChild(el);
-      }
-      return el;
-    };
-
-    const src = currentScript?.fontSource;
-
-    // 未设置字体 → 清掉注入的样式与已注册的 FontFace（恢复默认字体栈）
-    if (!currentScript || !src) {
-      const el = document.getElementById(STYLE_ID);
-      if (el) el.textContent = "";
-      return;
-    }
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        // 1) 字体数据 / @font-face
-        let faceCss = "";
-        if (src === "upload") {
-          const dataUrl = loadEnsembleFontData(currentScript.id);
-          if (!dataUrl) {
-            console.warn("[ensemble] 上传字体数据缺失（KV 无记录）");
-            return;
-          }
-          const ff = new FontFace(family, `url(${dataUrl})`);
-          await ff.load();
-          if (cancelled) return;
-          document.fonts.add(ff);
-        } else if (src === "url" && currentScript.fontUrl) {
-          faceCss = `@font-face{font-family:"${family}";src:url("${currentScript.fontUrl}");font-display:swap;}`;
-        } else {
-          return;
-        }
-
-        // 2) 应用规则：两档。
-        //    · all   ：.ensemble-scope 内所有元素 → 剧本字体
-        //    · story ：**先全改，再把 UI 区域还原**（两规则，后写覆盖）。
-        //      ⚠️ 还原目标必须是**全局基础字体 `var(--app-font-family)`**
-        //      （用户设为霞鹜文楷），**不能写死系统 sans** —— 否则会把全局
-        //      文楷冲掉，导致设置页/功能页/标题栏/DATE 行退回原始字体。
-        const scopeAll = currentScript.fontScope === "all";
-        const applyCss = scopeAll
-          ? `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}`
-          : `.ensemble-scope, .ensemble-scope *{font-family:"${family}" !important;}` +
-            `.ensemble-scope [data-ens-ui], .ensemble-scope [data-ens-ui] *{font-family:var(--app-font-family) !important;}`;
-
-        getStyleEl().textContent = faceCss + applyCss;
-
-        // 3) 触发加载并给反馈。
-        //    ⚠️ 不要用 `load() 返回空` 判失败 —— 远程字体的加载有网络延迟，
-        //    首次可能返回空（随后才就绪），此前就因此误报「链接不对」。
-        //    改为：await load 后**只在成功时提示**；拿不到就静默等待，
-        //    用 setTimeout + fonts.check 复查一次，仍失败才提示。
-        try {
-          await document.fonts.load(`14px "${family}"`);
-          const ok = document.fonts.check(`14px "${family}"`);
-          if (ok) {
-            setToast("字体已生效");
-            window.setTimeout(() => setToast(null), 1800);
-          } else {
-            // 等一拍再复查（远程字体常见）
-            window.setTimeout(() => {
-              if (document.fonts.check(`14px "${family}"`)) {
-                setToast("字体已生效");
-                window.setTimeout(() => setToast(null), 1800);
-              } else {
-                setToast("字体加载超时：请确认链接可跨域 / 文件为字体格式");
-                window.setTimeout(() => setToast(null), 4000);
-              }
-            }, 1500);
-          }
-        } catch (e) {
-          setToast("字体加载失败：链接不可访问或非字体文件");
-          window.setTimeout(() => setToast(null), 4000);
-          console.warn("[ensemble] 字体 load 失败", e);
-        }
-      } catch (err) {
-        console.warn("[ensemble] 自定义字体加载失败", err);
-        setToast("字体加载失败");
-        window.setTimeout(() => setToast(null), 4000);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentScript?.id, currentScript?.fontSource, currentScript?.fontUrl, currentScript?.fontScope, currentScript]);
-
-
   useEffect(() => {
     if (currentScript) {
       // 载入剧本时先解析一次模型名，保证 MODEL 行即使未生成也有值
@@ -1751,10 +1298,6 @@ export function EnsembleApp({
     setContextDraft(s.contextLimit ?? 40);
     setPovDraft(s.narrativePov ?? "third");
     setOnlineSyncDraft(s.onlineSync ?? false);
-    setFontSourceDraft(s.fontSource);
-    setFontUrlDraft(s.fontUrl ?? "");
-    setFontUploadName("");
-    setFontSizeDraft(s.fontSize ?? 14);
     setShowToolsSheet(false);
     setShowSettingsSheet(true);
   };
@@ -3217,25 +2760,10 @@ ${lastSpeakerNote}
   // ══════════════════════════════════════════════════════
   // 视图 4：剧本剧场（对话）
   // ══════════════════════════════════════════════════════
-  // 同步「当前会话字号倍率」到模块级变量：ts() 在各内联 style 里即时读取。
-  // 必须在 return 前调用（同一渲染周期内生效）。
-  syncEnsembleFontSize(currentScript?.fontSize);
-  syncEnsembleFontFamily(currentScript?.fontFamily);
   return (
-    <div
-      className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden"
-      style={
-        currentScript?.fontFamily
-          ? { fontFamily: `"${currentScript.fontFamily}", "Songti SC", "Noto Sans SC", system-ui, sans-serif` }
-          : undefined
-      }
-    >
+    <div className="ensemble-scope flex flex-col h-full relative bg-[#f6f6f8] text-[#1a1a1a] font-sans overflow-hidden">
       {/* 字号缩放桥接已删除（2026-10）：群像内部字号一律写死，
           不再跟随全局 --app-text-scale，故无需 .ensemble-scope 的 34 行覆盖。 */}
-
-      {/* 当前会话字体（剧本级 · 06 TYPOGRAPHY）：
-          运行时以原生 <style> 注入 document.head（见上面的 fontSource effect）。
-          **不用 styled-jsx** —— .frame-body 是普通 class 不带 jsx-hash，scoped 选择器不匹配。 */}
 
       {/* 剧本级自定义 CSS：仅作用于本 App 的 .ensemble-scope 命名空间 */}
       {/* 用户卡片：输入内容一律纯黑（1006 反馈 R1）。
@@ -3692,10 +3220,6 @@ ${lastSpeakerNote}
                             }
                           : undefined
                       }
-                      turnId={turn.id}
-                      onVoicePlay={playEnsembleVoice}
-                      playingVoiceKey={playingVoiceKey}
-                      fontFamily={currentScript?.fontFamily}
                     />
                   )}
 
@@ -3705,7 +3229,7 @@ ${lastSpeakerNote}
                       · 下方再一道虚线 + 分页（‹ 1/1 ›）在左、操作图标在右
                       · 1008 用户批注：「**用户卡片不需要这三行**」（DATE/MODEL/TOKENS）
                         → 仅 AI 幕渲染元信息行，用户投稿幕只留分页 + 操作图标。 */}
-                  <div className="px-[10px]" data-ens-ui="1">
+                  <div className="px-[10px]">
                     {!isUser && (
                       <>
                         <div
@@ -3835,7 +3359,6 @@ ${lastSpeakerNote}
           <div
             className="bg-white/80 backdrop-blur-xl border-t border-black/[0.04] px-3 py-2 shrink-0"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
-            data-ens-ui="1"
           >
             <div className="flex items-center gap-2">
               {/* 唯一的入口：+ 号 → 底部「功能」面板（旁白/配色/CSS/模型都收进去） */}
@@ -3921,11 +3444,6 @@ ${lastSpeakerNote}
               setShowToolsSheet(false);
               if (id === "customCss") {
                 setCssDraft(currentScript.customCss || "");
-                // 字体草稿：来源 / 链接 / 作用范围 / 正文字号
-                setFontSourceDraft(currentScript.fontSource);
-                setFontUrlDraft(currentScript.fontUrl ?? "");
-                setFontScopeDraft(currentScript.fontScope ?? "story");
-                setFontSizeDraft(currentScript.fontSize ?? 14);
                 setShowCssSheet(true);
               } else if (id === "model") {
                 openModelSheet();
@@ -4021,159 +3539,6 @@ ${lastSpeakerNote}
                 />
               </div>
 
-              {/* ── 自定义字体（原 06 TYPOGRAPHY，迁入此处）── */}
-              <div className="bg-white rounded-[16px] p-4 space-y-3.5">
-                <div className="flex items-baseline justify-between">
-                  <div className="text-[14px] font-semibold text-[#111111]">自定义字体</div>
-                  <div className="text-[11px] text-black/35">本剧本专属</div>
-                </div>
-                <div className="text-[11px] leading-relaxed text-black/45">
-                  只作用于当前剧本的剧情正文；上传文件或填写直链二选一
-                </div>
-
-                {/* 上传文件（整行可点，右侧图标，参考剧情 App） */}
-                <label className="block rounded-[12px] bg-black/[0.04] px-3.5 py-3 cursor-pointer hover:bg-black/[0.06] transition-colors">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-[#111111]">
-                        {fontSourceDraft === "upload"
-                          ? `已选择 · ${fontUploadName || "字体文件"}`
-                          : "上传字体文件"}
-                      </div>
-                      <div className="text-[11px] text-black/40 mt-0.5">
-                        TTF / OTF / WOFF / WOFF2 · 本地保存不上传
-                      </div>
-                    </div>
-                    <Upload size={tpx(18)} strokeWidth={1.9} className="shrink-0 text-black/50" />
-                  </div>
-                  <input
-                    type="file"
-                    accept=".ttf,.otf,.woff,.woff2,font/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = "";
-                      if (file) void handleEnsembleFontUpload(file);
-                    }}
-                  />
-                </label>
-
-                {/* 字体 URL */}
-                <div>
-                  <div className="text-[12px] font-medium text-[#111111] mb-1.5">字体 URL</div>
-                  <input
-                    value={fontUrlDraft}
-                    onChange={(e) => setFontUrlDraft(e.target.value)}
-                    placeholder="https://example.com/font.ttf"
-                    className="w-full rounded-[12px] bg-black/[0.04] px-3.5 py-2.5 text-[12px] text-[#111111] placeholder:text-black/25 outline-none"
-                  />
-                  <button
-                    type="button"
-                    disabled={!fontUrlDraft.trim()}
-                    onClick={() => handleEnsembleFontUseUrl(fontUrlDraft.trim())}
-                    className="mt-2 w-full py-2.5 rounded-[12px] text-[13px] font-medium bg-[#111111] text-white disabled:opacity-25 active:scale-[0.985] transition-transform"
-                  >
-                    应用字体 URL
-                  </button>
-                  <div className="text-[11px] leading-relaxed text-black/35 mt-1.5">
-                    远程字体需可直接访问且允许跨域加载，否则浏览器会回退默认字体
-                  </div>
-                </div>
-
-                {/* 已生效提示 + 移除 */}
-                {fontSourceDraft && (
-                  <div className="flex items-center justify-between rounded-[12px] border border-black/10 px-3.5 py-2.5">
-                    <span className="text-[12px] text-[#2e7d32]">
-                      ✓ 当前使用{fontSourceDraft === "upload" ? "上传字体" : "链接字体"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleEnsembleFontClear()}
-                      className="text-[12px] text-[#b42318] hover:underline"
-                    >
-                      移除
-                    </button>
-                  </div>
-                )}
-
-                {/* 作用范围 */}
-                <div>
-                  <div className="text-[12px] font-medium text-[#111111] mb-1.5">作用范围</div>
-                  <div className="flex gap-2">
-                    {(
-                      [
-                        ["story", "仅剧情正文"],
-                        ["all", "全部文字"],
-                      ] as const
-                    ).map(([val, label]) => {
-                      const on = fontScopeDraft === val;
-                      return (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => setFontScopeDraft(val)}
-                          className={`flex-1 py-2 rounded-[10px] text-[12px] border transition-colors ${
-                            on
-                              ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
-                              : "border-black/10 text-black/45 hover:bg-black/[0.03]"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 字号（绝对 px，可预期） */}
-                <div>
-                  <div className="flex items-baseline justify-between mb-1.5">
-                    <div className="text-[12px] font-medium text-[#111111]">正文字号</div>
-                    <div className="text-[11px] text-black/45 tabular-nums">
-                      {fontSizeDraft}px
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {(
-                      [
-                        [11, "11"],
-                        [14, "14"],
-                        [16, "16"],
-                        [18, "18"],
-                      ] as const
-                    ).map(([val, label]) => {
-                      const on = fontSizeDraft === val;
-                      return (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => setFontSizeDraft(val)}
-                          className={`flex-1 py-2 rounded-[10px] text-[12px] border transition-colors ${
-                            on
-                              ? "border-[#111111] bg-black/[0.05] text-[#111111] font-medium"
-                              : "border-black/10 text-black/45 hover:bg-black/[0.03]"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <input
-                    type="range"
-                    min={10}
-                    max={20}
-                    step={1}
-                    value={fontSizeDraft}
-                    onChange={(e) => setFontSizeDraft(Number(e.target.value))}
-                    className="mt-2.5 w-full accent-[#111111]"
-                  />
-                  <div className="text-[11px] text-black/35 mt-1">
-                    10 ~ 20 px，其余层级按比例自动缩放
-                  </div>
-                </div>
-              </div>
-
               {/* 底部按钮 */}
               <div className="flex items-center gap-2.5">
                 <button
@@ -4190,17 +3555,7 @@ ${lastSpeakerNote}
                 <button
                   type="button"
                   onClick={() => {
-                    const updated = {
-                      ...currentScript,
-                      customCss: cssDraft,
-                      // 一并保存字体的作用范围与正文字号（字体本体已在
-                      // 选择文件 / 应用字体 URL 时单独存入）
-                      fontScope: fontScopeDraft,
-                      fontSize:
-                        Number.isFinite(fontSizeDraft) && fontSizeDraft !== 14
-                          ? Math.min(20, Math.max(10, fontSizeDraft))
-                          : undefined,
-                    };
+                    const updated = { ...currentScript, customCss: cssDraft };
                     setCurrentScript(updated);
                     saveOrUpdateEnsembleScript(updated);
                     setScripts(loadEnsembleScripts());
@@ -5106,7 +4461,6 @@ ${lastSpeakerNote}
                 <div
                   onClick={(e) => e.stopPropagation()}
                   className="relative bg-[#f2f2f4] rounded-[22px] w-full max-w-[440px] max-h-[82%] flex flex-col overflow-hidden shadow-[0_18px_50px_rgba(0,0,0,0.28)] animate-[softRise_300ms_cubic-bezier(0.16,1,0.3,1)]"
-                  data-ens-ui="1"
                 >
                 {/* 顶栏：毛玻璃磨砂条 + ‹ Settings / ENSEMBLE · CONFIGURATION
                     1006 反馈③：原先顶部贴边太紧、与工作区衔接突兀。
@@ -5346,8 +4700,6 @@ ${lastSpeakerNote}
                     </div>
                   </div>
 
-                  {/* 06 TYPOGRAPHY（字体）已迁入「自定义 CSS」面板，见 showCssSheet。 */}
-
                   {/* 底部：SAVE DATA + 清空记录 */}
                   <button
                     type="button"
@@ -5360,25 +4712,9 @@ ${lastSpeakerNote}
                         contextLimit: contextDraft,
                         narrativePov: povDraft,
                         onlineSync: onlineSyncDraft,
-                        fontSource: fontSourceDraft,
-                        fontUrl:
-                          fontSourceDraft === "url" && fontUrlDraft.trim()
-                            ? fontUrlDraft.trim()
-                            : undefined,
-                        fontFamily: fontSourceDraft ? ENSEMBLE_CUSTOM_FONT_FAMILY : undefined,
-                        fontSize:
-                          Number.isFinite(fontSizeDraft) && fontSizeDraft !== 14
-                            ? Math.min(20, Math.max(10, fontSizeDraft))
-                            : undefined,
                       };
                       setCurrentScript(updated);
                       saveOrUpdateEnsembleScript(updated);
-                      // 字体源切换时同步 IndexedDB 里的字体数据：
-                      //  · 链接模式 / 清除 → 删掉本剧本曾上传的文件，避免残留
-                      //  · 上传模式 → 文件在 handleEnsembleFontUpload 里已存
-                      if (fontSourceDraft !== "upload") {
-                        saveEnsembleFontData(updated.id, null);
-                      }
                       setScripts(loadEnsembleScripts());
                       setToast("已保存");
                     }}

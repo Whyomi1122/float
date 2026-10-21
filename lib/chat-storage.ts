@@ -125,7 +125,7 @@ export type ChatMessage = {
         | "group_admin_notice"
         | "media_file"
         | `plugin:${string}`; // 聊天插件自定义消息类型（由注册该 kind 的插件渲染气泡）
-    origin?: "chat" | "reading_discuss" | "custom_app" | "custom_app_background" | "story_floating_phone" | "story_online";
+    origin?: "chat" | "reading_discuss" | "custom_app" | "custom_app_background" | "story_floating_phone";
     mediaUrl?: string;
     mediaData?: {
         amount?: number;          // 红包/转账金额
@@ -651,27 +651,9 @@ function normalizeChatSessions(sessions: ChatSession[]): NormalizedSessionList {
             changed = true;
             continue;
         }
-        let item = id === session.id && contactId === session.contactId
+        const item = id === session.id && contactId === session.contactId
             ? session
             : { ...session, id, contactId };
-        // ── 写死项（不再作为设置项暴露）──
-        // 线上强制非流式；双语翻译/折叠译文/丢弃无效表情包 恒为开。
-        // 设置页已移除这些开关，这里兜底纠正历史数据（含 group session）。
-        if (
-            item.streamOnline !== false
-            || item.bilingualTranslationEnabled !== true
-            || item.collapseBilingualTranslation !== true
-            || item.discardInvalidStickers !== true
-        ) {
-            item = {
-                ...item,
-                streamOnline: false,
-                bilingualTranslationEnabled: true,
-                collapseBilingualTranslation: true,
-                discardInvalidStickers: true,
-            };
-            changed = true;
-        }
         const existing = byId.get(id);
         if (!existing) {
             byId.set(id, item);
@@ -1146,18 +1128,6 @@ export function markChatSessionRead(sessionId: string): void {
     const session = _sessionsCache.find(item => item.id === sessionId);
     if (!session || session.unreadCount === 0) return;
     session.unreadCount = 0;
-    dbPutSessions([session]);
-    if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent(CHAT_APP_SETTINGS_UPDATED_EVENT, { detail: { sessionId } }));
-    }
-}
-
-/** 增加该会话的未读数（供剧情“线上消息”自动投递等外部入口调用，让聊天 App 出现红点）。 */
-export function bumpChatSessionUnread(sessionId: string, delta = 1): void {
-    if (delta <= 0) return;
-    const session = _sessionsCache.find(item => item.id === sessionId);
-    if (!session) return;
-    session.unreadCount = (session.unreadCount || 0) + delta;
     dbPutSessions([session]);
     if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent(CHAT_APP_SETTINGS_UPDATED_EVENT, { detail: { sessionId } }));

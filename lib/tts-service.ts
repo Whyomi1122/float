@@ -6,21 +6,6 @@ import { loadVoiceConfigs, loadBindingConfig, resolveBinding } from "./settings-
 export type VoiceApiConfigResolved = VoiceApiConfig;
 
 /**
- * 该角色是否有「显式」的语音绑定（只看 characterBindings，不含全局默认）。
- * 用于判断是否显示语音键：用户方 / 临时配角 / 未绑定语音的角色都不该显示。
- */
-export function hasExplicitVoiceBinding(characterId: string, appId?: ContentAppId): boolean {
-    if (!characterId) return false;
-    const bindings = loadBindingConfig();
-    const charBinding: any = bindings.characterBindings?.find(b => b.characterId === characterId);
-    if (!charBinding) return false;
-    // 角色级 defaults 或 app 级 override 里显式绑了语音才算
-    if (charBinding.defaults?.voiceConfigId) return true;
-    if (appId && charBinding.appOverrides?.[appId]?.voiceConfigId) return true;
-    return false;
-}
-
-/**
  * Resolve the TTS voice config for a character via the binding cascade.
  * Returns null if no voice config is bound or found.
  */

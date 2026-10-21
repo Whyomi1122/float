@@ -81,31 +81,6 @@ export type EnsembleScript = {
    */
   customCss?: string;
   /**
-   * 当前会话自定义字体的来源：
-   *   · "upload" = 用户上传了 ttf/otf 文件（文件本体存 IndexedDB，本字段仅记来源）
-   *   · "url"    = 用户填写了远程 ttf 链接（链接存 fontUrl）
-   *   · 缺省     = 未自定义，沿用群像默认字体栈
-   */
-  fontSource?: "upload" | "url";
-  /** fontSource === "url" 时的远程字体链接（.ttf/.otf/.woff/.woff2） */
-  fontUrl?: string;
-  /** 自定义字体在页面里注册的 font-family 名（运行时生成，供渲染层引用） */
-  fontFamily?: string;
-  /**
-   * 自定义字体的**作用范围**：
-   *   · "story"（缺省）= 仅剧情正文（对白/叙述/旁白/心理/角色名），
-   *                     通过给 UI 区域打 data-ens-ui 后由 `:not()` 排除实现；
-   *   · "all"          = 群像内全部文字（含标题栏 / 输入框 / 页脚元信息）。
-   */
-  fontScope?: "story" | "all";
-  /**
-   * 当前会话**正文字号**（px，绝对数值，可预期）。
-   * 群像设计基准：对白/叙述/旁白 = 14px、角色名 = 12px。
-   * 此处填「正文字号」；其余层级按原比例等比换算（角色名 = 正文 × 12/14）。
-   * 取值范围 10 ~ 20，缺省 14（＝设计原值）。
-   */
-  fontSize?: number;
-  /**
    * 模型切换：当前剧本指定的 API 配置 id。
    * 缺省则走 resolveEnsembleApiConfig 的级联兜底。
    */
@@ -422,24 +397,4 @@ export function undoLastEnsembleArchive(scriptId: string): EnsembleScript | null
   scripts[idx] = updated;
   saveEnsembleScripts(scripts);
   return updated;
-}
-
-// ─── 剧本自定义字体（上传）──────────────────────────────────────
-// 上传的字体本体以 base64 dataURL 存进 KV（底层即 IndexedDB，无 localStorage 5MB 限制）。
-// key 按剧本隔离：ensemble_font_<scriptId>。
-// 注意：不写进 EnsembleScript 对象 —— 避免剧本列表 JSON 过重。
-
-const ENSEMBLE_FONT_KEY_PREFIX = "ensemble_font_";
-
-/** 保存某剧本上传字体的 base64 dataURL（传空则清除）。 */
-export function saveEnsembleFontData(scriptId: string, dataUrl: string | null): void {
-  if (!scriptId) return;
-  kvSet(ENSEMBLE_FONT_KEY_PREFIX + scriptId, dataUrl ?? "");
-}
-
-/** 读取某剧本上传字体的 base64 dataURL；无则返回 null。 */
-export function loadEnsembleFontData(scriptId: string): string | null {
-  if (!scriptId) return null;
-  const raw = kvGet(ENSEMBLE_FONT_KEY_PREFIX + scriptId);
-  return raw && raw.length > 0 ? raw : null;
 }

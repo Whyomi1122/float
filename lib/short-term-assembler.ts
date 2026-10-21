@@ -10,7 +10,6 @@ import { loadCharacters } from "./character-storage";
 import { resolveUserIdentity } from "./settings-storage";
 import { loadMemoryConfig } from "./memory-storage";
 import type { MemoryConfig } from "./memory-types";
-import type { ContentAppId } from "./settings-types";
 import { estimateTokens } from "./token-counter";
 import { loadStoryProjectionEntries } from "./story-storage";
 import { buildTwoLevelMomentThreads } from "./moments-comment-threading";
@@ -891,7 +890,8 @@ function truncateTimelineByTokenBudget(
  * 记忆来源 settings. Applies to every consumer of the timeline — the
  * short-term context assembler as well as long-term summarization.
  */
-export function filterTimelineByAllowedSources(    entries: NativeTimelineEntry[],
+export function filterTimelineByAllowedSources(
+    entries: NativeTimelineEntry[],
     allowed?: MemoryConfig["shortTermAllowedSources"],
 ): NativeTimelineEntry[] {
     const rules = allowed ?? loadMemoryConfig().shortTermAllowedSources ?? {};
@@ -907,34 +907,6 @@ export function filterTimelineByAllowedSources(    entries: NativeTimelineEntry[
         return (rules as Record<string, boolean | undefined>)[source] !== false;
     });
 }
-
-/**
- * 按 App 分开总结（2026-10-16）：把一条时间线条目映射到「总结分桶 key」。
- * 与 filterTimelineByAllowedSources 的来源规则保持一致：
- *   私聊 chat → "chat"；群聊 chat/group → "group_chat"；其余直接用 sourceApp。
- * 非聊天类里同一 sourceApp 归为一桶（moments / diary / checkphone / …）。
- * 返回 null 表示该条目不参与总结（如系统事件）。
- */
-export function getSummarizationSourceKey(entry: NativeTimelineEntry): string | null {
-    if (!entry || !entry.sourceApp) return null;
-    const source = entry.sourceApp;
-    if (source === "chat") {
-        return entry.sourceDetail === "group" ? "group_chat" : "chat";
-    }
-    if (source === "story") return "story";
-    if (source === "vn") return "vn";
-    if (source === "map") return "adventure";
-    return source;
-}
-
-/** 分桶 key → 该桶入库时的 sourceApp（MemoryEntry.sourceApp 用）。 */
-export function summarizationSourceKeyToAppId(key: string): ContentAppId {
-    if (key === "adventure") return "adventure";
-    if (key === "custom_app") return "checkphone";
-    // 其余分桶 key 本身即合法的 ContentAppId（chat / group_chat / moments / diary / …）
-    return key as ContentAppId;
-}
-
 
 /**
  * Unified interface for all modules to get short-term memory context.

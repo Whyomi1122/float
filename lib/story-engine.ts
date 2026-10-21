@@ -18,7 +18,6 @@ import { prepareShortTermContext } from "./short-term-assembler";
 import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from "./calendar-storage";
 import { getWeekStartIso } from "./calendar-utils";
 import { parseStoryResponse } from "./story-parser";
-import type { StoryOnlineMessage } from "./story-parser";
 import { STORY_PARSER_VERSION } from "./story-parser";
 import { loadStoryMessages, replaceStoryMessages, resolveActiveStorySchemes, type StoryCharacterSettings, type StoryMessage } from "./story-storage";
 import type { ChatMessage } from "./chat-storage";
@@ -34,19 +33,7 @@ const STORY_VOICE_FORMAT_PROMPT = `# 剧情正文格式
 - ~强调~：只强调需要突出的短语。
 - “……”：只用于物品、动作、环境等非人声发出的声音，不作为角色对白。
 - 对白标点唯一格式：无论用户或历史消息里的对话使用什么标点形式（“”、""、『』、''等），你输出的角色对白一律使用「」，不要模仿用户的标点。
-旁白、动作以及用户的话不得写进「」；不要解释这些格式，也不要输出额外的语音清单。
-
-# 线上消息投递（重要，务必执行）
-当剧情中出现「角色用手机给用户或某个群发送了一条消息」的动作时（例如：他拿起手机打字发送、屏幕上弹出一条他发来的消息、群里有人发消息），你必须在叙述之外，另起一行输出控制标记，把这条消息交给系统投递到聊天 App：
-- 私聊（角色 → 用户）：<online>消息内容</online>（无需任何属性）
-- 群聊（某个群里的消息）：<online group="群名">消息内容</online>
-硬性要求：
-1. 标记与属性名必须完全按上面写，不要翻译成中文、不要增删属性。
-2. 标记里的**消息内容**必须与正文中角色实际发出的那条消息**文字完全一致**。
-3. 双语：若该条线上消息使用非中文语言，标记内容必须写成“完整原文|对应的简体中文译文”（竖线分隔，原文在前译文在后），与对白双语规则一致；以中文书写则不要加译文。
-4. 每条线上消息**只输出一次**，不要重复。
-5. 正文必须叙述出他发的内容，读者要能在正文里看到这条消息是什么；但不要复述标记本身。
-6. 只有真的发送了消息才输出；没有则完全不输出该标记，也不要输出空标记。`;
+旁白、动作以及用户的话不得写进「」；不要解释这些格式，也不要输出额外的语音清单。`;
 
 export type StoryGenerationOptions = {
   sessionFoldTags?: string;
@@ -103,8 +90,6 @@ export type StoryGenerationResult = {
   rawText: string;
   renderedText: string;
   storySummary: string;
-  /** 剧情里角色发出的“线上消息”（<online> 标记），由调用方投递到聊天 App。 */
-  onlineMessages?: StoryOnlineMessage[];
   regexSignature: string;
   parserVersion: number;
   promptMessages: LLMMessage[];
@@ -219,9 +204,7 @@ export async function generateStoryCompletion(
   }
 
   const { apiConfig, preset: resolvedPreset, regexes, worldBooks, regexSignature, summaryTag } = resolveStoryConfigs(characterId);
-  const preset = options?.settings?.disableBoundPreset
-    ? null
-    : selectStoryPresetPrompts(resolvedPreset, options?.settings?.enabledPresetPromptIds);
+  const preset = selectStoryPresetPrompts(resolvedPreset, options?.settings?.enabledPresetPromptIds);
   const effectiveFoldTags = options?.sessionFoldTags?.trim() || DEFAULT_STORY_FOLD_TAGS;
   const effectiveContextExcludedTags = options?.sessionContextExcludedTags?.trim() || DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS;
   const llmMessages = await buildStoryPromptMessages(
@@ -254,7 +237,6 @@ export async function generateStoryCompletion(
     rawText: parsed.rawText,
     renderedText: parsed.renderedText,
     storySummary: parsed.summaryText,
-    onlineMessages: parsed.onlineMessages,
     regexSignature,
     parserVersion: STORY_PARSER_VERSION,
     promptMessages: llmMessages,

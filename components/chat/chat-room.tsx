@@ -52,7 +52,7 @@ import { useKeyboardDismissAutoSend } from "@/components/chat/use-keyboard-dismi
 import { cancelBailoutKey } from "@/lib/push-bailout-client";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import type { UserIdentity } from "@/components/settings/user-identity";
-import { AlertCircle, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, Search, X } from "lucide-react";
+import { AlertCircle, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, X } from "lucide-react";
 import { setDebugChatState } from "@/lib/debug-store";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { setChatActive } from "@/lib/music-action-queue";
@@ -737,7 +737,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>, label: "位置", onClick: () => onOpenRichModal("location") },
         // 「指令」：系统指令 + 番外指令模式（弹窗内 tab 切换；番外为开关）
         { icon: <AlertCircle size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "指令", active: theaterMode, onClick: () => onOpenRichModal("system_instruction") },
-        // 「线下」入口已隐藏（线下功能整体下线）
+        { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={offlineMode ? "var(--c-icon-active)" : "var(--c-text)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12.01" y2="18" /><line x1="3" y1="3" x2="21" y2="21" /></svg>, label: "线下", active: offlineMode, onClick: onToggleOfflineMode },
         ...customPlusActions.map(action => ({
             icon: action.appIconDataUrl
                 ? <span className="chat-plus-custom-app-icon" style={{ backgroundImage: `url(${action.appIconDataUrl})` }} aria-hidden="true" />
@@ -1150,7 +1150,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [customPlusActions, setCustomPlusActions] = useState<RegisteredCustomAppChatPlusAction[]>(() => loadCustomAppChatPlusActions());
     const [activeCustomChatPlus, setActiveCustomChatPlus] = useState<ActiveCustomChatPlus | null>(null);
     const [showSettings, setShowSettings] = useState(false);
-    const [openSettingsInSearch, setOpenSettingsInSearch] = useState(false);
     const [showVoiceCall, setShowVoiceCall] = useState(false);
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [callMinimized, setCallMinimized] = useState(false);
@@ -1755,8 +1754,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     useEffect(() => {
         setUserIdentity(resolveUserIdentity(session.contactId, "chat"));
         setTransientMessages([]);
-        // 线下功能已整体下线：强制关闭线下模式（线下入口/界面不再出现）
-        setOfflineMode(false);
+        setOfflineMode(kvGet(CHAT_OFFLINE_MODE_PREFIX + session.id) === "1");
         setOfflineVisibleCount(OFFLINE_INITIAL_LOAD);
         offlineTextInputRef.current?.clear();
         setPendingOfflineUserText("");
@@ -5469,20 +5467,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         )}
                     </span>
                     <span className="page-header-right">
-                        <button
-                            className="page-back-btn"
-                            type="button"
-                            onClick={() => { setOpenSettingsInSearch(true); setShowSettings(true); }}
-                            aria-label="查找聊天记录"
-                        >
-                            <Search size={20} strokeWidth={1.6} />
-                        </button>
-                        <button
-                            className="page-back-btn"
-                            type="button"
-                            onClick={() => { setOpenSettingsInSearch(false); setShowSettings(true); }}
-                            aria-label="更多"
-                        >
+                        <button className="page-back-btn" type="button" onClick={() => setShowSettings(true)} aria-label="更多">
                             <MoreHorizontal size={22} strokeWidth={1.5} />
                         </button>
                     </span>
@@ -5866,7 +5851,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     } : {};
 
                     return (
-                        <div key={msg.id} className="flex flex-col gap-4" style={{ ...(hiddenEmpty ? { display: "none" } : {}) }} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
+                        <div key={msg.id} className="flex flex-col gap-4" {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
                             {showTime && (
                                 <div className="flex justify-center w-full">
                                     <span className="chat-sys-msg py-[2px] px-2 rounded select-none">
@@ -5894,7 +5879,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                 id={`message-${msg.id}`}
                                 className="chat-msg-wrapper"
                                 data-role={uiRole(msg)}
-                                {...(isMediaBubble ? { "data-media": "" } : {})}
                                 {...(isEmptyBubble && renderMsg.reasoningText ? { "data-reasoning-empty": "" } : {})}
                                 {...(isConsecutive ? { "data-consecutive": "" } : {})}
                                 {...(activeMessageId === msg.id ? { "data-active": "" } : {})}
@@ -6082,21 +6066,21 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 onActionSelect={(text) => chatTextInputRef.current?.appendText(text)}
                                                 defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                             />
-                                            {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setExpandedThinkingId(prev => prev === msg.id ? null : msg.id); }}
-                                                    className="chat-monologue-heart bg-none border-none cursor-pointer ts-14 leading-none"
-                                                    {...(expandedMonologueId === msg.id ? { "data-active": "" } : {})}
-                                                    title="查看折叠状态"
-                                                    aria-label="查看折叠状态"
-                                                >
-                                                    <svg viewBox="0 0 16 16" width="14" height="14" style={{display:"block"}}>
-                                                        <path d="M8 14s-6-4-6-8c0-2.5 1.5-4 3.5-4 1 0 2 .5 2.5 1.5C8.5 2.5 9.5 2 10.5 2 12.5 2 14 3.5 14 6c0 4-6 8-6 8z" fill="currentColor"/>
-                                                    </svg>
-                                                </button>
-                                            )}
                                         </div>
                                         </div>}
+                                        {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setExpandedThinkingId(prev => prev === msg.id ? null : msg.id); }}
+                                                className="chat-monologue-heart bg-none border-none cursor-pointer p-1 ts-14 leading-none self-end shrink-0 -ml-2"
+                                                {...(expandedMonologueId === msg.id ? { "data-active": "" } : {})}
+                                                title="查看折叠状态"
+                                                aria-label="查看折叠状态"
+                                            >
+                                                <svg viewBox="0 0 16 16" width="14" height="14" style={{display:"block"}}>
+                                                    <path d="M8 14s-6-4-6-8c0-2.5 1.5-4 3.5-4 1 0 2 .5 2.5 1.5C8.5 2.5 9.5 2 10.5 2 12.5 2 14 3.5 14 6c0 4-6 8-6 8z" fill="currentColor"/>
+                                                </svg>
+                                            </button>
+                                        )}
                                         {msg.role === "user" && !isEmptyBubble && (
                                             <div className="chat-msg-avatar w-[40px] h-[40px] rounded-[20px] bg-[var(--c-page-body-bg)] shrink-0 flex items-center justify-center overflow-hidden">
                                                 {userIdentity?.avatarUrl ? (
@@ -6343,17 +6327,26 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         session={session}
                         onClose={() => {
                             setShowSettings(false);
-                            setOpenSettingsInSearch(false);
                             // Reload messages in case history was cleared
                             syncMessagesFromStorage();
                         }}
                         onJumpToMessage={(messageId) => {
                             setShowSettings(false);
-                            setOpenSettingsInSearch(false);
                             jumpToStoredMessage(messageId);
                         }}
-                        startInSearch={openSettingsInSearch}
                         onToolHistoryCleared={syncMessagesFromStorage}
+                        offlineHistoryBusy={isOfflineGenerating}
+                        onOfflineHistoryCleared={() => {
+                            setOfflineTurns([]);
+                            setOfflineVisibleCount(OFFLINE_INITIAL_LOAD);
+                            setPendingOfflineUserText("");
+                            offlineGenerationInputRef.current = "";
+                            setActiveOfflineTarget(null);
+                            setContextMenuAnchor(null);
+                            setEditingOfflineTarget(null);
+                            setEditingOfflineContent("");
+                            showChatToast("已清空线下聊天记录");
+                        }}
                         onDeleteFriend={() => onBack()}
                         onSessionDeleted={() => {
                             setShowSettings(false);

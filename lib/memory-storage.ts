@@ -1,7 +1,7 @@
 // lib/memory-storage.ts
 // IndexedDB persistence for long-term memory entries + short-term events + localStorage config.
 
-import type { MemoryEntry, MemoryConfig, MemoryDraft } from "./memory-types";
+import type { MemoryEntry, MemoryConfig } from "./memory-types";
 import { DEFAULT_MEMORY_CONFIG } from "./memory-types";
 import { kvGet, kvSet, registerKvMigration, registerDynamicPrefix } from "./kv-db";
 import { openIndexedDbAtLeast } from "./idb-open";
@@ -232,21 +232,6 @@ export function setLastSummarizedTimestamp(characterId: string, ts: string): voi
     kvSet(LAST_SUMMARY_TS_PREFIX + characterId, ts);
 }
 
-// ── Per-app summarization watermarks (2026-10-16: 按 App 分开总结) ──
-// key = `${characterId}::${sourceKey}`，每个来源独立推进，互不牵连。
-const LAST_SUMMARY_TS_APP_PREFIX = "ai_phone_mem_last_sum_app_";
-registerDynamicPrefix(LAST_SUMMARY_TS_APP_PREFIX);
-
-export function getLastSummarizedTimestampPerApp(characterId: string, sourceKey: string): string | null {
-    if (typeof window === "undefined") return null;
-    return kvGet(`${LAST_SUMMARY_TS_APP_PREFIX}${characterId}::${sourceKey}`) || null;
-}
-
-export function setLastSummarizedTimestampPerApp(characterId: string, sourceKey: string, ts: string): void {
-    if (typeof window === "undefined") return;
-    kvSet(`${LAST_SUMMARY_TS_APP_PREFIX}${characterId}::${sourceKey}`, ts);
-}
-
 export function getCoreMemoryCounter(characterId: string): number {
     if (typeof window === "undefined") return 0;
     const val = kvGet(CORE_COUNTER_PREFIX + characterId);
@@ -274,84 +259,4 @@ export function getLastCoreSummarizedTimestamp(characterId: string): string | nu
 export function setLastCoreSummarizedTimestamp(characterId: string, ts: string): void {
     if (typeof window === "undefined") return;
     kvSet(LAST_CORE_SUMMARY_TS_PREFIX + characterId, ts);
-}
-
-// ── 归档草稿（pending，存 KV，不混入正式记忆库）──
-
-const DRAFTS_PREFIX = "ai_phone_mem_drafts_";
-registerDynamicPrefix(DRAFTS_PREFIX);
-
-export function loadMemoryDrafts(characterId: string): MemoryDraft[] {
-    if (typeof window === "undefined") return [];
-    const raw = kvGet(DRAFTS_PREFIX + characterId);
-    if (!raw) return [];
-    try {
-        const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? (arr as MemoryDraft[]) : [];
-    } catch {
-        return [];
-    }
-}
-
-export function saveMemoryDrafts(characterId: string, drafts: MemoryDraft[]): void {
-    if (typeof window === "undefined") return;
-    kvSet(DRAFTS_PREFIX + characterId, JSON.stringify(drafts));
-}
-
-export function addMemoryDraft(draft: MemoryDraft): void {
-    if (typeof window === "undefined") return;
-    const list = loadMemoryDrafts(draft.characterId);
-    // 同一指纹已存在则覆盖（避免重复草稿堆积）
-    const idx = list.findIndex(d => d.contentHash === draft.contentHash);
-    if (idx >= 0) list[idx] = draft;
-    else list.push(draft);
-    saveMemoryDrafts(draft.characterId, list);
-}
-
-export function removeMemoryDraft(characterId: string, draftId: string): void {
-    if (typeof window === "undefined") return;
-    saveMemoryDrafts(characterId, loadMemoryDrafts(characterId).filter(d => d.id !== draftId));
-}
-
-export function clearMemoryDrafts(characterId: string): void {
-    if (typeof window === "undefined") return;
-    kvSet(DRAFTS_PREFIX + characterId, JSON.stringify([]));
-}
-
-/** 列出所有存在草稿的角色 id */
-export function getAllCharacterIdsWithDrafts(): string[] {
-    if (typeof window === "undefined") return [];
-    const ids: string[] = [];
-    try {
-        const keys = Object.keys(window.localStorage || {});
-        for (const k of keys) {
-            if (k.startsWith(DRAFTS_PREFIX)) {
-                const cid = k.slice(DRAFTS_PREFIX.length);
-                if (loadMemoryDrafts(cid).length > 0) ids.push(cid);
-            }
-        }
-    } catch { /* ignore */ }
-    return ids;
-}
-
-// ── 防污染·墓碑（deletedMemoryHashes 的便捷读写）──
-
-export function getDeletedHashes(): string[] {
-    const config = loadMemoryConfig();
-    return Array.isArray(config.deletedMemoryHashes) ? config.deletedMemoryHashes : [];
-}
-
-export function addDeletedHash(characterId: string, hash: string): void {
-    if (typeof window === "undefined" || !hash) return;
-    const config = loadMemoryConfig();
-    const existing = Array.isArray(config.deletedMemoryHashes) ? config.deletedMemoryHashes : [];
-    // 墓碑按角色隔离，避免不同角色撞 hash
-    const key = `${characterId}::${hash}`;
-    if (existing.includes(key)) return;
-    saveMemoryConfig({ ...config, deletedMemoryHashes: [...existing, key].slice(-2000) });
-}
-
-export function isHashedDeleted(characterId: string, hash: string): boolean {
-    if (!hash) return false;
-    return getDeletedHashes().includes(`${characterId}::${hash}`);
 }

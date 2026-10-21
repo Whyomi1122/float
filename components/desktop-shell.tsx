@@ -3,7 +3,6 @@
 import { Component, memo, useCallback, useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ErrorInfo, type ReactNode } from "react";
 
 import { EnsembleApp } from "@/components/ensemble/ensemble-app";
-import { BuildInfoPopup } from "@/components/build-info-popup";
 import { updateStatusBarTone } from "@/lib/bg-tone";
 import { startDiaryEntryTimerService, stopDiaryEntryTimerService } from "@/lib/diary-entry-timer-service";
 import { startFollowUpService, stopFollowUpService } from "@/lib/follow-up-service";
@@ -5040,8 +5039,6 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
       </section>
       {/* 微信云同步过程可视化：拉取/上传/运行包同步与失败都在这里冒 toast */}
       <WeixinSyncToast />
-      {/* 进入 float 时提示「本次更新了什么」（版本变化才弹） */}
-      <BuildInfoPopup />
     </>
   );
 }

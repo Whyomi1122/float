@@ -1536,10 +1536,6 @@
   box-shadow: none !important;
   overflow: visible !important;
 }
-/* 富媒体消息行：头像 ↔ 卡片间距与文本气泡一致（12px） */
-.chat-msg-wrapper[data-media] {
-  gap: 12px !important;
-}
 /* 防御：任何包含富媒体卡片的用户/角色气泡都不露底色（兼容 :has 的浏览器） */
 .chat-bubble-role-user:has(> .chat-red-packet-card),
 .chat-bubble-role-user:has(> .chat-transfer-card),
@@ -2858,32 +2854,17 @@
 }
 
 /* ── Monologue heart icon ── */
-/* 爱心直接挂在气泡内，绝对定位在气泡外侧右下角（相对气泡本身定位 → 所有卡片/气泡间距统一） */
-.chat-bubble-role-user,
-.chat-bubble-role-assistant {
-  overflow: visible !important;
-}
-/* 基础样式（两种路径共用） */
 .chat-monologue-heart {
+  overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
   color: rgba(0,0,0,0.15);
   transition: color 0.2s, transform 0.2s;
 }
-/* 仅「正常气泡内的爱心按钮」绝对定位到气泡外侧；静默思考路径的容器不受影响 */
-.chat-bubble-role-user > .chat-monologue-heart,
-.chat-bubble-role-assistant > .chat-monologue-heart {
-  position: absolute;
-  right: -18px;
-  bottom: 2px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-}
 .chat-monologue-heart[data-active] {
   color: #e74c5e;
   transform: scale(1.2);
+  overflow: visible;
 }
 
 /* ── Input textarea ── */
