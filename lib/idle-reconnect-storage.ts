@@ -8,7 +8,7 @@ export const IDLE_RECONNECT_RULES_KEY = "ai_phone_idle_reconnect_rules_v1";
 registerKvMigration(IDLE_RECONNECT_RULES_KEY);
 
 /** 连发上限：用户不回复时最多主动发这么多次，回复后清零 */
-export const IDLE_RECONNECT_MAX_CONSECUTIVE = 2;
+export const IDLE_RECONNECT_MAX_CONSECUTIVE = 3;
 
 export type IdleReconnectRule = {
     id: string;

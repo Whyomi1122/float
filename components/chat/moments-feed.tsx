@@ -86,45 +86,6 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
         return el;
     }, []);
 
-    // 进出该页时保留滚动位置：滚动宿主就是 PageShell 的 bodyRef（.page-body）
-    useEffect(() => {
-        const key = "moments_feed_scroll_top";
-        const host = scrollRef.current;
-        if (!host) return;
-        const saved = Number(sessionStorage.getItem(key) || "0");
-        let raf = 0;
-        let restoring = saved > 0;
-        let stableFrames = 0;
-        const restore = () => {
-            if (!restoring) return;
-            if (host.scrollHeight > host.clientHeight + 2) {
-                host.scrollTop = saved;
-                // 内容可能还在陆续渲染，连续稳定两帧才认为恢复完成
-                if (Math.abs(host.scrollTop - saved) < 2) {
-                    stableFrames += 1;
-                    if (stableFrames >= 3) { restoring = false; return; }
-                } else {
-                    stableFrames = 0;
-                }
-            }
-            raf = requestAnimationFrame(restore);
-        };
-        if (saved > 0) restore();
-        const onScroll = () => {
-            if (restoring) return;
-            sessionStorage.setItem(key, String(host.scrollTop));
-        };
-        host.addEventListener("scroll", onScroll, { passive: true });
-        const persist = () => sessionStorage.setItem(key, String(host.scrollTop));
-        window.addEventListener("pagehide", persist);
-        return () => {
-            cancelAnimationFrame(raf);
-            persist();
-            host.removeEventListener("scroll", onScroll);
-            window.removeEventListener("pagehide", persist);
-        };
-    }, []);
-
     const stopLoadMoreAnchorTracking = useCallback(() => {
         loadMoreResizeObserverRef.current?.disconnect();
         loadMoreResizeObserverRef.current = null;

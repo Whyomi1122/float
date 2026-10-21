@@ -1,15 +1,9 @@
-﻿"use client";
+"use client";
 
 import { forwardRef, Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, CHAT_LOAD_MORE_MESSAGE_COUNT, CHAT_REQUEST_REPLY_EVENT, loadChatAppSettings, loadChatMessages, loadChatContacts, loadChatSessions, saveChatSessions, pushChatMessage, updateChatMessage, deleteChatMessage, deleteChatMessagesFrom, deleteChatMessagesByIds, retractChatMessage, editChatMessage, updateMessageMediaData, replaceResponseBatchWithParts, replaceGroupResponseRound, isReadingDiscussMessage, isSystemInstructionMessage, createResponseBatchId, createResponseRoundId, getLatestStateValues, getLatestCharacterStateValues, compareChatMessages, isSessionStreamingEnabled } from "@/lib/chat-storage";
 import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXmlTagBlocks } from "@/lib/stream-preview";
 import type { StateValue } from "@/lib/chat-storage";
-import { loadEnsembleScripts, appendEnsembleTurn, type EnsembleScript } from "@/lib/ensemble-storage";
-import {
-    getOpenSessionForCharacter,
-    closeDeliverySession,
-    formatTranscriptAsNarration,
-} from "@/lib/ensemble-delivery";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse, type ParsedMessagePart } from "@/lib/rich-message-parser";
 import { isKnownStickerLabel } from "@/lib/sticker-data";
@@ -1172,51 +1166,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [mediaDetailMsg, setMediaDetailMsg] = useState<ChatMessage | null>(null);
     // Quote reply
     const [quotingMessage, setQuotingMessage] = useState<ChatMessage | null>(null);
-    /** 待「带回剧情」的消息（点了菜单后先选剧本，再确认内容）。 */
-    const [bringBackMessage, setBringBackMessage] = useState<ChatMessage | null>(null);
-
-    /**
-     * 把聊天里的一条消息以「旁白」形式搬进群像剧本（没有进行中的剧情对话段时用）。
-     * 用旁白而不是角色台词：不破坏角色边界，剧情又能自然接上。
-     */
-    const handleBringBackToScript = (target: EnsembleScript, msg: ChatMessage) => {
-        const speaker = msg.role === "user" ? "你" : (msg.senderName || character?.name || "对方");
-        const quoted = (msg.content ?? "").trim();
-        if (!quoted) { setBringBackMessage(null); return; }
-        appendEnsembleTurn(target.id, {
-            id: `turn_${Date.now()}_bb`,
-            senderType: "narration",
-            senderName: "旁白",
-            content: `（${speaker}看了看手机 —— ${speaker}：${quoted}）`,
-            timestamp: new Date().toISOString(),
-        });
-        setBringBackMessage(null);
-        showChatToast(`已带回《${target.title || "未命名剧本"}》，下一轮剧情会带上`);
-    };
-
-    /**
-     * 【返回剧情】：结束当前这段剧情对话，把整段打包写进剧本。
-     * 触发条件 —— 该角色名下存在「投递了但还没返回」的对话段。
-     */
-    const handleReturnToStory = (deliverySessionId: string) => {
-        if (!character) return;
-        const result = closeDeliverySession({ deliverySessionId, characterId: character.id });
-        setBringBackMessage(null);
-        if (!result) {
-            showChatToast("这段已经归入过剧情了");
-            return;
-        }
-        const { session, transcript } = result;
-        const narration = formatTranscriptAsNarration(session, transcript);
-        appendEnsembleTurn(session.scriptId, {
-            id: `turn_${Date.now()}_dlv`,
-            senderType: "narration",
-            senderName: "来自聊天",
-            content: narration,
-            timestamp: new Date().toISOString(),
-        });
-        showChatToast(`已归入《${session.scriptTitle}》· ${transcript.length} 句`);
-    };
     // Emoji panel
     const [showEmojiPanel, setShowEmojiPanel] = useState(false);
     const [showStickerPanel, setShowStickerPanel] = useState(false);
@@ -5004,10 +4953,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 </div>
                 <div className="flex">
                     <button onClick={() => { setQuotingMessage(m); setActiveMessageId(null); }} className="ctx-menu-btn">引用</button>
-                    <button
-                        onClick={() => { setBringBackMessage(m); setActiveMessageId(null); }}
-                        className="ctx-menu-btn"
-                    >带回剧情</button>
                     {options?.allowMultiSelect !== false && (
                         <button onClick={() => startMultiSelectFromMessage(m)} className="ctx-menu-btn">多选</button>
                     )}
@@ -5523,7 +5468,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                             </span>
                         )}
                     </span>
-                    <span className="page-header-right chat-room-header-actions">
+                    <span className="page-header-right">
                         <button
                             className="page-back-btn"
                             type="button"
@@ -5618,7 +5563,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <BilingualTextBlock
                                             text={offlineDisplay.userContent}
                                             mode="markdown"
-                                            defaultExpanded={true}
+                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                         />
                                     </div>
                                 </div>
@@ -5685,7 +5630,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         {activeOfflineTarget?.turnId === turn.id && activeOfflineTarget.role === "assistant" && renderOfflineContextMenu(turn, "assistant")}
                                         <OfflineAssistantTextBlock
                                             text={offlineDisplay.assistantContent}
-                                            defaultExpanded={true}
+                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                         />
                                     </div>
                                     {turn.summary.trim() && (
@@ -5695,7 +5640,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 <BilingualTextBlock
                                                     text={offlineDisplay.summary}
                                                     mode="markdown"
-                                                    defaultExpanded={true}
+                                                    defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                                 />
                                             </div>
                                         </details>
@@ -5717,7 +5662,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <BilingualTextBlock
                                             text={renderDisplayText(pendingOfflineUserText, 1, true)}
                                             mode="markdown"
-                                            defaultExpanded={true}
+                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                         />
                                     </div>
                                 </div>
@@ -5863,7 +5808,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                             <BilingualTextBlock
                                                                 text={gMsg.displayProjected ? gMsg.content : renderDisplayText(gMsg.content, gMsg.role === "user" ? 1 : 2, false)}
                                                                 mode="markdown"
-                                                                defaultExpanded={true}
+                                                                defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                                             />
                                                             {activeMessageId === gMsg.id && renderBubbleContextMenu(gMsg, { allowMultiSelect: false })}
                                                         </div>
@@ -6135,7 +6080,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 }}
                                                 onMusicPlay={handleMusicCardPlay}
                                                 onActionSelect={(text) => chatTextInputRef.current?.appendText(text)}
-                                                defaultTranslationExpanded={true}
+                                                defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                             />
                                             {msg.role !== "user" && !isSilentThought && !isEmptyBubble && hasFoldedPanel && (
                                                 <button
@@ -6172,7 +6117,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <BilingualTextBlock
                                             text={msg.displayProjected ? (renderMsg.mediaData?.label || "") : renderDisplayText(renderMsg.mediaData?.label || "", msg.role === "user" ? 1 : 2, false)}
                                             mode="markdown"
-                                            defaultExpanded={true}
+                                            defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                         />
                                     </div>
                                     {msg.role === "user" && <div className="w-[40px] shrink-0" />}
@@ -6192,7 +6137,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         msg.statusRegionMode === "custom" && statusRegionCfg.renderHtml.trim() ? (
                                             <CustomStatusFrame html={statusRegionCfg.renderHtml} raw={renderMsg.statusPanel} />
                                         ) : (
-                                            <BilingualTextBlock text={msg.displayProjected ? renderMsg.statusPanel : renderDisplayText(renderMsg.statusPanel, 6, false)} mode="markdown" defaultExpanded={true} />
+                                            <BilingualTextBlock text={msg.displayProjected ? renderMsg.statusPanel : renderDisplayText(renderMsg.statusPanel, 6, false)} mode="markdown" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                                         )
                                     )}
                                 </div>
@@ -6212,7 +6157,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                         <StateValuesPanel stateValues={cardStateValues} />
                                     )}
                                     <div className="chat-thought-body">
-                                        <BilingualTextBlock text={msg.displayProjected ? renderMsg.innerMonologue : renderDisplayText(renderMsg.innerMonologue, 6, false)} mode="markdown" defaultExpanded={true} />
+                                        <BilingualTextBlock text={msg.displayProjected ? renderMsg.innerMonologue : renderDisplayText(renderMsg.innerMonologue, 6, false)} mode="markdown" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                                     </div>
                                     {/* Signature */}
                                     <div className="chat-thought-sig">
@@ -6616,120 +6561,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     </div>
                 </div>
             )}
-
-            {/* ── 返回剧情 / 带回剧情 ── */}
-            {bringBackMessage && (() => {
-                const openSession = character ? getOpenSessionForCharacter(character.id) : null;
-                // 有进行中的剧情对话段 → 走「返回剧情」，整段打包归入剧本
-                if (openSession) {
-                    return (
-                        <div className="modal-overlay" onClick={() => setBringBackMessage(null)}>
-                            <div
-                                onClick={e => e.stopPropagation()}
-                                className="modal-dialog"
-                                data-ui="modal"
-                                role="dialog"
-                                aria-modal="true"
-                                aria-label="返回剧情"
-                            >
-                                <div className="ts-16 font-semibold text-center text-[var(--c-text)]">返回剧情</div>
-                                <div className="ts-11 text-[var(--c-icon)] text-center -mt-1">
-                                    这段对话会整段归入《{openSession.scriptTitle}》，作为剧情的一部分。
-                                </div>
-
-                                <div className="w-full rounded-xl bg-[var(--c-input)] px-3 py-2.5 text-left">
-                                    <div className="ts-10 text-[var(--c-icon)] mb-1">这段聊天的起点</div>
-                                    <div className="ts-12 text-[var(--c-text)] leading-relaxed max-h-[100px] overflow-y-auto whitespace-pre-wrap break-words">
-                                        {openSession.originContent}
-                                    </div>
-                                </div>
-
-                                <div className="ts-10 text-[var(--c-icon)] text-center">
-                                    从起点到最后一句为止，都会记进剧本。
-                                </div>
-
-                                <div className="flex gap-3 w-full">
-                                    <button onClick={() => setBringBackMessage(null)} className="ui-btn ui-btn-ghost ui-btn-bordered-ghost flex-1">取消</button>
-                                    <button
-                                        onClick={() => handleReturnToStory(openSession.id)}
-                                        className="ui-btn ui-btn-primary flex-1"
-                                    >确认返回</button>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                }
-                // 没有进行中的段 → 退化为「单句带回」
-                return (
-                <div className="modal-overlay" onClick={() => setBringBackMessage(null)}>
-                    <div
-                        onClick={e => e.stopPropagation()}
-                        className="modal-dialog"
-                        data-ui="modal"
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label="带回剧情"
-                    >
-                        <div className="ts-16 font-semibold text-center text-[var(--c-text)]">带回剧情</div>
-                        <div className="ts-11 text-[var(--c-icon)] text-center -mt-1">
-                            这段对话会作为旁白插入剧本，下一轮生成时模型一定能看到。
-                        </div>
-
-                        {/* 内容预览 */}
-                        <div className="w-full rounded-xl bg-[var(--c-input)] px-3 py-2.5 text-left">
-                            <div className="ts-10 text-[var(--c-icon)] mb-1">
-                                {bringBackMessage.role === "user" ? "你说" : `${bringBackMessage.senderName || character?.name || "对方"} 说`}
-                            </div>
-                            <div className="ts-12 text-[var(--c-text)] leading-relaxed max-h-[132px] overflow-y-auto whitespace-pre-wrap break-words">
-                                {bringBackMessage.content}
-                            </div>
-                        </div>
-
-                        {/* 选剧本 */}
-                        <div className="w-full">
-                            <div className="ts-10 text-[var(--c-icon)] mb-1.5">带回哪个剧本</div>
-                                {(() => {
-                                    const scripts = loadEnsembleScripts();
-                                    if (scripts.length === 0) {
-                                        return (
-                                            <div className="ts-11 text-[var(--c-icon)] py-2">
-                                                还没有群像剧本，先去群像 App 建一个吧。
-                                            </div>
-                                        );
-                                    }
-                                    return (
-                                        <div className="flex flex-col gap-1.5 max-h-[150px] overflow-y-auto">
-                                            {scripts.map(s => {
-                                                const castMatch = s.cast.some(
-                                                    c => c.id === character?.id || c.name === (bringBackMessage.senderName || character?.name)
-                                                );
-                                                return (
-                                                    <button
-                                                        key={s.id}
-                                                        type="button"
-                                                        onClick={() => handleBringBackToScript(s, bringBackMessage)}
-                                                        className="ui-btn ui-btn-ghost ui-btn-bordered-ghost w-full flex-col items-start"
-                                                    >
-                                                        <span className="ts-12 text-[var(--c-text)]">{s.title || "未命名剧本"}</span>
-                                                        <span className="ts-10 text-[var(--c-icon)]">
-                                                            {s.cast.map(c => c.name).filter(Boolean).join("、") || "无角色"}
-                                                            {castMatch ? " · 含本角色" : ""}
-                                                        </span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    );
-                                })()}
-                        </div>
-
-                        <div className="flex gap-3 w-full">
-                            <button onClick={() => setBringBackMessage(null)} className="ui-btn ui-btn-ghost ui-btn-bordered-ghost flex-1">取消</button>
-                        </div>
-                    </div>
-                </div>
-                );
-            })()}
 
             {/* 思维链底部弹窗（Claude app 风格） */}
             {reasoningSheetText !== null && (

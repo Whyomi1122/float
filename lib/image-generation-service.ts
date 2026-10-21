@@ -1,5 +1,4 @@
 import type { ImageGenerationSettings, NovelAiPreset } from "./settings-types";
-import type { ContentAppId } from "./settings-types";
 import { loadImageGenerationSettings, DEFAULT_NOVELAI_PRESET } from "./settings-storage";
 import JSZip from "jszip";
 import { getChatImageFromIndexedDB } from "./chat-asset-storage";
@@ -51,29 +50,10 @@ const IMAGE_MODEL_HINTS = [
   "wan",
 ];
 
-function mergePrompt(description: string, extraPrompt: string, featurePrompt = ""): string {
+function mergePrompt(description: string, extraPrompt: string): string {
   const main = description.trim();
   const extra = extraPrompt.trim();
-  const feature = featurePrompt.trim();
-  const base = extra ? `${main}\n\n${extra}` : main;
-  return feature ? `${base}\n\n${feature}` : base;
-}
-
-/** 专属提示词支持「正向xxx 反向xxx」写法，拆成两段分别使用。 */
-export function splitFeaturePrompt(raw: string): { positive: string; negative: string } {
-  const text = (raw ?? "").trim();
-  if (!text) return { positive: "", negative: "" };
-  const match = text.match(/(?:^|\s)(?:反向|negative|Negative)(?:\s*[:：]|\s)\s*/);
-  if (!match || match.index === undefined) {
-    const positive = text.replace(/^(?:正向|positive|Positive)\s*[:：]?\s*/, "").trim();
-    return { positive, negative: "" };
-  }
-  const before = text.slice(0, match.index);
-  const after = text.slice(match.index + match[0].length);
-  return {
-    positive: before.replace(/^(?:正向|positive|Positive)\s*[:：]?\s*/, "").trim(),
-    negative: after.trim(),
-  };
+  return extra ? `${main}\n\n${extra}` : main;
 }
 
 function base64ToBlob(b64: string, mimeType: string): Blob {
@@ -114,11 +94,8 @@ function loadDataUrlImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-async function normalizeReferenceImageForEdit(
-  dataUrl: string,
-  crop?: { x: number; y: number; size: number },
-): Promise<string> {
-  if (!crop && dataUrlMimeType(dataUrl) === "image/png") return dataUrl;
+async function normalizeReferenceImageForEdit(dataUrl: string): Promise<string> {
+  if (dataUrlMimeType(dataUrl) === "image/png") return dataUrl;
   if (typeof document === "undefined") return dataUrl;
 
   try {
@@ -128,23 +105,11 @@ async function normalizeReferenceImageForEdit(
     if (!width || !height) return dataUrl;
 
     const canvas = document.createElement("canvas");
-    const normalizedSize = crop ? Math.max(0.18, Math.min(1, crop.size)) : 1;
-    const sourceSize = Math.max(1, Math.round(Math.min(width, height) * normalizedSize));
-    const sourceX = crop
-      ? Math.round(Math.max(0, Math.min(width - sourceSize, crop.x * width)))
-      : 0;
-    const sourceY = crop
-      ? Math.round(Math.max(0, Math.min(height - sourceSize, crop.y * height)))
-      : 0;
-    canvas.width = crop ? sourceSize : width;
-    canvas.height = crop ? sourceSize : height;
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) return dataUrl;
-    if (crop) {
-      context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, sourceSize, sourceSize);
-    } else {
-      context.drawImage(image, 0, 0, width, height);
-    }
+    context.drawImage(image, 0, 0, width, height);
     return canvas.toDataURL("image/png");
   } catch {
     return dataUrl;
@@ -548,10 +513,9 @@ async function generateNovelAiDirect(params: {
   apiKey: string;
   preset: NovelAiPreset;
   prompt: string;
-  negativePrompt?: string;
   signal?: AbortSignal;
 }): Promise<ImageGenerationApiResponse> {
-  const { apiKey, preset, prompt, negativePrompt, signal } = params;
+  const { apiKey, preset, prompt, signal } = params;
   throwIfAborted(signal);
 
   const { width, height } = getNovelAiResolution(preset.resolution);
@@ -584,7 +548,7 @@ async function generateNovelAiDirect(params: {
       uncond_scale: 1,
       cfg_rescale: 0,
       noise_schedule: normalizeNovelAiNoiseSchedule(preset.noiseSchedule),
-      negative_prompt: [preset.negativePrompt || "", negativePrompt || ""].filter(Boolean).join(", "),
+      negative_prompt: preset.negativePrompt || "",
     },
   });
 
@@ -637,10 +601,9 @@ async function generateNovelAiViaServer(params: {
   apiKey: string;
   preset: NovelAiPreset;
   prompt: string;
-  negativePrompt?: string;
   signal?: AbortSignal;
 }): Promise<ImageGenerationApiResponse> {
-  const { apiKey, preset, prompt, negativePrompt, signal } = params;
+  const { apiKey, preset, prompt, signal } = params;
   throwIfAborted(signal);
 
   const controller = new AbortController();
@@ -660,7 +623,7 @@ async function generateNovelAiViaServer(params: {
         model: normalizeNovelAiModel(preset.model),
         prompt,
         size: resolution.value,
-        negativePrompt: [preset.negativePrompt || "", negativePrompt || ""].filter(Boolean).join(", "),
+        negativePrompt: preset.negativePrompt || "",
         steps: normalizeNovelAiSteps(preset.steps),
         scale: normalizeNovelAiScale(preset.scale),
         sampler: normalizeNovelAiSampler(preset.sampler),
@@ -765,14 +728,11 @@ export async function generateImageFromConfiguredApi(params: {
   description: string;
   characterId?: string;
   useReferenceImage?: boolean;
-  /** 调用场景；用于按 App 单独开关自动生图。 */
-  app?: ContentAppId;
   settings?: ImageGenerationSettings;
   signal?: AbortSignal;
 }): Promise<ImageGenerationResult | null> {
   const settings = params.settings ?? loadImageGenerationSettings();
   if (!settings.enabled) return null;
-  if (params.app && settings.appEnabled?.[params.app] !== true) return null;
 
   const description = params.description.trim();
   if (!description) return null;
@@ -790,22 +750,11 @@ export async function generateImageFromConfiguredApi(params: {
     const positiveParts: string[] = [];
     if (activePreset.positivePrompt?.trim()) positiveParts.push(activePreset.positivePrompt.trim());
     if (description) positiveParts.push(description);
-    // 角色专属人物特征提示词（正向/反向分开使用）
-    const naiReference = params.characterId ? settings.characterReferences[params.characterId] : undefined;
-    const naiReferenceEnabled = naiReference?.enabled !== false;
-    const naiSplit = naiReferenceEnabled
-      ? splitFeaturePrompt(naiReference?.featurePrompt ?? "")
-      : { positive: "", negative: "" };
-    const naiFeature = naiSplit.positive;
-    const naiNegative = [naiSplit.negative, (naiReference?.negativePrompt ?? "").trim()]
-      .filter(Boolean)
-      .join(", ");
-    if (naiFeature) positiveParts.push(naiFeature);
     const fullPrompt = positiveParts.join(", ");
 
     const data = settings.requestMode === "direct"
-      ? await generateNovelAiDirect({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, negativePrompt: naiNegative, signal: params.signal })
-      : await generateNovelAiViaServer({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, negativePrompt: naiNegative, signal: params.signal });
+      ? await generateNovelAiDirect({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, signal: params.signal })
+      : await generateNovelAiViaServer({ apiKey: naiApiKey, preset: activePreset, prompt: fullPrompt, signal: params.signal });
 
     throwIfAborted(params.signal);
     const mimeType = data.mimeType || "image/png";
@@ -831,17 +780,16 @@ export async function generateImageFromConfiguredApi(params: {
   if (!openaiSettings.apiKey.trim() || !openaiSettings.baseUrl.trim() || !openaiSettings.model.trim()) return null;
 
   const reference = params.characterId ? settings.characterReferences[params.characterId] : undefined;
-  const referenceUsable = reference?.enabled !== false;
-  const rawReferenceImageDataUrl = params.useReferenceImage && referenceUsable && reference?.assetId
+  const rawReferenceImageDataUrl = params.useReferenceImage && reference?.assetId
     ? await getChatImageFromIndexedDB(reference.assetId)
     : null;
   throwIfAborted(params.signal);
   const referenceImageDataUrl = rawReferenceImageDataUrl
-    ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl, reference?.faceCrop)
+    ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl)
     : null;
   throwIfAborted(params.signal);
-  const featureSplit = referenceUsable ? splitFeaturePrompt(reference?.featurePrompt ?? "") : { positive: "", negative: "" };
-  const prompt = mergePrompt(description, openaiSettings.extraPrompt, featureSplit.positive);
+  const prompt = mergePrompt(description, openaiSettings.extraPrompt);
+
   const data = openaiSettings.requestMode === "direct"
     ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })
     : await generateImageViaServerOrProxy({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal });

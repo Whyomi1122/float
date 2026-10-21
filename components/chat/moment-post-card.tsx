@@ -127,7 +127,7 @@ export function MomentPostCard({ post, onUpdate, onRequestDelete, onOpenCommentC
     // Like handling
     const isLikedByUser = post.likes.some(l => l.authorType === "user");
     const momentsConfig = loadMomentsConfig();
-    const defaultTranslationExpanded = true;
+    const defaultTranslationExpanded = momentsConfig.collapseBilingualTranslation === true ? false : true;
 
     const handleLike = () => {
         toggleMomentLike(post.id, "user", "user");

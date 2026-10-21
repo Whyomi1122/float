@@ -102,8 +102,6 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
             return <PaymentRequestBubble msg={msg} charName={charName} userName={userName} onShowDetail={onShowDetail} />;
         case "app_card":
             return <AppCardBubble msg={msg} characterId={characterId} characterName={msg.senderName || charName} />;
-        case "meeting_invite":
-            return <MeetingInviteBubble msg={msg} characterId={characterId} charName={msg.senderName || charName} />;
         case "image":
             return <ImageBubble msg={msg} onUpdate={onUpdate} characterId={characterId} />;
         case "location":
@@ -641,7 +639,8 @@ export const BilingualTextBlock = memo(function BilingualTextBlock({
                         {renderContent(bilingual.translated, "chat-bilingual-content")}
                     </div>
                 </>
-            )}        </div>
+            )}
+        </div>
     );
 });
 
@@ -1090,100 +1089,6 @@ function CharAvatarFallbackInline({ name }: { name: string }) {
     return (
         <div className="chat-contact-card-avatar-fallback">
             {(name || "?").slice(0, 1)}
-        </div>
-    );
-}
-
-// ── 线下见面邀请（详情版壳子）─────────────────────────────
-// 目前只渲染外观，按钮接空 handler；mode 字段预留给未来的约会/线下会面 App。
-
-function MeetingInviteBubble({ msg, characterId, charName }: { msg: ChatMessage; characterId?: string; charName?: string }) {
-    const d = msg.mediaData;
-    const title = d?.meetingInviteTitle || d?.label || "线下见面";
-    const time = d?.meetingInviteTime || "";
-    const place = d?.meetingInvitePlace || "";
-    const note = d?.meetingInviteNote || "";
-    const greeting = d?.meetingInviteGreeting || "";
-    const status = (d?.meetingInviteStatus || "pending") as string;
-    const mode = d?.meetingInviteMode || "chat";
-    const senderName = msg.senderName || charName || "对方";
-
-    const avatar = useMemo(
-        () => loadCharacters().find(c => c.id === characterId)?.avatar || "",
-        [characterId],
-    );
-
-    const pending = status === "pending";
-    const statusText = status === "accepted" ? "已接受" : status === "declined" ? "已婉拒" : status === "rescheduled" ? "想改期" : "待回应";
-
-    return (
-        <div className="chat-meet-card" data-mode={mode}>
-            <div className="chat-meet-head">
-                <div className="chat-meet-avatar">
-                    {avatar
-                        ? <img src={avatar} alt="" />
-                        : <span>{senderName.slice(0, 1)}</span>}
-                </div>
-                <div className="chat-meet-head-text">
-                    <div className="chat-meet-sender">
-                        <span>{senderName}</span>
-                        <em>邀你见面</em>
-                    </div>
-                    {greeting ? <div className="chat-meet-greeting">“{greeting}”</div> : null}
-                </div>
-                <span className="chat-meet-badge" data-status={status}>{statusText}</span>
-            </div>
-
-            <div className="chat-meet-title">{title}</div>
-
-            <div className="chat-meet-rows">
-                {time ? (
-                    <div className="chat-meet-row">
-                        <span className="chat-meet-row-icon" aria-hidden>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                        </span>
-                        <span className="chat-meet-row-label">时间</span>
-                        <span className="chat-meet-row-value">{time}</span>
-                    </div>
-                ) : null}
-                {place ? (
-                    <div className="chat-meet-row">
-                        <span className="chat-meet-row-icon" aria-hidden>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11Z" /><circle cx="12" cy="10" r="2.6" /></svg>
-                        </span>
-                        <span className="chat-meet-row-label">地点</span>
-                        <span className="chat-meet-row-value">{place}</span>
-                    </div>
-                ) : null}
-                {note ? (
-                    <div className="chat-meet-row">
-                        <span className="chat-meet-row-icon" aria-hidden>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 6h11M8 12h11M8 18h11" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></svg>
-                        </span>
-                        <span className="chat-meet-row-label">备注</span>
-                        <span className="chat-meet-row-value">{note}</span>
-                    </div>
-                ) : null}
-            </div>
-
-            <div className="chat-meet-actions">
-                <button
-                    type="button"
-                    className="chat-meet-btn is-secondary"
-                    disabled={!pending}
-                    onClick={event => { event.stopPropagation(); }}
-                >
-                    改个时间
-                </button>
-                <button
-                    type="button"
-                    className="chat-meet-btn is-primary"
-                    disabled={!pending}
-                    onClick={event => { event.stopPropagation(); }}
-                >
-                    接受邀请
-                </button>
-            </div>
         </div>
     );
 }

@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { Component, useState, useEffect, useCallback, useMemo, type CSSProperties, type ReactNode } from "react";
-import { Trash2, Zap, Clock, Users, Archive, BookMarked, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, ChevronDown, CheckSquare, Filter, type LucideIcon } from "lucide-react";
+import { Trash2, Zap, Clock, Users, Archive, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, ChevronDown, CheckSquare, Filter, type LucideIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { getMemoryEventSourceTag, MEMORY_SOURCE_TAG_ORDER, MemoryTimeline, type TimelineDeleteTarget } from "./memory-timeline";
 import { Toggle } from "@/components/ui/form";
@@ -32,7 +32,7 @@ import { generateEmbedding, resolveEmbeddingModel } from "@/lib/memory-embedding
 import { BINDING_ACCENTS } from "@/lib/ui-accent-colors";
 
 type MemoryView = "list" | "detail" | "settings";
-type MemoryTab = "short" | "shared" | "core" | "long" | "archive";
+type MemoryTab = "short" | "shared" | "core" | "long";
 type MemoryBudgetKey = "shortTermTokenBudget" | "coreMemoryTokenBudget" | "longTermTokenBudget";
 
 const MEMORY_TOKEN_BUDGET_MAX = 100000;
@@ -209,7 +209,6 @@ export function MemoryBankPage({
     const [activeTab, setActiveTab] = useState<MemoryTab>("short");
     const [coreEntries, setCoreEntries] = useState<MemoryEntry[]>([]);
     const [longTermEntries, setLongTermEntries] = useState<MemoryEntry[]>([]);
-    const [archiveEntries, setArchiveEntries] = useState<MemoryEntry[]>([]);
     const [shortTermEvents, setShortTermEvents] = useState<NativeTimelineEntry[]>([]);
     const [sharedEvents, setSharedEvents] = useState<NativeTimelineEntry[]>([]);
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -322,20 +321,15 @@ export function MemoryBankPage({
         setLoading(true);
         try {
             await hydrateChatStorage();
-            const [core, lt, arc] = await Promise.all([
+            const [core, lt] = await Promise.all([
                 loadMemoryEntriesByType(charId, "core"),
                 loadMemoryEntriesByType(charId, "long_term"),
-                // 归档层（archive）：群像杀青同步进来的条目就在这里。
-                // 以前这里只读 core / long_term，导致群像记忆写进去了却永远看不到。
-                loadMemoryEntriesByType(charId, "archive"),
             ]);
             setCoreEntries(core);
             setLongTermEntries(lt);
-            setArchiveEntries(arc);
         } catch {
             setCoreEntries([]);
             setLongTermEntries([]);
-            setArchiveEntries([]);
         }
         // Native timeline is sync (localStorage) — no await needed.
         // 只取最近一段（全量可能几万条），防止解析+渲染把 iOS Safari 内存顶爆
@@ -984,9 +978,6 @@ export function MemoryBankPage({
                         )
                     ) : activeTab === "core" ? (
                         renderMemoryEntries("core", coreEntries, "暂无核心记忆。长期记忆累计到设定条数后会自动提炼，也可以手动新增。")
-                    ) : activeTab === "archive" ? (
-                        /* ── Archive: 群像杀青等来源写入的"始终可回想"层 ── */
-                        renderMemoryEntries("archive", archiveEntries, "暂无归档记忆。群像剧本杀青后，参与角色会自动记住该段剧情并出现在这里。")
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
                         renderMemoryEntries("long_term", filteredLongTermEntries, "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。")
@@ -1000,7 +991,6 @@ export function MemoryBankPage({
                         { key: "short" as const, icon: Clock, label: "短期" },
                         { key: "shared" as const, icon: Users, label: "共享事件" },
                         { key: "long" as const, icon: Archive, label: "长期" },
-                        { key: "archive" as const, icon: BookMarked, label: "归档" },
                     ]).map(tab => (
                         <button
                             key={tab.key}

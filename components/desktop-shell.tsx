@@ -964,17 +964,6 @@ function useAndroidCaretKeyboardLift() {
         return;
       }
 
-      // 整块上移只在「输入框本身会被键盘盖住」时才需要。
-      // 聊天室/剧情室的输入栏都贴底且由浏览器顶到键盘上沿，被盖住的是顶栏那一类
-      // 「position: absolute; top: 0」的头部；中文输入法在下方候选词栏里会额外
-      // 占约 100px，把 innerHeight 撑大，于是 keyboardInset 虚高、
-      // 旧算法算出 neededLift>0 就把整个壳连同顶栏一起推上去（顶栏被抬高/消失）。
-      // 这里改为：只按「输入框底边 vs 键盘上沿」判断，够不着才上移。
-      const visibleBottom = window.innerHeight - keyboardInset;
-      if (targetRect.bottom <= visibleBottom + 2) {
-        applyLift(0);
-        return;
-      }
       const naturalBottom = targetRect.bottom + currentLift;
       const neededLift = Math.max(0, naturalBottom + gap - keyboardTop);
       applyLift(Math.min(keyboardInset, neededLift));

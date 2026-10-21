@@ -259,23 +259,9 @@ export type ImageGenerationSettings = {
     // NovelAI 模式配置
     novelai?: NovelAiSettings;
     characterReferences: Record<string, {
-        assetId?: string;
+        assetId: string;
         updatedAt: number;
-        /** 角色固定外观特征，生图时追加到正向提示词。 */
-        featurePrompt?: string;
-        /** 角色无需出现的内容，生图时追加到反向提示词（仅 NovelAI 生效）。 */
-        negativePrompt?: string;
-        /** 暂时关闭参考图但保留图片与选脸区域，默认开启。 */
-        enabled?: boolean;
-        /** 归一化的正方形脸部选区。 */
-        faceCrop?: {
-            x: number;
-            y: number;
-            size: number;
-        };
     }>;
-    /** 按 App 单独开关自动生图；未列出的 App 跟随全局 enabled。 */
-    appEnabled?: Partial<Record<ContentAppId, boolean>>;
     imageHosting: ImageHostingSettings;
 };
 

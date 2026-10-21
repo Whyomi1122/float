@@ -43,7 +43,6 @@ import {
 } from "@/lib/ensemble-worldbook";
 import {
   buildEnsembleMemoryBlock,
-  buildEnsembleCrossMemoryBlock,
   type RoleMemoryBlock,
 } from "@/lib/ensemble-memory";
 import {
@@ -55,8 +54,6 @@ import {
   buildArchiveSummaryPrompt,
   makeStoryRangeLabel,
 } from "@/lib/ensemble-archive";
-import { syncEnsembleArchiveToMemory, removeEnsembleArchiveFromMemory } from "@/lib/ensemble-memory-bridge";
-import { deliverToChat, describePendingSessions, getPendingSessions, discardDeliverySession } from "@/lib/ensemble-delivery";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import {
@@ -87,7 +84,6 @@ import {
   saveEnsembleFontData,
   loadEnsembleFontData,
 } from "@/lib/ensemble-storage";
-import { generateStoryboardImage } from "@/lib/ensemble-storyboard";
 import { hydrateKvDb } from "@/lib/kv-db";
 import { ensureSettingsStorageHydrated } from "@/lib/settings-storage";
 import {
@@ -489,15 +485,14 @@ function BodyText({
 function pickVoiceText(raw: string): string {
   const text = (raw ?? "").trim();
   if (!text) return "";
-  // 逐行清洗后全部保留（此前只取首行，导致角色连说两句时第二句读不到）
-  const lines = text
+  const first = text
     .split(/\n+/)
     .map((s) => s.trim())
-    .filter(Boolean)
-    // 行尾译文括号：全角（）优先，半角 () 兜底。非贪婪，避免误吃中间括号。
-    .map((s) => (s.replace(/[（(][^）)]*[）)]\s*$/, "") || s).trim())
-    .filter(Boolean);
-  return lines.join("，");
+    .find(Boolean);
+  if (!first) return "";
+  // 行尾译文括号：全角（）优先，半角 () 兜底。非贪婪，避免误吃中间括号。
+  const cut = first.replace(/[（(][^）)]*[）)]\s*$/, "").trim();
+  return cut || first;
 }
 
 /** 剧本会话字体的 font-family 注册名（运行时生成，与具体剧本无关；
@@ -1019,7 +1014,6 @@ function TurnActionBar({
   onSwitch,
   onEdit,
   onDelete,
-  onDeliver,
 }: {
   turn: EnsembleTurn;
   versions?: string[];
@@ -1031,8 +1025,6 @@ function TurnActionBar({
   onSwitch: (dir: -1 | 1) => void;
   onEdit: () => void;
   onDelete: () => void;
-  /** 投递到聊天 App（仅 AI 幕、且有说话人时才提供）。 */
-  onDeliver?: () => void;
 }) {
   const total = versions?.length ?? 1;
   const atFirst = index <= 0;
@@ -1092,16 +1084,6 @@ function TurnActionBar({
       >
         <Pencil size={12} />
       </button>
-      {onDeliver && (
-        <button
-          type="button"
-          onClick={onDeliver}
-          className="p-1 hover:text-black/70"
-          title="投递到聊天"
-        >
-          <Send size={12} />
-        </button>
-      )}
       <button
         type="button"
         onClick={onDelete}
@@ -1206,35 +1188,6 @@ export function EnsembleApp({
   const [showTimeSheet, setShowTimeSheet] = useState(false);
   /** 世界书绑定子弹窗（2026-10-09 M2-b） */
   const [showWorldBookSheet, setShowWorldBookSheet] = useState(false);
-  const [showStoryboardSheet, setShowStoryboardSheet] = useState(false);
-  /** 多人群像投递时，等用户选择「投单聊 / 投群聊」。 */
-  const [deliverPicker, setDeliverPicker] = useState<{
-    turn: EnsembleTurn;
-    member: EnsembleCastMember;
-  } | null>(null);
-
-  /** 真正执行投递。target 决定了落在单聊还是群聊。 */
-  const doDeliverToChat = (
-    turn: EnsembleTurn,
-    member: EnsembleCastMember,
-    target: { kind: "direct"; characterId: string } | { kind: "group"; participantIds: string[] },
-  ) => {
-    if (!currentScript) return;
-    const result = deliverToChat({
-      characterId: member.id,
-      characterName: member.name,
-      content: turn.content,
-      scriptId: currentScript.id,
-      scriptTitle: currentScript.title || "未命名剧本",
-      turnId: turn.id,
-      target,
-    });
-    setToast(
-      result.ok
-        ? `已投递到${target.kind === "group" ? "群聊" : "聊天"} · ${member.name}`
-        : `投递失败：${result.error}`,
-    );
-  };
   /** 世界书触发日志子弹窗（2026-10-09 M2-a） */
   const [showWorldBookLogSheet, setShowWorldBookLogSheet] = useState(false);
   /** 世界书绑定草稿：选中的世界书 id 集合（保存前） */
@@ -2039,45 +1992,18 @@ ${userPovRule}
       //   · 用户口径：全员并标注归属 / 读同一角色在单聊的记忆 / 共用单聊那套库
       //   · `EnsembleCastMember.id` 即真实 characterId → 逐角色检索，天然实现"读同角色记忆"
       //   · 关闭时只注入「不得引用线下记忆」的约束，不检索（省 token）
-      // ── 05 单聊记忆注入（用户口径 2026-10-18）──
-      //   · 只有「单人群像」（cast 仅 1 位角色）才真正注入：一个用户面具 + 一个角色，不会抢戏。
-      //   · 多人群像一律不注入"角色与用户的私聊"——会把无关私事塞进多人场景，跑题且别人接不住。
-      //     多人的连贯性由下方 C-2 交叉记忆负责（角色之间互相记得）。
-      //   · 另外仍需「线上互通」开关打开。
-      const isSoloScript = script.cast.length === 1;
-      const soloInjectionEnabled = !!script.onlineSync && isSoloScript;
       const memoryResult = await buildEnsembleMemoryBlock(
         script.cast.map((c) => ({ id: c.id, name: c.name })),
         script.turns
           .slice(-10)
           .map((t) => t.content)
           .join("\n"),
-        { enabled: soloInjectionEnabled }
+        { enabled: !!script.onlineSync }
       );
-      let memoryBlock: string;
-      if (!script.onlineSync) {
-        memoryBlock = "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
-      } else if (!isSoloScript) {
-        memoryBlock =
-          "\n【线上互通：多人场景】本剧本有多位角色，不注入你们各自的单聊记忆。请只依据剧本内已发生的剧情与其他角色的关系（见下方人物关系）来写，不要凭空提起剧本外的私下交谈。";
-      } else {
-        memoryBlock =
-          memoryResult.text ||
-          "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。";
-      }
-
-      // ── 05b CROSS MEMORY · 交叉记忆（C-2 · 2026-10-18）──
-      // 只带「在场角色彼此之间」的认知，防止多人剧情里关系没有来历（突然变熟/突然敌对）。
-      // 与上面全员注入分开放：交叉记忆放最后，权重更低，避免抢主线。
-      const crossResult = await buildEnsembleCrossMemoryBlock(
-        script.cast.map((c) => ({ id: c.id, name: c.name })),
-        script.turns
-          .slice(-10)
-          .map((t) => t.content)
-          .join("\n"),
-        { enabled: !!script.onlineSync, maxPerRole: 3 }
-      );
-      const crossMemoryBlock = crossResult.text;
+      const memoryBlock = script.onlineSync
+        ? memoryResult.text ||
+          "\n【线上互通：开启】角色可以自然地「想起」用户在单聊里的相关记忆。"
+        : "\n【线上互通：关闭】剧情完全架空，不得引用用户与角色线下/单聊的任何记忆。";
       // 记忆日志（供「触发日志」面板查看本幕用了谁的记忆）
       setMemoryLog({
         blocks: memoryResult.blocks,
@@ -2163,7 +2089,7 @@ ${script.openingMessage.trim()}
 
 ═══════════ 参演阵容（全员名单）═══════════
 ${castDesc}${userDesc}${povBlock}
-${sceneBlock}${openingBlock}${memoryBlock}${crossMemoryBlock}${archiveBlock}${worldBookBlock}${timeBlock}${outputLenRule}
+${sceneBlock}${openingBlock}${memoryBlock}${archiveBlock}${worldBookBlock}${timeBlock}${outputLenRule}
 ═══════════ 唯一的格式契约：归属行 + 五种暗号块 ═══════════
 排版完全由「行首标记」驱动。规则只有两条：
 
@@ -2465,19 +2391,6 @@ ${lastSpeakerNote}
       let updated = appendEnsembleTurn(script.id, nextTurn) ?? script;
       setCurrentScript(updated);
       setScripts(loadEnsembleScripts());
-
-      // 分镜配图：开开关后从下一轮开始生效，异步生成不阻塞剧情
-      if (script.storyboardEnabled) {
-        void (async () => {
-          const outcome = await generateStoryboardImage(script, nextTurn);
-          if (!outcome.ok || !outcome.url) return;
-          const tagged = updateEnsembleTurn(script.id, nextTurn.id, { storyboardUrl: outcome.url });
-          if (tagged) {
-            setCurrentScript(tagged);
-            setScripts(loadEnsembleScripts());
-          }
-        })();
-      }
       return replyContent;
     } catch (e) {
       console.error("AI turn generation failed:", e);
@@ -2761,19 +2674,8 @@ ${lastSpeakerNote}
         { role: "user", content: prompt },
       ]);
       if (res.error) throw new Error(res.error);
-      let content = (res.content ?? "").trim();
+      const content = (res.content ?? "").trim();
       if (!content) throw new Error("模型返回为空，请重试或换个模型。");
-
-      // 有"投递了但没返回剧情"的聊天段 → 在归档里留一行缺漏警告，
-      // 避免用户误以为这段已经归档进去了。
-      const pending = getPendingSessions(s.id);
-      if (pending.length > 0) {
-        const lines = pending.map(p => {
-          const when = new Date(p.startedAt).toLocaleString("zh-CN");
-          return `- ${when} 与 ${p.characterName} 的聊天（起点：${p.originContent.slice(0, 40)}…）`;
-        });
-        content += `\n\n【归档缺漏提示】以下聊天内容尚未归入本档案，可能造成剧情断层：\n${lines.join("\n")}`;
-      }
 
       const entry: EnsembleArchiveEntry = {
         id: `arc_${Date.now().toString(36)}`,
@@ -2791,16 +2693,7 @@ ${lastSpeakerNote}
       saveOrUpdateEnsembleScript(updated);
       setScripts(loadEnsembleScripts());
       refreshArchivePanelFor(updated);
-
-      // C-1 桥接：把这次杀青同步进参与角色的记忆库（只进归档层，不污染时间线）。
-      // 失败不阻断杀青本身，只提示一下。
-      void syncEnsembleArchiveToMemory(updated, entry).then(result => {
-        if (result.written > 0) {
-          setToast(`已杀青 ${target.length} 幕 · ${result.written} 位角色已记住`);
-        } else {
-          setToast(`已杀青 ${target.length} 幕`);
-        }
-      }).catch(() => setToast(`已杀青 ${target.length} 幕`));
+      setToast(`已杀青 ${target.length} 幕`);
     } catch (e) {
       setArchiveError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -2818,13 +2711,10 @@ ${lastSpeakerNote}
       return;
     }
     const updated = { ...s, archives: list.slice(0, -1) };
-    const removed = list[list.length - 1];
     setCurrentScript(updated);
     saveOrUpdateEnsembleScript(updated);
     setScripts(loadEnsembleScripts());
     refreshArchivePanelFor(updated);
-    // 同步撤回这条归档在参与角色记忆库里的副本
-    if (removed) void removeEnsembleArchiveFromMemory(updated, removed).catch(() => undefined);
     setToast("已撤销上次杀青");
   };
 
@@ -2858,16 +2748,6 @@ ${lastSpeakerNote}
     setCurrentScript(updated);
     saveOrUpdateEnsembleScript(updated);
     setScripts(loadEnsembleScripts());
-
-    // 记忆库那份是独立副本，改了群像归档就要同步过去。
-    // 先按旧内容删掉（进墓碑），再按新内容写一份，避免同一条内容留下两份。
-    const oldEntry = list[lastIndex];
-    if (oldEntry) {
-      void removeEnsembleArchiveFromMemory(updated, oldEntry)
-        .then(() => syncEnsembleArchiveToMemory(updated, next[lastIndex]))
-        .catch(() => undefined);
-    }
-
     // 存完重填草稿：否则 textarea 仍是旧内容，看起来像「没保存」
     refreshArchivePanelFor(updated);
     setToast("档案已保存");
@@ -3446,11 +3326,6 @@ ${lastSpeakerNote}
             }
             subtitle={`${currentScript.cast.length} CAST${
               activePersona ? ` · ${activePersona.name}` : ""
-            }${
-              (() => {
-                const hint = describePendingSessions(currentScript.id);
-                return hint ? ` · ${hint}` : "";
-              })()
             }`}
             /* 顶栏返回 = 离开本剧本，回剧本列表。
                面板的返回统一交给工作区左上角的小返回键（见下方 workspaceBackBtn），
@@ -3824,18 +3699,6 @@ ${lastSpeakerNote}
                     />
                   )}
 
-                  {turn.storyboardUrl && (
-                    <div className="mt-2">
-                      <img
-                        src={turn.storyboardUrl}
-                        alt=""
-                        className="w-full rounded-xl object-cover"
-                        style={{ aspectRatio: "16 / 9" }}
-                        loading="lazy"
-                      />
-                    </div>
-                  )}
-
                   {/* 元信息 + 操作（1008 抄 chill 格式）
                       · 上方一道虚线分隔
                       · 每行 **左标签 + 右值**（两端对齐，labels 淡、值等宽右对齐）
@@ -3924,25 +3787,6 @@ ${lastSpeakerNote}
                           setEditingTurnId(turn.id);
                         }}
                         onDelete={() => requestDeleteTurn(turn)}
-                        onDeliver={
-                          !isUser && turn.senderName
-                            ? () => {
-                                const member = currentScript.cast.find(
-                                  (c) => c.name === turn.senderName
-                                );
-                                if (!member) {
-                                  setToast("找不到说话的角色");
-                                  return;
-                                }
-                                // 单人群像：直接投单聊；多人群像：让用户选单聊还是群聊
-                                if (currentScript.cast.length <= 1) {
-                                  doDeliverToChat(turn, member, { kind: "direct", characterId: member.id });
-                                } else {
-                                  setDeliverPicker({ turn, member });
-                                }
-                              }
-                            : undefined
-                        }
                       />
                     </div>
                   </div>
@@ -4114,8 +3958,6 @@ ${lastSpeakerNote}
                 // 杀青归档（2026-10-10）：打开面板即刷新统计
                 refreshArchivePanel();
                 setShowArchiveSheet(true);
-              } else if (id === "storyboard") {
-                setShowStoryboardSheet(true);
               }
             }}
           />
@@ -4654,123 +4496,6 @@ ${lastSpeakerNote}
               · 只存 id 引用（worldBookIds），内容实时从「设置 → 世界书」读，避免快照过期。
               · 未勾选任何 = 不注入（等价于关闭）。
               · 条目级的 constant / 关键词 / sticky 逻辑由 lib/ensemble-worldbook.ts 处理，本面板不涉及。 */}
-          {deliverPicker && (
-            <MiniSheet
-              title="投递到聊天"
-              subtitle="DELIVER · 选择落点"
-              onClose={() => setDeliverPicker(null)}
-            >
-              <div className="bg-white rounded-[16px] p-4">
-                <div className="text-[10px] text-black/40 mb-1">{deliverPicker.member.name}</div>
-                <div className="text-[12px] leading-relaxed text-black/70 max-h-[110px] overflow-y-auto whitespace-pre-wrap">
-                  {deliverPicker.turn.content}
-                </div>
-              </div>
-              <div className="bg-white rounded-[16px] p-2">
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between gap-3 px-3 py-3"
-                  onClick={() => {
-                    doDeliverToChat(deliverPicker.turn, deliverPicker.member, {
-                      kind: "direct",
-                      characterId: deliverPicker.member.id,
-                    });
-                    setDeliverPicker(null);
-                  }}
-                >
-                  <span className="flex flex-col items-start">
-                    <span className="text-[13px] text-black/80">投到单聊</span>
-                    <span className="text-[11px] text-black/40">只给 {deliverPicker.member.name}</span>
-                  </span>
-                  <ChevronRight size={14} className="text-black/25" />
-                </button>
-                <div className="h-px bg-black/5 mx-3" />
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between gap-3 px-3 py-3"
-                  onClick={() => {
-                    doDeliverToChat(deliverPicker.turn, deliverPicker.member, {
-                      kind: "group",
-                      participantIds: currentScript?.cast.map(c => c.id) ?? [],
-                    });
-                    setDeliverPicker(null);
-                  }}
-                >
-                  <span className="flex flex-col items-start">
-                    <span className="text-[13px] text-black/80">投到群聊</span>
-                    <span className="text-[11px] text-black/40">剧本全员群（自动创建或复用）</span>
-                  </span>
-                  <ChevronRight size={14} className="text-black/25" />
-                </button>
-              </div>
-            </MiniSheet>
-          )}
-
-          {showStoryboardSheet && currentScript && (
-            <MiniSheet
-              title="分镜配图"
-              subtitle="STORYBOARD · 横版场景图"
-              onClose={() => {
-                setShowStoryboardSheet(false);
-                setShowToolsSheet(true);
-              }}
-            >
-              <div className="bg-white rounded-[16px] p-4">
-                <div className="text-[11px] leading-relaxed text-black/45">
-                  开启后，<span className="text-black/70 font-medium">下一轮</span>剧情开始，每轮自动生成一张横版场景图。
-                  <br />· 已生成过的图不会被修改或删除；
-                  <br />· 需要先在「设置 → 生图」总开关打开，并允许「群像」生图；
-                  <br />· 生成失败不影响剧情，只是这一轮没有配图。
-                </div>
-              </div>
-
-              <div className="bg-white rounded-[16px] p-2">
-                <div className="flex items-center justify-between gap-3 px-3 py-3">
-                  <div className="flex flex-col">
-                    <span className="text-[13px] font-medium text-black/80">开启分镜配图</span>
-                    <span className="text-[11px] text-black/40">从下一轮开始生效</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextScript = {
-                        ...currentScript,
-                        storyboardEnabled: !currentScript.storyboardEnabled,
-                      };
-                      saveOrUpdateEnsembleScript(nextScript);
-                      setCurrentScript(nextScript);
-                      setScripts(loadEnsembleScripts());
-                    }}
-                    className={`w-[46px] h-[27px] rounded-full shrink-0 transition-colors relative ${
-                      currentScript.storyboardEnabled ? "bg-[#BDD4E3]" : "bg-black/15"
-                    }`}
-                    aria-pressed={!!currentScript.storyboardEnabled}
-                  >
-                    <span
-                      className={`absolute top-[3px] w-[21px] h-[21px] rounded-full bg-white shadow transition-all ${
-                        currentScript.storyboardEnabled ? "left-[22px]" : "left-[3px]"
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                <div className="px-3 pb-3">
-                  <div className="text-[11px] font-medium text-black/45 mb-1.5">额外画风要求（可留空）</div>
-                  <textarea
-                    className="w-full min-h-[70px] rounded-[12px] bg-black/[0.04] px-3 py-2 text-[12px] outline-none resize-y"
-                    placeholder="如 油画质感, 暖色调, 浅景深"
-                    value={currentScript.storyboardPrompt ?? ""}
-                    onChange={(event) => {
-                      const nextScript = { ...currentScript, storyboardPrompt: event.target.value };
-                      setCurrentScript(nextScript);
-                      saveOrUpdateEnsembleScript(nextScript);
-                    }}
-                  />
-                </div>
-              </div>
-            </MiniSheet>
-          )}
-
           {showWorldBookSheet && (() => {
             const allBooks = loadWorldBooks();
             return (
@@ -5269,82 +4994,6 @@ ${lastSpeakerNote}
                   className="w-full min-h-[220px] bg-black/[0.03] border border-black/5 rounded-xl p-3 text-[11px] font-mono text-[#111111] placeholder:text-black/25 outline-none focus:border-black/20 resize-y leading-relaxed"
                 />
               </div>
-
-              {(() => {
-                const pending = getPendingSessions(currentScript.id);
-                if (pending.length === 0) return null;
-                return (
-                  <div className="bg-white rounded-[16px] p-3.5 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12px] font-medium text-[#c2410c]">未归入的聊天</span>
-                      <span className="px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium bg-[#c2410c]/10 text-[#c2410c]">
-                        {pending.length} 段
-                      </span>
-                    </div>
-                    <div className="text-[10px] leading-relaxed text-black/40">
-                      这些聊天已投递但还没点「返回剧情」。去聊天室找对应角色长按任意一句返回剧情，或在这里放弃。
-                    </div>
-                    <div className="space-y-1.5">
-                      {pending.map((p) => (
-                        <div key={p.id} className="bg-black/[0.03] rounded-xl px-3 py-2 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-[11px] text-black/70">{p.characterName}</div>
-                            <div className="text-[10px] text-black/40 truncate">
-                              {new Date(p.startedAt).toLocaleString("zh-CN")} · {p.originContent.slice(0, 24)}…
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              discardDeliverySession(p.id);
-                              setCurrentScript({ ...currentScript });
-                              setToast("已放弃这段聊天");
-                            }}
-                            className="shrink-0 text-[10px] text-black/35 px-2 py-1 rounded-lg bg-black/[0.04]"
-                          >
-                            放弃
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* ── 来自聊天：和剧情档案分开记，避免归档时混淆 ── */}
-              {(() => {
-                const fromChat = currentScript.turns.filter(
-                  (t) => t.senderName === "来自聊天" && t.content?.trim()
-                );
-                if (fromChat.length === 0) return null;
-                return (
-                  <div className="bg-white rounded-[16px] p-3.5 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12px] font-medium text-[#111111]">来自聊天</span>
-                      <span className="px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium bg-black/[0.05] text-black/40">
-                        {fromChat.length} 段
-                      </span>
-                    </div>
-                    <div className="text-[10px] leading-relaxed text-black/40">
-                      这些是你在聊天室里聊出来、再返回剧情的对话。归档时请一并参考，它们和剧情是同一段时间线。
-                    </div>
-                    <div className="space-y-1.5">
-                      {fromChat.map((t) => (
-                        <details key={t.id} className="bg-black/[0.03] rounded-xl px-3 py-2">
-                          <summary className="text-[11px] text-black/60 cursor-pointer list-none">
-                            {t.timestamp ? new Date(t.timestamp).toLocaleString("zh-CN") : "未记录时间"}
-                            {" · "}
-                            {t.content.split("\n").length - 1} 句
-                          </summary>
-                          <div className="mt-2 text-[11px] leading-relaxed text-black/70 whitespace-pre-wrap break-words">
-                            {t.content}
-                          </div>
-                        </details>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
 
               {/* ── 底部按钮（照 CSS 面板布局） ── */}
               <div className="flex items-center gap-2.5">

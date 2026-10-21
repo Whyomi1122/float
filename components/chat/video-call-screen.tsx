@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatSession, ChatMessage, loadChatMessages, pushChatMessage, getLatestCharacterStateValues } from "@/lib/chat-storage";
@@ -768,7 +768,7 @@ export function VideoCallScreen({ session, character, onEnd, onConnect, initiato
                         className="call-subtitle"
                         data-role={sub.role}
                     >
-                        <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={true} />
+                        <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                     </div>
                 ))}
                 {interimText && callState === "USER_SPEAKING" && (

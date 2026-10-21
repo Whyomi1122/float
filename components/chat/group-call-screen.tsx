@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatSession, ChatMessage, loadChatMessages, pushChatMessage, getLatestCharacterStateValues } from "@/lib/chat-storage";
@@ -729,7 +729,7 @@ export function GroupCallScreen({ type, session, characters, onEnd, initiator = 
                             data-role={sub.role}
                         >
                             {sub.senderName && <div className="call-subtitle-sender">{sub.senderName}</div>}
-                            <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={true} />
+                            <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                         </div>
                     ))}
                     {interimText && callState === "USER_SPEAKING" && (
@@ -823,7 +823,7 @@ export function GroupCallScreen({ type, session, characters, onEnd, initiator = 
                     {subtitles.map((sub) => (
                         <div key={sub.id} className="gcall-subtitle-bubble" data-role={sub.role}>
                             {sub.senderName && <div className="gcall-subtitle-sender">{sub.senderName}</div>}
-                            <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={true} />
+                            <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                         </div>
                     ))}
                     {interimText && callState === "USER_SPEAKING" && (

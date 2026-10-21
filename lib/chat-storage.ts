@@ -125,14 +125,8 @@ export type ChatMessage = {
         | "group_admin_notice"
         | "media_file"
         | `plugin:${string}`; // 聊天插件自定义消息类型（由注册该 kind 的插件渲染气泡）
-    /** 聊天插件自定义消息类型（由注册该 kind 的插件渲染气泡） */
     origin?: "chat" | "reading_discuss" | "custom_app" | "custom_app_background" | "story_floating_phone" | "story_online";
-    /**
-     * 所属的群像「剧情对话段」id（见 lib/ensemble-delivery.ts）。
-     * 有值 = 这条消息是剧情的一部分，不进聊天 App 的长期记忆总结，
-     * 而是随【返回剧情】归入群像剧本归档。
-     */
-    deliverySessionId?: string;    mediaUrl?: string;
+    mediaUrl?: string;
     mediaData?: {
         amount?: number;          // 红包/转账金额
         count?: number;           // 红包个数
@@ -227,12 +221,6 @@ export type ChatMessage = {
         meetingInviteResolvedAt?: string;
         meetingInviteStorySessionId?: string;
         meetingInviteRaw?: string;
-        meetingInviteTime?: string;   // 见面时间（模型给的自由文本）
-        meetingInvitePlace?: string;  // 见面地点
-        meetingInviteNote?: string;   // 补充备注
-        meetingInviteGreeting?: string; // 邀请人开场白/一句邀约语
-        /** 见面场景类型；当前只有 chat，预留 dating 等线下 App 对接。 */
-        meetingInviteMode?: "chat" | "dating" | "meetup";
         useReferenceImage?: boolean; // AI photo tag: whether to send the character reference image to the generator
         imageGenerationMediaRef?: string;
         imageGenerationPrompt?: string;
@@ -1867,7 +1855,7 @@ export async function persistMessageVoiceAudio(
 
 export function updateChatMessage(
     messageId: string,
-    patch: Partial<Pick<ChatMessage, "content" | "mediaType" | "mediaUrl" | "mediaData" | "deliverySessionId">>,
+    patch: Partial<Pick<ChatMessage, "content" | "mediaType" | "mediaUrl" | "mediaData">>,
 ): ChatMessage | null {
     const idx = _messagesCache.findIndex(m => m.id === messageId);
     if (idx === -1) return null;

@@ -752,11 +752,6 @@ export function parseAIResponse(rawText: string, previousState: StateValue[]): P
                 meetingInviteDescription: meetingInvite.fields["说明"],
                 meetingInviteAcceptResponse: meetingInvite.fields["同意反应"],
                 meetingInviteDeclineResponse: meetingInvite.fields["拒绝反应"],
-                meetingInviteTime: meetingInvite.fields["时间"] || meetingInvite.fields["见面时间"],
-                meetingInvitePlace: meetingInvite.fields["地点"] || meetingInvite.fields["见面地点"],
-                meetingInviteNote: meetingInvite.fields["备注"] || meetingInvite.fields["说明备注"],
-                meetingInviteGreeting: meetingInvite.fields["邀约"] || meetingInvite.fields["开场白"],
-                meetingInviteMode: "chat",
             },
         });
     }

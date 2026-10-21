@@ -56,7 +56,6 @@ import { ChatArchivePanel } from "@/components/chat/chat-archive-panel";
 // 预览用的默认示例数据：契约没有自带示例时兜底，字段与下面的微博模板对应
 const STATUS_REGION_STARTER_PREVIEW = "名字=林晚\n认证=美食探店博主 · 深夜觅食团成员\n简介=白天写方案，晚上寻宵夜｜私信不回工作请走邮箱\n关注=132\n粉丝=8.7万\n帖子=23分钟前|谁懂啊，加班到十点，楼下面馆居然还给我留了最后一碗牛肉面🥹 #深夜食堂# 老板说看我常来……突然就不想跳槽了|🍜🌃✨|56|203|1.2万\n评论=小奶糖|这就是深夜的意义吧|赞 231\n评论=风住了|老板收留我当洗碗工吧，只求管饭|赞 89\n评论=momo不吃香菜|蹲一个面馆定位！|赞 156";
 
-// 聊天信息 / 聊天页设置里的图标底色：低饱和浅色圆片（与截图一致）
 const STATUS_REGION_STARTER_CONTRACT = [
     "【逻辑】你在维护自己的微博主页。每行一个字段，用=分隔，除格式列出的字段外不要输出其他内容；帖子与评论要符合当前剧情与你的心境，网友评论可玩梗。按生成的内容整块用 [状态栏]...[/状态栏] 包裹输出。",
     "【格式】",
@@ -310,7 +309,7 @@ function PrefsFold({
                     <span className="chat-prefs-fold-title">{title}</span>
                     {subtitle && <span className="chat-prefs-fold-sub">{subtitle}</span>}
                 </span>
-                <ChevronRight size={18} className="chat-prefs-fold-chevron" />
+                <ChevronDown size={18} className={`chat-prefs-fold-chevron${open ? " is-open" : ""}`} />
             </button>
             {open && <div className="chat-prefs-fold-body">{children}</div>}
         </div>
@@ -444,23 +443,6 @@ export function ChatSettingsPanel({
     const [editingCSS, setEditingCSS] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [openFold, setOpenFold] = useState<string | null>(null);
-    // 聊天背景与通话（弹窗）：草稿态，上传后立即预览，确认后统一写入
-    const [showBgModal, setShowBgModal] = useState(false);
-    const [bgDraft, setBgDraft] = useState<{ chat: string; video: string; voice: string }>({ chat: "", video: "", voice: "" });
-    useEffect(() => {
-        if (showBgModal) {
-            setBgDraft({
-                chat: session.backgroundImage || "",
-                video: session.videoBackground || "",
-                voice: session.voiceBackground || "",
-            });
-        }
-    }, [showBgModal, session.backgroundImage, session.videoBackground, session.voiceBackground]);
-    const applyBgDraft = () => {
-        if (bgDraft.chat !== (session.backgroundImage || "")) updateSession({ backgroundImage: bgDraft.chat });
-        if (bgDraft.video !== (session.videoBackground || "")) updateSession({ videoBackground: bgDraft.video });
-        if (bgDraft.voice !== (session.voiceBackground || "")) updateSession({ voiceBackground: bgDraft.voice });
-    };
     // TA 的电脑：翻看角色云端电脑（连接了角色电脑才显示入口）
     const [showComputer, setShowComputer] = useState(false);
     const [showArchive, setShowArchive] = useState(false);
@@ -492,7 +474,6 @@ export function ChatSettingsPanel({
     const closeSearchPanel = () => {
         searchRunRef.current += 1;
         setShowSearch(false);
-        onClose();
         setSearchQuery("");
         setSubmittedSearchQuery("");
         setSearchResults([]);
@@ -846,7 +827,7 @@ export function ChatSettingsPanel({
                                     userName={userIdentity?.name || "你"}
                                     groupSize={session.isGroup ? (session.participantIds?.length || 0) + (session.isSpectator ? 0 : 1) : undefined}
                                     characterId={msg.senderCharacterId || session.contactId}
-                                    defaultTranslationExpanded={true}
+                                    defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                 />
                             </div>
                         </div>
@@ -871,58 +852,14 @@ export function ChatSettingsPanel({
     return (
         <PageShell
             title={
-                <span className="chat-prefs-page-title">聊天页设置</span>
+                <span className="chat-prefs-page-title">
+                    <span className="chat-prefs-page-title-main">Preferences</span>
+                    <span className="chat-prefs-page-title-sub">系统偏好设置</span>
+                </span>
             }
             onBack={onClose}
             className="absolute inset-0 z-[100]"
         >
-            {showBgModal && (
-                <div className="modal-overlay" onClick={() => { applyBgDraft(); setShowBgModal(false); }}>
-                    <div className="chat-bg-modal" onClick={e => e.stopPropagation()}>
-                        <div className="chat-bg-modal-head">
-                            <span className="chat-bg-modal-title">聊天背景与通话</span>
-                            <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => { applyBgDraft(); setShowBgModal(false); }}>完成</button>
-                        </div>
-                        <div className="chat-bg-picker">
-                            {[
-                                { key: "chat", label: "聊天背景", value: bgDraft.chat, onChange: (v: string) => setBgDraft(d => ({ ...d, chat: v })) },
-                                { key: "video", label: "视频通话背景", value: bgDraft.video, onChange: (v: string) => setBgDraft(d => ({ ...d, video: v })) },
-                                { key: "voice", label: "语音通话背景", value: bgDraft.voice, onChange: (v: string) => setBgDraft(d => ({ ...d, voice: v })) },
-                            ].map(item => (
-                                <div key={item.key} className="chat-bg-picker-row">
-                                    <div className="chat-bg-picker-preview">
-                                        {item.value ? <img src={item.value} alt="" /> : <span className="chat-bg-picker-empty">未设置</span>}
-                                    </div>
-                                    <div className="chat-bg-picker-meta">
-                                        <span className="chat-bg-picker-label">{item.label}</span>
-                                        <div className="chat-bg-picker-actions">
-                                            <label className="chat-bg-picker-btn">
-                                                {item.value ? "更换" : "上传"}
-                                                <input
-                                                    type="file"
-                                                    accept="image/*"
-                                                    hidden
-                                                    onChange={e => {
-                                                        const file = e.target.files?.[0];
-                                                        e.currentTarget.value = "";
-                                                        if (!file) return;
-                                                        const reader = new FileReader();
-                                        reader.onload = () => item.onChange(String(reader.result || ""));
-                                                        reader.readAsDataURL(file);
-                                                    }}
-                                                />
-                                            </label>
-                                            {item.value && (
-                                                <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => item.onChange("")}>清除</button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
             <div className="page-menu chat-info-menu chat-prefs-menu">
                 {session.isGroup && (
                     <PrefsSection label="SESSION">
@@ -1087,7 +1024,7 @@ export function ChatSettingsPanel({
                         <div className="menu-right gap-2">
                             <button
                                 type="button"
-                                className="ui-btn ui-btn-ghost h-7 w-7 rounded-full p-0"
+                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
                                 onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit - 1)}
                                 disabled={visionImagePromptLimit <= 0}
                             >
@@ -1099,11 +1036,11 @@ export function ChatSettingsPanel({
                                 max={MAX_VISION_IMAGE_PROMPT_LIMIT}
                                 value={visionImagePromptLimit}
                                 onChange={e => updateVisionImagePromptLimit(e.target.value)}
-                                className="ui-input h-8 w-12 rounded-[10px] text-center"
+                                className="ui-input h-8 w-14 text-center"
                             />
                             <button
                                 type="button"
-                                className="ui-btn ui-btn-ghost h-7 w-7 rounded-full p-0"
+                                className="ui-btn ui-btn-ghost h-8 w-8 p-0"
                                 onClick={() => updateVisionImagePromptLimit(visionImagePromptLimit + 1)}
                                 disabled={visionImagePromptLimit >= MAX_VISION_IMAGE_PROMPT_LIMIT}
                             >
@@ -1114,25 +1051,11 @@ export function ChatSettingsPanel({
                 </PrefsSection>
 
                 <PrefsSection label="VISUALS">
-                    <button className="menu-item" onClick={() => setShowBgModal(true)}>
-                        <span className="menu-label-group"><span className="menu-label">聊天背景与通话</span></span>
-                        <span className="menu-right"><ChevronRight size={16} /></span>
-                    </button>
-                    <button className="menu-item" onClick={() => setEditingCSS(true)}>
-                        <span className="menu-label-group"><span className="menu-label">界面美化 (CSS)</span></span>
-                        <span className="menu-right">
-                            {customCSS && <span className="menu-desc mr-1">已设置</span>}
-                            <ChevronRight size={16} />
-                        </span>
-                    </button>
-                </PrefsSection>
-
-                {/* 旧折叠实现（已停用，保留备用）
-                <PrefsSection label="VISUALS">
                     <PrefsFold
                         open={openFold === "visuals"}
                         onToggle={() => toggleFold("visuals")}
                         title="聊天背景与通话"
+                        subtitle="Backgrounds · 聊天背景 / 视频通话 / 语音通话"
                     >
                         <label className="menu-item">
                             <div className="menu-label-group"><span className="menu-label">聊天背景</span></div>
@@ -1199,6 +1122,7 @@ export function ChatSettingsPanel({
                         open={openFold === "css"}
                         onToggle={() => toggleFold("css")}
                         title="界面美化 (CSS)"
+                        subtitle="Custom Style Override"
                     >
                         <button className="menu-item" onClick={() => setEditingCSS(true)}>
                             <div className="menu-label-group">
@@ -1212,39 +1136,22 @@ export function ChatSettingsPanel({
                         </button>
                     </PrefsFold>
                 </PrefsSection>
-                */}
 
                 <PrefsSection label="DANGER ZONE" danger>
                     <div className="chat-prefs-danger-list">
                         {!session.isGroup && (
-                            <button type="button" className="menu-item" onClick={() => setShowConfirmDelete(true)}>
-                                <span className="menu-label-group">
-                                    <span className="menu-label is-danger">删除好友</span>
-                                    <span className="menu-desc">移除好友关系，聊天记录一并清除</span>
-                                </span>
-                                <span className="menu-right"><ChevronRight size={16} /></span>
+                            <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmDelete(true)}>
+                                删除好友
                             </button>
                         )}
-                        <button type="button" className="menu-item" onClick={() => setShowConfirmClearTools(true)}>
-                            <span className="menu-label-group">
-                                <span className="menu-label is-danger">清理原生 tool 调用历史</span>
-                                <span className="menu-desc">切换到文本协议 API 前使用</span>
-                            </span>
-                            <span className="menu-right"><ChevronRight size={16} /></span>
+                        <button type="button" className="chat-prefs-danger-pill is-ghost" onClick={() => setShowConfirmClearTools(true)}>
+                            清理原生 tool 调用历史
                         </button>
-                        <button type="button" className="menu-item" onClick={() => setShowConfirmClear(true)}>
-                            <span className="menu-label-group">
-                                <span className="menu-label is-danger">清空聊天记录</span>
-                                <span className="menu-desc">清空该会话的全部消息，好友保留</span>
-                            </span>
-                            <span className="menu-right"><ChevronRight size={16} /></span>
+                        <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmClear(true)}>
+                            清空聊天记录
                         </button>
-                        <button type="button" className="menu-item" onClick={() => setShowConfirmDeleteSession(true)}>
-                            <span className="menu-label-group">
-                                <span className="menu-label is-danger">{session.isGroup ? "解散群聊" : "删除会话"}</span>
-                                <span className="menu-desc">{session.isGroup ? "解散该群聊，成员好友保留" : "移除该会话及聊天记录，好友保留"}</span>
-                            </span>
-                            <span className="menu-right"><ChevronRight size={16} /></span>
+                        <button type="button" className="chat-prefs-danger-pill" onClick={() => setShowConfirmDeleteSession(true)}>
+                            {session.isGroup ? "解散群聊" : "删除会话"}
                         </button>
                     </div>
                 </PrefsSection>
@@ -1479,30 +1386,30 @@ export function ChatSettingsPanel({
 
             {/* Sub-page: Custom CSS */}
             {editingCSS && (
-                <div className="modal-overlay" style={{ position: "absolute", zIndex: 9999 }} onClick={() => setEditingCSS(false)}>
-                    <div className="chat-css-modal" onClick={e => e.stopPropagation()}>
-                        <div className="chat-bg-modal-head">
-                            <span className="chat-bg-modal-title">界面美化 (CSS)</span>
-                            <button type="button" className="chat-bg-picker-btn is-ghost" onClick={() => setEditingCSS(false)}>关闭</button>
+                <div style={{ position: "absolute", inset: 0, zIndex: 9999, background: "#ffffff" }}>
+                <div style={{ position: "absolute", inset: 0, background: "var(--c-page-body-bg)" }}>
+                    <PageShell title="自定义 CSS" onBack={() => setEditingCSS(false)}>
+                        <div className="theme-section-page">
+                            <p className="ts-13 text-[var(--c-text)] mb-3 leading-relaxed">
+                                支持 :root 变量和选择器，仅作用于本会话。
+                            </p>
+                            <textarea
+                                className="ui-textarea font-mono ts-13 leading-relaxed flex-1"
+                                style={{ minHeight: 280, resize: "none", scrollbarWidth: "none" }}
+                                placeholder={`:root {\n  --c-bubble-self: #95ec69;\n}\n\n.chat-bubble-role-user {\n  border-radius: 6px;\n}\n\n.chat-html-inline-frame {\n  max-height: min(36vh, 340px);\n}`}
+                                value={customCSS}
+                                onChange={e => setCustomCSS(e.target.value)}
+                                spellCheck={false}
+                            />
+                            <div className="flex gap-2 mt-3 items-center">
+                                <CSSSchemeBar target="chat_session" currentCSS={customCSS} onLoad={setCustomCSS} />
+                                <button type="button" className="ui-btn ui-btn-outline flex-1" onClick={() => setCustomCSS(CHAT_SESSION_CSS_EXAMPLE)}>示例</button>
+                                <button type="button" className="ui-btn ui-btn-outline flex-1" onClick={() => setCustomCSS("")}>清除</button>
+                                <button type="button" className="ui-btn ui-btn-soft-action flex-1" onClick={() => { updateSession({ customCSS }); window.dispatchEvent(new CustomEvent("chat-session-css-updated", { detail: { sessionId: session.id, css: customCSS } })); setEditingCSS(false); }}>应用</button>
+                            </div>
                         </div>
-                        <p className="ts-12 text-[var(--c-text)] opacity-60 mb-2 leading-relaxed">
-                            支持 :root 变量和选择器，仅作用于本会话。
-                        </p>
-                        <textarea
-                            className="ui-textarea font-mono ts-12 leading-relaxed"
-                            style={{ flex: 1, minHeight: 200, resize: "none", scrollbarWidth: "none" }}
-                            placeholder={`:root {\n  --c-bubble-self: #95ec69;\n}\n\n.chat-bubble-role-user {\n  border-radius: 6px;\n}`}
-                            value={customCSS}
-                            onChange={e => setCustomCSS(e.target.value)}
-                            spellCheck={false}
-                        />
-                        <div className="chat-bg-picker-actions mt-3 items-center">
-                            <CSSSchemeBar target="chat_session" currentCSS={customCSS} onLoad={setCustomCSS} btnStyle={{ width: 36, height: 32, borderRadius: 10 }} />
-                            <div className="flex-1" />
-                            <button type="button" className="chat-bg-picker-btn" onClick={() => setCustomCSS(customCSS.trim() === CHAT_SESSION_CSS_EXAMPLE.trim() ? "" : CHAT_SESSION_CSS_EXAMPLE)}>示例</button>
-                            <button type="button" className="chat-bg-picker-btn" onClick={() => setCustomCSS("")}>清除</button>
-                            <button type="button" className="chat-bg-picker-btn is-primary" onClick={() => { updateSession({ customCSS }); window.dispatchEvent(new CustomEvent("chat-session-css-updated", { detail: { sessionId: session.id, css: customCSS } })); setEditingCSS(false); }}>应用</button>                        </div>
-                    </div>
+                    </PageShell>
+                </div>
                 </div>
             )}
 
@@ -1517,7 +1424,8 @@ export function ChatSettingsPanel({
 
             {/* Sub-page: Search History */}
             {showSearch && (
-                <div style={{ position: "absolute", inset: 0, zIndex: 9999, background: "var(--c-page-body-bg)" }}>
+                <div style={{ position: "absolute", inset: 0, zIndex: 9999, background: "#ffffff" }}>
+                <div style={{ position: "absolute", inset: 0, background: "var(--c-page-body-bg)" }}>
                     <PageShell title="查找聊天记录" onBack={closeSearchPanel}>
                         <div className="px-4 pt-2 pb-3 flex items-center gap-2">
                             <input
@@ -1538,24 +1446,14 @@ export function ChatSettingsPanel({
                                 type="button"
                                 aria-label="搜索聊天记录"
                                 title="搜索"
-                                onClick={() => {
-                                    const q = searchQuery.trim();
-                                    if (q) {
-                                        runSearch();
-                                    } else {
-                                        // 输入框为空时点放大镜：直接退出搜索，回到聊天
-                                        closeSearchPanel();
-                                    }
-                                }}
-                                className="h-10 w-10 shrink-0 grid place-items-center border-0 bg-transparent text-[var(--c-icon)]"
+                                onClick={runSearch}
+                                disabled={isSearching}
+                                className="h-10 w-10 shrink-0 grid place-items-center border-0 bg-transparent text-[var(--c-icon)] disabled:opacity-40"
                             >
                                 <Search size={20} strokeWidth={2.1} />
                             </button>
                         </div>
                         <div className="flex flex-col gap-4 px-4 pb-4">
-                            <p className="ts-11 text-[var(--c-text)] opacity-40 leading-relaxed">
-                                记录只存在本机浏览器，清缓存会丢失。
-                            </p>
                             {!searchMode && searchHistoryMessages.length === 0 && (
                                 <div className="ui-empty">
                                     <span className="menu-desc">暂无聊天记录</span>
@@ -1588,6 +1486,7 @@ export function ChatSettingsPanel({
                             )}
                         </div>
                     </PageShell>
+                </div>
                 </div>
             )}
             {showStatusRegionDialog && (
