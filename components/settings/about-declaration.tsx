@@ -1,6 +1,7 @@
 "use client";
 
 import { Info, ShieldAlert, Heart } from "lucide-react";
+import { BUILD_INFO } from "@/lib/build-info";
 
 export function AboutDeclaration() {
     return (
@@ -30,6 +31,32 @@ export function AboutDeclaration() {
             </div>
 
             <p className="card-section-label m-0 mx-2">相关信息</p>
+
+            <div className="g-card flex flex-col gap-2">
+                <div className="flex items-center gap-3">
+                    <Info size={20} className="shrink-0 text-[var(--c-icon-active)]" />
+                    <span className="menu-label flex-1">当前版本</span>
+                    <span className="menu-desc !mt-0 tabular-nums">{BUILD_INFO.version}</span>
+                </div>
+                <div className="ui-row-divider !mx-0" />
+                <div className="flex items-center gap-3">
+                    <span className="menu-label flex-1 pl-8">构建版本</span>
+                    <span className="menu-desc !mt-0 tabular-nums">{BUILD_INFO.commit}</span>
+                </div>
+                {BUILD_INFO.builtAt ? (
+                    <>
+                        <div className="ui-row-divider !mx-0" />
+                        <div className="flex items-center gap-3">
+                            <span className="menu-label flex-1 pl-8">构建时间</span>
+                            <span className="menu-desc !mt-0 tabular-nums">{BUILD_INFO.builtAt}</span>
+                        </div>
+                    </>
+                ) : null}
+                <div className="ui-row-divider !mx-0" />
+                <span className="menu-desc ts-13 leading-relaxed">
+                    构建版本与 Vercel Deployments 里的 commit 一一对应，可据此确认当前打开的是哪一次部署。
+                </span>
+            </div>
 
             <div className="flex flex-col gap-2">
                 <button className="g-card flex-row items-center">

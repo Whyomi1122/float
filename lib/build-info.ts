@@ -15,10 +15,15 @@ export type BuildEntry = {
 };
 
 export const BUILD_INFO = {
-    /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "2026.10.18",
+    /**
+     * 当前构建标识：构建时由 next.config.mjs 注入真实 git commit（短 hash）。
+     * 不要手写 —— 之前写死成 "2026.10.18"，导致线上看到的版本号是假的。
+     */
+    commit: process.env.NEXT_PUBLIC_BUILD_COMMIT || "dev",
+    /** 构建时间（UTC），用于核对是否为最新部署 */
+    builtAt: process.env.NEXT_PUBLIC_BUILD_TIME || "",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.20-1",
+    version: "2026.10.21-1",
     /** 历史更新记录（最新的在最前） */
     entries: [
         {
