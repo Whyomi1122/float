@@ -1484,7 +1484,7 @@ export function ShoppingApp({ onClose, visible = true, onIdle, onBusyChange }: S
               )}
             </div>
 
-            <nav style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "#fff", display: "flex", justifyContent: "space-around", padding: "12px 0 calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid #eaeaea", zIndex: 10 }}>
+            <nav className="shopping-bottom-nav" style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "#fff", display: "flex", justifyContent: "space-around", padding: "12px 0 calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid #eaeaea", zIndex: 10 }}>
               {SHOPPING_TABS.map(tab => {
                 const Icon = tab.icon;
                 const active = selectedTab === tab.id;
