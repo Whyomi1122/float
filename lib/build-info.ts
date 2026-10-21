@@ -1,4 +1,4 @@
-/**
+﻿/**
  * float 构建信息 / 更新日志
  *
  * 维护约定：每次推送有意义的功能改动后，在 BUILD_INFO.entries 顶部追加一条。
@@ -16,7 +16,7 @@ export type BuildEntry = {
 
 export const BUILD_INFO = {
     /** 当前构建标识：优先取线上构建注入的真实 commit（next.config.mjs 的 env），本地回落到手写值 */
-    commit: process.env.NEXT_PUBLIC_BUILD_COMMIT || "d686f66",
+    commit: process.env.NEXT_PUBLIC_BUILD_COMMIT || "55e13a3",
     /** 当前版本（用于比较是否已看过） */
     version: "2026.10.21-1",
     /** 历史更新记录（最新的在最前） */
