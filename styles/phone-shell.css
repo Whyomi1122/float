@@ -137,18 +137,20 @@
    * 这里给高度加过渡，让壳子收缩过程平滑，输入框跟随键盘一起升上去。
    * 时长取 180ms（接近安卓键盘动画时长），避免长出键盘动画造成滞后感。
    */
-  transition: height 180ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: height 120ms cubic-bezier(0.32, 0.72, 0, 1);
   will-change: height;
 }
 
-/* 键盘弹出（输入框聚焦）后底栏不该跟着壳子收缩往上跑（购物页等）。
-   底栏原地不动、被键盘盖住即可，这里直接淡出，避免看到它"升上来"。 */
-body:has(input:focus) .shopping-bottom-nav,
-body:has(textarea:focus) .shopping-bottom-nav,
-body:has([contenteditable="true"]:focus) .shopping-bottom-nav {
+/* 键盘弹出时，底栏不该跟着壳子收缩往上跑（购物页等）——底栏原地不动、被键盘盖住即可。
+   用 JS 写入的 .kb-open 判断（监听 visualViewport 高度），不用 :focus。
+   :focus 在安卓 Firefox 上键盘收起后仍可能残留焦点，会导致底栏永久消失。 */
+body.kb-open .shopping-bottom-nav {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms linear;
+  transition: opacity 100ms linear;
+}
+.shopping-bottom-nav {
+  transition: opacity 160ms linear;
 }
 
 .phone-shell::before {
