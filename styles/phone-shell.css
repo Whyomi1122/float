@@ -1138,13 +1138,16 @@ body.kb-open .shopping-bottom-nav {
   body {
     overflow: hidden;
     width: 100%;
-    height: var(--app-vh);
+    /* 布局根固定满高：键盘只「盖」在内容上，不改变 App 的布局尺寸。
+       若这里跟 --app-vh（键盘弹出后变小）收缩，整页内容会被压缩，
+       底栏上浮、卡片被拉伸、消息列表裁切都会随之出现。 */
+    height: 100dvh;
     background: var(--c-page-body-bg);
   }
 
   .app-root {
     width: 100vw;
-    height: var(--app-vh);
+    height: 100dvh;
     padding: 0;
     display: flex;
     justify-content: flex-start;
@@ -1170,12 +1173,6 @@ body.kb-open .shopping-bottom-nav {
        .app-root 被裁掉，底部栏随之顶回可视区。上移量可在「状态栏」弹窗里按设备调节，
        让它约等于真实状态栏高度即可铺满。0 = 不上移（iOS 等能全屏的浏览器保持 0）。 */
     margin-top: calc(-1 * var(--status-bar-drop, 0px));
-    transform: translate3d(0, calc(-1 * var(--mobile-keyboard-lift, 0px)), 0);
-    /* 壳高 already 跟随 --app-vh 实时收缩，再给 transform 加过渡会让键盘弹起时
-       输入框"晚半拍"再归位（先弹键盘、后弹输入框）。这里只保留极短过渡，
-       避免设备旋转/状态栏偏移时生硬跳变。 */
-    transition: transform 0.02s linear;
-    will-change: transform;
   }
 
   .phone-shell-wrap .phone-case {
@@ -1203,7 +1200,7 @@ body.kb-open .shopping-bottom-nav {
 
   .app-root.splash-root {
     width: 100vw;
-    height: var(--app-vh);
+    height: 100dvh;
     margin: 0;
     padding: 0;
     display: flex;

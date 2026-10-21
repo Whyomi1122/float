@@ -14,6 +14,18 @@ import { BUILD_INFO, SEEN_BUILD_KEY } from "@/lib/build-info";
  */
 export function BuildInfoPopup() {
     const [open, setOpen] = useState(true);
+    /** 实时读取 --kb-height，用于确认键盘补偿是否生效 */
+    const [kbHeight, setKbHeight] = useState("0px");
+
+    useEffect(() => {
+        const read = () =>
+            setKbHeight(
+                (document.documentElement.style.getPropertyValue("--kb-height") || "0px").trim() || "0px",
+            );
+        read();
+        const id = window.setInterval(read, 500);
+        return () => window.clearInterval(id);
+    }, []);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -63,7 +75,9 @@ export function BuildInfoPopup() {
                         构建 {BUILD_INFO.commit}
                         {BUILD_INFO.builtAt ? ` · ${BUILD_INFO.builtAt}` : ""}
                         <br />
-                        与 Vercel Deployments 里的 commit 对照
+                        键盘补偿 --kb-height：
+                        <span style={{ fontWeight: 600 }}>{kbHeight}</span>
+                        {" "}（弹键盘时应为 200~350 左右）
                     </p>
                 </div>
                 <div className="modal-footer" data-ui="modal-footer">
