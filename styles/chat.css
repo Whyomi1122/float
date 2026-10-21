@@ -673,6 +673,12 @@
   background: color-mix(in srgb, var(--c-input, var(--c-page-body-bg)) 55%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
+  /*
+   * 壳子现在固定满高（不跟键盘收缩），键盘是「盖」上来的，
+   * 所以输入栏自己往上让出 --kb-height 的高度，浮在键盘上沿。
+   * --kb-height 为 0 时（键盘未弹出）这一行不产生任何位移。
+   */
+  transform: translateY(calc(-1 * var(--kb-height, 0px)));
 }
 
 .chat-input-bar .chat-input-textarea {

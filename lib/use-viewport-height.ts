@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 把真实可视高度写进 `--app-vh`。
+ * 把「键盘未弹出时的可视高度」写进 `--app-vh`。
  *
  * 为什么需要它：
  *   移动端 `100lvh` 是「浏览器工具条收起时的最大高度」，比当前可见高度还大。
@@ -9,11 +9,18 @@
  *   整个手机壳凭空高出 56~104px，`position:absolute; bottom:0` 的输入栏
  *   就被推到屏幕外面 —— 用户看到的现象是「聊天框看不见」。
  *
- * `visualViewport.height` 在键盘弹出时也会同步缩小，
- * 所以壳子会跟着收，贴底的输入栏自然贴在键盘上沿，不需要任何 translate 补偿。
+ * 关键：这里【故意】忽略键盘引起的高度变化。
+ *   旧实现直接用 visualViewport.height，键盘一弹壳子就收缩，带来三个副作用：
+ *     1) 购物页整页变矮 → 底部导航被顶到键盘上方
+ *     2) 剧情室消息列表可用高度变化、滚动边界算错 → 新消息被输入栏切掉
+ *     3) 聊天室输入栏要等收缩完成才重排 → 键盘弹完才跳上来
+ *   现在只记录「键盘没弹时」的高度，键盘遮挡交给 --kb-height / .kb-open 处理。
  */
 
 import { useEffect } from "react";
+
+/** 与 use-keyboard-inset 一致的判定阈值 */
+const KB_THRESHOLD = 120;
 
 export function useViewportHeightVar(): void {
     useEffect(() => {
@@ -21,20 +28,29 @@ export function useViewportHeightVar(): void {
 
         const root = document.documentElement;
         let raf = 0;
+        /** 最近一次「键盘未弹出」时记录的高度，作为键盘弹起期间的稳定值 */
+        let stableH = 0;
 
         const apply = () => {
             const vv = window.visualViewport;
             const h = vv ? vv.height : window.innerHeight;
             if (!h || h < 100) return;
-            root.style.setProperty("--app-vh", `${Math.round(h)}px`);
+
+            const layoutH = window.innerHeight;
+            const kbOpen = layoutH - h > KB_THRESHOLD;
+
+            if (!kbOpen) {
+                // 正常状态（含地址栏收起/展开）：以实际可视高度为准
+                stableH = h;
+            } else if (!stableH) {
+                // 首帧就是键盘弹出态：退回布局视口高度
+                stableH = layoutH;
+            }
+
+            root.style.setProperty("--app-vh", `${Math.round(stableH)}px`);
         };
 
-        /**
-         * 同步写入，不要放进 requestAnimationFrame。
-         * 键盘弹起的顺序是：系统先缩小 visualViewport（输入框被原生顶上），
-         * 若我们再延迟一帧才写 --app-vh，壳子要晚一帧才收，用户看到的就是
-         * 「输入法先弹出来、输入框后弹出来」。这里必须同帧跟上。
-         */
+        /** 同步写入，避免多一帧延迟 */
         const schedule = () => {
             if (raf) {
                 window.cancelAnimationFrame(raf);

@@ -5630,6 +5630,9 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             <div
                 ref={scrollRef}
                 className="page-body chat-room-main-pane flex flex-col gap-4 chat-scroll-anchored"
+                /* 键盘弹出时输入栏上移了 --kb-height，消息区同步多留这么多底部空间，
+                   否则最后一条消息会被浮起来的输入栏盖住、且滚不到。 */
+                style={{ paddingBottom: "calc(var(--kb-height, 0px))" }}
                 onScroll={(e) => {
                     if (activeMessageId || activeOfflineTarget) closeContextMenu();
                 }}
