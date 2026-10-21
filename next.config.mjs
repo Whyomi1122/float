@@ -1,6 +1,5 @@
 import path from "node:path";
 import os from "node:os";
-import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -20,36 +19,8 @@ function resolveDistDir() {
   return path.join(os.tmpdir(), `next-dist-${safeProjectName}`);
 }
 
-/**
- * 读取当前 git commit（短 hash）与构建时间，注入到客户端。
- * Vercel 上优先用它提供的 VERCEL_GIT_COMMIT_SHA；本地用 git 命令兜底。
- * 这样界面显示的版本 = 真正部署的那一版，不再靠手写而导致对不上。
- */
-function resolveBuildInfo() {
-  let sha = process.env.VERCEL_GIT_COMMIT_SHA || "";
-  if (!sha) {
-    try {
-      sha = execSync("git rev-parse HEAD", { cwd: projectRoot, stdio: ["ignore", "pipe", "ignore"] })
-        .toString()
-        .trim();
-    } catch {
-      sha = "";
-    }
-  }
-  return {
-    short: sha ? sha.slice(0, 7) : "dev",
-    builtAt: new Date().toISOString().replace("T", " ").slice(0, 16),
-  };
-}
-
-const __buildInfo = resolveBuildInfo();
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  env: {
-    NEXT_PUBLIC_BUILD_COMMIT: __buildInfo.short,
-    NEXT_PUBLIC_BUILD_TIME: __buildInfo.builtAt,
-  },
   typedRoutes: true,
   outputFileTracingRoot: projectRoot,
   distDir: resolveDistDir(),

@@ -6,13 +6,9 @@ import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXm
 import type { StateValue } from "@/lib/chat-storage";
 import { loadEnsembleScripts, appendEnsembleTurn, type EnsembleScript } from "@/lib/ensemble-storage";
 import {
-    findOpenSession,
+    getOpenSessionForCharacter,
     closeDeliverySession,
     formatTranscriptAsNarration,
-    loadSessionTranscript,
-    loadDeliverySessions,
-    markSessionOpened,
-    sanitizeChatLine,
 } from "@/lib/ensemble-delivery";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse, type ParsedMessagePart } from "@/lib/rich-message-parser";
@@ -63,7 +59,7 @@ import { cancelBailoutKey } from "@/lib/push-bailout-client";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { AlertCircle, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, Search, X } from "lucide-react";
-import { setDebugChatState, setDebugRawReply } from "@/lib/debug-store";
+import { setDebugChatState } from "@/lib/debug-store";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { setChatActive } from "@/lib/music-action-queue";
 import { getMusicControlBridge } from "@/lib/music-control-bridge";
@@ -98,7 +94,6 @@ import { extractTextToolDirectiveText } from "@/lib/text-tool-protocol";
 import { emitChatPluginEvent, getChatPluginHookBus, runChatPluginTransform } from "@/lib/chat-plugin-hooks";
 import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin-runtime";
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
-import { ChatInspectWidget } from "@/components/chat/chat-inspect-widget";
 
 // ── Call system message detection ──────────────────────────
 // Call messages are stored with user/assistant role for correct prompt alternation,
@@ -759,7 +754,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     ];
 
     return (
-        <div className="chat-input-bar chat-input-dock chat-room-main-pane flex flex-col" data-ui="input">
+        <div className="chat-input-bar chat-room-main-pane flex flex-col" data-ui="input">
             {theaterMode && (
                 <div className="chat-theater-mode-strip" role="status">
                     <span className="chat-theater-mode-icon" aria-hidden="true">
@@ -1042,7 +1037,6 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
                 ref={textareaRef}
                 rows={1}
                 value={inputText}
-                data-chat-input="1"
                 onChange={e => {
                     inputTextRef.current = e.target.value;
                     setInputText(e.target.value);
@@ -1182,25 +1176,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [bringBackMessage, setBringBackMessage] = useState<ChatMessage | null>(null);
 
     /**
-     * 当前会话是不是「剧情对话段」的聊天室。
-     * 是的话，模型回复要清洗成微信格式，而不是线下剧本格式。
-     *
-     * ⚠️ 不要用「会话里已有 deliverySessionId 的消息」判断：
-     *    投递的第一条消息可能还没写进内存，进群聊第一轮就变成 false，
-     *    于是模型继续吐线下剧本格式 —— 用户看到的就是这个。
-     *    这里改为「本会话对应某段未关闭/未放弃的剧情对话段」，进房那一刻就成立。
-     */
-    const isStoryDeliverySession = useMemo(() => {
-        if (!session) return false;
-        try {
-            return loadDeliverySessions().some(s => s.chatSessionId === session.id);
-        } catch {
-            // 判断失败就按剧情模式处理：宁可多洗一遍，也不让剧本体泄漏到聊天里
-            return true;
-        }
-    }, [session?.id, messages.length]);
-
-    /**
      * 把聊天里的一条消息以「旁白」形式搬进群像剧本（没有进行中的剧情对话段时用）。
      * 用旁白而不是角色台词：不破坏角色边界，剧情又能自然接上。
      */
@@ -1224,45 +1199,24 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
      * 触发条件 —— 该角色名下存在「投递了但还没返回」的对话段。
      */
     const handleReturnToStory = (deliverySessionId: string) => {
-        // ⚠️ 群聊里没有 character，之前这里直接 return，用户点了等于没点
-        const result = closeDeliverySession({ deliverySessionId });
+        if (!character) return;
+        const result = closeDeliverySession({ deliverySessionId, characterId: character.id });
         setBringBackMessage(null);
         if (!result) {
             showChatToast("这段已经归入过剧情了");
             return;
         }
         const { session, transcript } = result;
-        if (transcript.length === 0) {
-            // 一句都没捞到就别写空旁白，直接告知
-            showChatToast("这段没有找到聊天内容，已丢弃");
-            return;
-        }
         const narration = formatTranscriptAsNarration(session, transcript);
         appendEnsembleTurn(session.scriptId, {
             id: `turn_${Date.now()}_dlv`,
-            senderType: "character",
-            senderId: "from_chat",
+            senderType: "narration",
             senderName: "来自聊天",
             content: narration,
             timestamp: new Date().toISOString(),
-            rawText: narration,
         });
         showChatToast(`已归入《${session.scriptTitle}》· ${transcript.length} 句`);
-        window.dispatchEvent(new CustomEvent("float:ensemble-updated"));
     };
-
-    // 进入会话即标记「这段剧情已经打开过」，群像那边据此提示是否已录入聊天记录
-    useEffect(() => {
-        const target = findOpenSession({
-            characterId: character?.id ?? null,
-            sessionId: session.id,
-            participantIds: session.participantIds,
-        });
-        if (!target) return;
-        // 只有真的已经带着剧情消息，才算录入过
-        const hasContent = loadSessionTranscript(target.id)[0]?.messages.length > 0;
-        if (hasContent) markSessionOpened(target.id);
-    }, [session.id, character?.id]);
     // Emoji panel
     const [showEmojiPanel, setShowEmojiPanel] = useState(false);
     const [showStickerPanel, setShowStickerPanel] = useState(false);
@@ -2672,11 +2626,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 const draft = buildAssistantMessageDraft(part, {
                     sessionId: session.id,
                     role: "assistant",
-                    // 剧情对话段里，模型偶尔会把「（动作）【心理】"台词"」写成一条
-                    // 线上消息。这里只做减法的清洗，保证聊天软件里是干净的微信格式。
-                    content: isStoryDeliverySession
-                        ? sanitizeChatLine(part.content)
-                        : part.content,
+                    content: part.content,
                     mediaType: part.mediaType,
                     mediaData: part.mediaData,
                     responseBatchId,
@@ -2694,20 +2644,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 }, guard);
                 throwIfGenerationStopped(guard);
                 const msg = pushChatMessage(draft);
-                // 调试挂件：记下模型原样回包 + 清洗后的对照
-                setDebugRawReply({
-                    timestamp: new Date().toISOString(),
-                    appId: "chat",
-                    sessionId: session.id,
-                    characterName: r.characterName,
-                    model: "—",
-                    raw: r.responseText || "",
-                    sanitized: isStoryDeliverySession ? sanitizeChatLine(part.content) : undefined,
-                    parts: [draft.content],
-                    note: isStoryDeliverySession
-                        ? "剧情对话段 · 已清洗成微信格式"
-                        : "聊天室",
-                });
                 imageReplacementTasks.push(scheduleGeneratedImageReplacement(msg, r.characterId, guard));
                 if (attachHere) attachedState = true;
                 savedAnyPart = true;
@@ -5569,14 +5505,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
             {/* 全屏特效层（表情雨/礼花），不拦截任何触摸操作 */}
             <ChatScreenEffectOverlay active={activeScreenEffect} onDone={() => setActiveScreenEffect(null)} />
-            {/* 剧情对话段的检查挂件：随时看清这间房带了什么进来 */}
-            <ChatInspectWidget
-                session={session}
-                messages={messages}
-                characterName={character?.name ?? null}
-                isGroup={!!session.isGroup}
-                enabled={isStoryDeliverySession}
-            />
             {/* Header */}
             <header className="page-header chat-room-main-pane" data-ui="header">
                 <div className="page-header-safe-area" />
@@ -5584,8 +5512,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     <button className="page-back-btn" type="button" onClick={onBack} aria-label="返回">
                         <ChevronLeft size={24} strokeWidth={1.5} />
                     </button>
-                    <span className="page-title" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
-                        <span>
+                    <span className="page-title" style={{ position: 'relative' }}>
                         {offlineMode ? "线下 · " : ""}
                         {session.isGroup
                             ? `${session.groupName || "群聊"}(${(session.participantIds?.length || 0) + (session.isSpectator ? 0 : 1)})`
@@ -5595,10 +5522,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                 {offlineMode ? "线下生成中" : "对方正在输入"}<span className="chat-typing-dots"><i/><i/><i/></span>
                             </span>
                         )}
-                        </span>
-                        {isStoryDeliverySession ? (
-                            <span className="text-[10px] tracking-[0.08em] text-black/35 mt-0.5">剧情模式</span>
-                        ) : null}
                     </span>
                     <span className="page-header-right chat-room-header-actions">
                         <button
@@ -5630,9 +5553,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             <div
                 ref={scrollRef}
                 className="page-body chat-room-main-pane flex flex-col gap-4 chat-scroll-anchored"
-                /* 键盘弹出时输入栏上移了 --kb-height，消息区同步多留这么多底部空间，
-                   否则最后一条消息会被浮起来的输入栏盖住、且滚不到。 */
-                style={{ paddingBottom: "calc(var(--kb-height, 0px))" }}
                 onScroll={(e) => {
                     if (activeMessageId || activeOfflineTarget) closeContextMenu();
                 }}
@@ -6699,11 +6619,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
             {/* ── 返回剧情 / 带回剧情 ── */}
             {bringBackMessage && (() => {
-                const openSession = findOpenSession({
-                    characterId: character?.id ?? null,
-                    sessionId: session?.id ?? null,
-                    participantIds: session?.participantIds,
-                });
+                const openSession = character ? getOpenSessionForCharacter(character.id) : null;
                 // 有进行中的剧情对话段 → 走「返回剧情」，整段打包归入剧本
                 if (openSession) {
                     return (

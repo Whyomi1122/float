@@ -3,7 +3,6 @@
 import { Component, memo, useCallback, useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ErrorInfo, type ReactNode } from "react";
 
 import { EnsembleApp } from "@/components/ensemble/ensemble-app";
-import { KbProbe } from "@/components/kb-probe";
 import { BuildInfoPopup } from "@/components/build-info-popup";
 import { updateStatusBarTone } from "@/lib/bg-tone";
 import { startDiaryEntryTimerService, stopDiaryEntryTimerService } from "@/lib/diary-entry-timer-service";
@@ -961,23 +960,6 @@ function useAndroidCaretKeyboardLift() {
       const gap = 36;
 
       if (keyboardInset < 80) {
-        applyLift(0);
-        return;
-      }
-
-      // ── 聊天室：一律不上移 ──
-      // 聊天室布局是「消息区 + 输入栏贴底」，浏览器本来就会把输入栏顶到键盘上方。
-      // 再整体上移 phone-shell，消息区就会被推出屏幕顶（用户看到：一发消息整个屏幕跳上去）。
-      //
-      // ⚠️ 不能靠「光标是否已在键盘上方」来动态判断：
-      //    多行输入框、表情/加号面板、页面滚动都会让那一瞬间不成立，
-      //    于是上移逻辑被反复触发 —— 这就是「第一次发还是抬」的原因。
-      //    聊天输入框自身会贴在键盘上方，这里直接一律放弃上移，最稳。
-      if (element.closest(".chat-input-bar") || element.hasAttribute("data-chat-input")) {
-        applyLift(0);
-        return;
-      }
-      if (targetRect.top <= keyboardTop - 2) {
         applyLift(0);
         return;
       }
@@ -4075,16 +4057,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
     }
 
     if (activeApp === "ensemble") {
-      return (
-        <EnsembleApp
-          characters={loadCharacters()}
-          onClose={() => setActiveApp(null)}
-          onJumpToChat={(sessionId) => {
-            setActiveChatSession(null);
-            openChatSessionFromNotice(sessionId);
-          }}
-        />
-      );
+      return <EnsembleApp characters={loadCharacters()} onClose={() => setActiveApp(null)} />;
     }
     
     if (activeApp === "xiaohongshu") {
@@ -5061,8 +5034,6 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
                   clone keeps theme variables + glass effect selectors
                   (.phone-shell[data-icon-effect] etc.); follows pointer via ref */}
               <div ref={ghostRef} className="drag-ghost" />
-              {/* 键盘诊断浮层：URL 带 ?kb=1 才出现，挂在 .phone-shell 内部才能量到壳子真实位置 */}
-              <KbProbe />
             </div>
           </div>
         </div>

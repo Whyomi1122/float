@@ -52,10 +52,6 @@ export type DeliverySession = {
     originContent: string;
     characterId: string;
     characterName: string;
-    /** 投递落地的聊天会话 id；返回剧情时优先按它取消息。 */
-    chatSessionId?: string;
-    /** 投递后用户是否已经进过那个聊天室。 */
-    opened?: boolean;
     /** 投递时刻。 */
     startedAt: number;
     /** 返回剧情时刻；为空表示这段还没归入。 */
@@ -95,60 +91,6 @@ export function getOpenSessionForCharacter(characterId: string): DeliverySession
     return null;
 }
 
-/**
- * 找出「当前正在进行的剧情对话段」。
- *
- * ⚠️ 群聊里 character 为空，或投递的角色和当前会话的主角色对不上时，
- * 只按 characterId 找会漏掉 → 用户点【返回剧情】被误判成「没有进行中的段」。
- * 所以这里按顺序兜底：当前会话 + 角色 → 当前会话里任意未归入段 → 任意未归入段。
- */
-export function findOpenSession(params: {
-    characterId?: string | null;
-    sessionId?: string | null;
-    participantIds?: string[];
-}): DeliverySession | null {
-    const list = loadDeliverySessions().filter(s => !s.endedAt);
-    if (list.length === 0) return null;
-
-    if (params.characterId) {
-        for (let i = list.length - 1; i >= 0; i -= 1) {
-            if (list[i].characterId === params.characterId) return list[i];
-        }
-    }
-    if (params.sessionId) {
-        for (let i = list.length - 1; i >= 0; i -= 1) {
-            const s = list[i];
-            if (s.chatSessionId === params.sessionId) return s;
-            const hit = loadChatMessages(params.sessionId).some(
-                m => m.deliverySessionId === s.id,
-            );
-            if (hit) return s;
-        }
-    }
-    if (params.characterId) {
-        const cast = new Set(params.participantIds ?? []);
-        if (cast.has(params.characterId)) {
-            for (let i = list.length - 1; i >= 0; i -= 1) {
-                if (cast.has(list[i].characterId)) return list[i];
-            }
-        }
-    }
-    // 兜底：只剩一段未归入就一定是它
-    return list.length === 1 ? list[0] : null;
-}
-
-/** 标记用户已经进过这段剧情对应的聊天室。 */
-export function markSessionOpened(deliverySessionId: string) {
-    const list = loadDeliverySessions();
-    let changed = false;
-    const next = list.map(s => {
-        if (s.id !== deliverySessionId || s.opened) return s;
-        changed = true;
-        return { ...s, opened: true };
-    });
-    if (changed) saveDeliverySessions(next);
-}
-
 /** 按 sessionId 取。 */
 export function getDeliverySession(sessionId: string): DeliverySession | null {
     return loadDeliverySessions().find(s => s.id === sessionId) ?? null;
@@ -160,7 +102,7 @@ export function getPendingSessions(scriptId?: string): DeliverySession[] {
 }
 
 export type DeliveryResult =
-    | { ok: true; sessionId: string; messageId: string; chatSessionId: string; isGroup: boolean }
+    | { ok: true; sessionId: string; messageId: string }
     | { ok: false; error: string };
 
 /**
@@ -205,8 +147,6 @@ export function deliverToChat(params: {
             role: "assistant",
             content,
             senderName: params.characterName,
-            // ⚠️ 群聊里没有这个字段就渲染不出角色头像，会掉成通用卡通头像
-            senderCharacterId: params.characterId,
         });
 
         // 已有未归入的段就复用，否则开一段新的
@@ -216,9 +156,7 @@ export function deliverToChat(params: {
             deliverySessionId = existing.id;
             // 复用段时更新终点台词，便于展示"这一段从这里开始"
             const list = loadDeliverySessions().map(s =>
-                s.id === existing.id
-                    ? { ...s, originContent: content, originTurnId: params.turnId, chatSessionId }
-                    : s,
+                s.id === existing.id ? { ...s, originContent: content, originTurnId: params.turnId } : s,
             );
             saveDeliverySessions(list);
         } else {
@@ -231,7 +169,6 @@ export function deliverToChat(params: {
                 originContent: content,
                 characterId: params.characterId,
                 characterName: params.characterName,
-                chatSessionId,
                 startedAt: Date.now(),
             };
             saveDeliverySessions([...loadDeliverySessions(), record]);
@@ -240,7 +177,7 @@ export function deliverToChat(params: {
         // 把这条投递消息标记归属，方便归档时跳过
         markMessagesAsDelivery(chatSessionId, message.id, deliverySessionId);
 
-        return { ok: true, sessionId: deliverySessionId, messageId: message.id, chatSessionId, isGroup };
+        return { ok: true, sessionId: deliverySessionId, messageId: message.id };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : "投递失败" };
     }
@@ -278,16 +215,12 @@ export function closeDeliverySession(params: {
 
     let transcript: { role: string; senderName?: string; content: string; at: number }[] = [];
     try {
-        // 优先从投递落地的那个会话取；取不到再扫所有会话兜底
-        const ordered: string[] = [];
-        if (target.chatSessionId) ordered.push(target.chatSessionId);
-        for (const sess of loadChatSessions()) {
-            if (!ordered.includes(sess.id)) ordered.push(sess.id);
-        }
-        for (const sid of ordered) {
-            const messages = loadChatMessages(sid);
+        // 剧情段可能落在单聊，也可能落在群聊 —— 按 id 扫所有会话最稳
+        const allSessions = loadChatSessions();
+        for (const sess of allSessions) {
+            const messages = loadChatMessages(sess.id);
             const hit = messages.filter(
-                m => m.deliverySessionId === target.id && m.content?.trim(),
+                m => m.deliverySessionId === params.deliverySessionId && m.content?.trim(),
             );
             if (hit.length === 0) continue;
             transcript.push(
@@ -300,14 +233,6 @@ export function closeDeliverySession(params: {
             );
         }
         transcript.sort((a, b) => a.at - b.at);
-        // 同一条消息被多个会话重复捞到（理论上不会）时去重
-        const seen = new Set<string>();
-        transcript = transcript.filter(m => {
-            const key = `${m.at}|${m.role}|${m.content}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        });
     } catch {
         transcript = [];
     }
@@ -315,116 +240,6 @@ export function closeDeliverySession(params: {
     const ended: DeliverySession = { ...target, endedAt: Date.now() };
     saveDeliverySessions(list.map(s => (s.id === target.id ? ended : s)));
     return { session: ended, transcript };
-}
-
-/** 一段（或全部）未归入对话段里的聊天，供归档面板展开查看。 */
-export function loadSessionTranscript(deliverySessionId?: string): {
-    session: DeliverySession;
-    messages: { id: string; role: string; senderName?: string; content: string; at: number }[];
-}[] {
-    const sessions = loadDeliverySessions().filter(
-        s => (deliverySessionId ? s.id === deliverySessionId : !s.endedAt),
-    );
-    return sessions.map(s => {
-        const seen = new Set<string>();
-        const messages: { id: string; role: string; senderName?: string; content: string; at: number }[] = [];
-        try {
-            const ordered: string[] = [];
-            if (s.chatSessionId) ordered.push(s.chatSessionId);
-            for (const sess of loadChatSessions()) {
-                if (!ordered.includes(sess.id)) ordered.push(sess.id);
-            }
-            for (const sid of ordered) {
-                for (const m of loadChatMessages(sid)) {
-                    if (m.deliverySessionId !== s.id || !m.content?.trim()) continue;
-                    if (seen.has(m.id)) continue;
-                    seen.add(m.id);
-                    messages.push({
-                        id: m.id,
-                        role: m.role,
-                        senderName: m.senderName,
-                        content: m.content.trim(),
-                        at: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
-                    });
-                }
-            }
-        } catch {
-            // ignore
-        }
-        messages.sort((a, b) => a.at - b.at);
-        return { session: s, messages };
-    });
-}
-
-/**
- * 把一句「线下剧本味」的文字洗成「线上微信味」。
- *
- * 模型经常把动作、神态、心理和台词混成一条：
- *   （他停好车，单手搭在方向盘上扫了眼屏幕）【大清早吃那么腻】"那家蛋黄酱放得齁死人。"
- * 聊天软件会原样发出去 —— 那就不是微信消息了。
- * 这里做**只减不加**的清洗：剥掉括号/方括号里的表演与心理，去掉包住台词的引号，
- * 台词本身一个字都不改。
- */
-export function sanitizeChatLine(input: string): string {
-    let s = (input ?? "").replace(/\r/g, "");
-    if (!s.trim()) return "";
-
-    // 1) 剥掉成对的 （…）【…】［…］ 包裹内容，反复剥到稳定（防嵌套）
-    for (let i = 0; i < 6; i += 1) {
-        const next = s
-            .replace(/[（(][^（()）]*[）)]/g, "")
-            .replace(/[【\[［][^【】\[\]［］]*[】\]］]/g, "");
-        if (next === s) break;
-        s = next;
-    }
-
-    // 2) 去掉包裹整句台词的引号
-    s = s.replace(/^[\s"'“”‘’「」『』]+/, "").replace(/[\s"'“”‘’「」『』]+$/, "");
-
-    // 3) 去掉孤立的块标记（[旁白]: / ［动作］）
-    s = s.replace(/^[\[［【][^\]］】]{1,6}[\]］】]\s*[:：]?\s*/g, "");
-
-    // 4) 收拢空白
-    s = s
-        .split("\n")
-        .map(line => line.replace(/[ \t]{2,}/g, " ").trim())
-        .filter((line, idx, arr) => line !== "" || (idx > 0 && arr[idx - 1] !== ""))
-        .join("\n")
-        .trim();
-
-    return s;
-}
-
-/** 这一句洗完之后还像不像「一条能发出去的聊天消息」。 */
-export function looksLikeChatMessage(s: string): boolean {
-    return !!s && /[\u4e00-\u9fa5a-zA-Z0-9가-힣]/.test(s);
-}
-
-/** 把一段原文按行清洗，用于投递候选列表。 */
-export function sanitizeChatBlock(input: string): string[] {
-    return (input ?? "")
-        .replace(/\r/g, "")
-        .split("\n")
-        .map(line => sanitizeChatLine(line))
-        .filter(looksLikeChatMessage);
-}
-
-/** 已录入聊天的幕（turn）→ 录入时间，供群像在用户卡片上打标记。 */
-export function getDeliveredTurnIds(scriptId: string): Record<string, number> {
-    const out: Record<string, number> = {};
-    for (const s of loadDeliverySessions()) {
-        if (s.scriptId !== scriptId) continue;
-        if (!s.originTurnId) continue;
-        const when = s.endedAt ?? Date.now();
-        if (!out[s.originTurnId] || when > out[s.originTurnId]) out[s.originTurnId] = when;
-    }
-    return out;
-}
-
-/** 这一段是否真的已经带着聊天内容（只有真录入了才打标记）。 */
-export function sessionHasContent(deliverySessionId: string): boolean {
-    const [hit] = loadSessionTranscript(deliverySessionId);
-    return !!hit && hit.messages.length > 0;
 }
 
 /** 把一段对话整理成剧本里的「来自聊天」文本。 */

@@ -24,7 +24,6 @@ import {
   Square,
   Type,
   Upload,
-  MessageCircle,
 } from "lucide-react";
 import type { Character } from "@/lib/character-types";
 import {
@@ -57,7 +56,7 @@ import {
   makeStoryRangeLabel,
 } from "@/lib/ensemble-archive";
 import { syncEnsembleArchiveToMemory, removeEnsembleArchiveFromMemory } from "@/lib/ensemble-memory-bridge";
-import { deliverToChat, describePendingSessions, getPendingSessions, discardDeliverySession, loadSessionTranscript, getDeliveredTurnIds, sanitizeChatLine } from "@/lib/ensemble-delivery";
+import { deliverToChat, describePendingSessions, getPendingSessions, discardDeliverySession } from "@/lib/ensemble-delivery";
 import type { ApiConfig } from "@/lib/settings-types";
 import { simpleLLMCall } from "@/lib/api-helpers";
 import {
@@ -1030,8 +1029,7 @@ function TurnActionBar({
   inline?: boolean;
   onReroll: () => void;
   onSwitch: (dir: -1 | 1) => void;
-  /** 编辑本幕。不传则不显示编辑按钮（如「来自聊天」卡）。 */
-  onEdit?: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   /** 投递到聊天 App（仅 AI 幕、且有说话人时才提供）。 */
   onDeliver?: () => void;
@@ -1086,16 +1084,14 @@ function TurnActionBar({
           <RefreshCw size={12} className={isRerolling ? "animate-spin" : ""} />
         </button>
       )}
-      {onEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="p-1 hover:text-black/70"
-          title="编辑本幕"
-        >
-          <Pencil size={12} />
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={onEdit}
+        className="p-1 hover:text-black/70"
+        title="编辑本幕"
+      >
+        <Pencil size={12} />
+      </button>
       {onDeliver && (
         <button
           type="button"
@@ -1180,135 +1176,15 @@ interface EnsembleAppProps {
   currentUser?: { name: string; avatar?: string };
   /** 与项目其他 App 统一：关闭当前 App */
   onClose?: () => void;
-  /** 投递到聊天后一键跳到那个聊天室。isGroup 决定落到单聊还是群聊页。 */
-  onJumpToChat?: (chatSessionId: string, isGroup: boolean) => void;
 }
 
 type EnsembleView = "personas" | "scripts" | "create" | "workspace";
-
-/**
- * 从一幕正文里抽出「可以当微信消息发出去」的台词。
- *
- * 群像正文是线下剧本格式，混着 [旁白] / [动作] / [心理] / 舞台说明 / 场景标题。
- * 投递到聊天室必须只剩对白 —— 用户明确要求「格式都是线上的微信格式」。
- */
-/** 投递候选：一句真正能发出去的台词 + 这一句属于谁。 */
-type DeliverableLine = { text: string; speaker: string | null };
-
-/** [旁白] [动作] [心理] [叙述] [对白] 这类块标记。 */
-const BLOCK_TAG_RE = /^\[(旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统|对白|台词)\]\s*[:：]?\s*/;
-/** 只算「不是台词」的块标记：这些块下面的内容整段丢弃。 */
-const NON_DIALOGUE_TAG_RE = /^[\[［【](旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统)[\]］】]\s*[:：]?\s*/;
-/** 判断一整行是不是「角色名：」的行首。 */
-function matchSpeakerHeader(line: string): string | null {
-  const m = line.match(/^([^\s：:\[\]【】（）()]{1,16})\s*(?:[（(][^）)]{0,20}[)）])?\s*[：:]\s*$/);
-  return m ? m[1].trim() : null;
-}
-
-/**
- * 从一幕正文里抽出「可以当微信消息发出去」的台词，并记下每句的说话人。
- *
- * 群像正文是线下剧本格式，典型长这样：
- * ```
- * ［旁白］:
- * 窗外的夜雨渐渐密了起来……
- * 金成帝：
- * ［动作］:
- * 他坐进车里拉起手刹……
- * ［对白］:
- * 「문 제대로 잠갔냐.」
- * 门好好反锁了吗。
- * ```
- * 投递到聊天室必须只剩对白 —— 用户明确要求「格式都是线上的微信格式」。
- */
-function extractDeliverableLines(content: string): DeliverableLine[] {
-  const raw = content ?? "";
-  const out: DeliverableLine[] = [];
-  let speaker: string | null = null;
-  /** 当前是否处在「旁白 / 动作 / 心理」块里 —— 里面的每一行都不是台词。 */
-  let inNonDialogueBlock = false;
-  /** 当前所处的台词块（[对白]）—— 只有它里面的内容才算台词。 */
-  let inDialogueBlock = false;
-
-  for (const rawLine of raw.split(/\r?\n/)) {
-    let line = rawLine.trim();
-    if (!line) continue;
-
-    // 1) 块标记：[旁白] [动作] [对白］［叙述］…（半角/全角括号都认）
-    const tag = line.match(
-      /^[\[［【](旁白|动作|心理|描写|叙述|场景|说明|环境|内心|画外音|系统|对白|台词)[\]］】]\s*[:：]?\s*/,
-    );
-    if (tag) {
-      const isDialogue = tag[1] === "对白" || tag[1] === "台词";
-      inDialogueBlock = isDialogue;
-      inNonDialogueBlock = !isDialogue;
-      line = line.slice(tag[0].length).trim();
-      // 「［对白］:」单独一行时后面才是台词，这行本身没内容
-      if (!line) continue;
-    }
-
-    // 2) 「角色名：」单独一行 → 记录说话人并跳过
-    const header = matchSpeakerHeader(line);
-    if (header) {
-      speaker = header;
-      continue;
-    }
-
-    // 3) 非台词块里的内容整段丢弃（旁白 / 动作 / 心理）
-    if (inNonDialogueBlock) continue;
-
-    // 4) 纯场景标题 / 分隔符
-    if (/^(场景|时间|地点|转场|幕|第.{1,4}幕)$/.test(line)) continue;
-    if (/^[—\-=＝]{3,}$/.test(line)) continue;
-
-    // 5) 行内还带块标记（「[动作]:他……」跟内容在同一行）
-    const inlineTag = line.match(NON_DIALOGUE_TAG_RE);
-    if (inlineTag) {
-      inNonDialogueBlock = true;
-      inDialogueBlock = false;
-      continue;
-    }
-
-    // 6) 行首的人名 + 内容：「金成帝：门好好反锁了吗。」
-    const named = line.match(/^([^\s：:\[\]【】（）()]{1,16})\s*(?:[（(][^）)]{0,20}[)）])?\s*[：:]\s*(.+)$/);
-    if (named) {
-      speaker = named[1].trim();
-      line = named[2].trim();
-    }
-
-    // 7) 整行被括号包住的舞台说明，整行丢掉
-    if (!line) continue;
-    if (/^[（(［\[【].*[)）］\]】]$/.test(line) && !/["“”「」『』]/.test(line)) continue;
-
-    // 8) ⚠️ 不在 [对白] 块里、也没有引号包着 —— 这多半是叙述/动作，
-    //    不能当台词投出去。
-    //    之前这里不管三七二十一全收，所以「窗外的夜雨渐渐密了起来……」
-    //    「他坐进车里拉起手刹……」都被当成台词了。
-    if (!inDialogueBlock && !/["“”「」『』]/.test(line)) continue;
-
-    // 9) 洗掉残留的括号表演、心理块和包住台词的引号
-    const cleaned = sanitizeChatLine(line);
-    if (!/[\u4e00-\u9fa5a-zA-Z0-9가-힣]/.test(cleaned)) continue;
-    out.push({ text: cleaned, speaker });
-  }
-
-  // 一句都抽不出来就退回原文，至少别让用户无从下手
-  if (out.length > 0) return out;
-  const fallback = sanitizeChatLine(raw);
-  return fallback ? [{ text: fallback, speaker: null }] : [];
-}
 
 export function EnsembleApp({
   characters = [],
   currentUser,
   onClose,
-  onJumpToChat,
 }: EnsembleAppProps) {
-  // 用 ref 包一层，避免 doDeliverToChat 等回调因闭包拿到旧 props
-  const onJumpToChatRef = useRef(onJumpToChat);
-  useEffect(() => {
-    onJumpToChatRef.current = onJumpToChat;
-  }, [onJumpToChat]);
   const [scripts, setScripts] = useState<EnsembleScript[]>([]);
   const [currentScript, setCurrentScript] = useState<EnsembleScript | null>(null);
   const [view, setView] = useState<EnsembleView>("personas");
@@ -1331,78 +1207,33 @@ export function EnsembleApp({
   /** 世界书绑定子弹窗（2026-10-09 M2-b） */
   const [showWorldBookSheet, setShowWorldBookSheet] = useState(false);
   const [showStoryboardSheet, setShowStoryboardSheet] = useState(false);
-  /** 投递：先选「用哪一句台词作为起点」，再选落点（单聊 / 群聊）。 */
+  /** 多人群像投递时，等用户选择「投单聊 / 投群聊」。 */
   const [deliverPicker, setDeliverPicker] = useState<{
     turn: EnsembleTurn;
     member: EnsembleCastMember;
-    /** 从该幕正文里抽出来的可选台词（已去掉旁白/动作/心理，附说话人）。 */
-    lines: DeliverableLine[];
   } | null>(null);
-  /** 杀青前确认：还有未归入的聊天，是否一起注入总结。 */
-  const [wrapConfirm, setWrapConfirm] = useState<{ count: number } | null>(null);
-  /** 投递落点选择阶段：先选台词，再选单聊/群聊。 */
-  const [deliverTargetStage, setDeliverTargetStage] = useState(false);
-  const [deliverLine, setDeliverLine] = useState<DeliverableLine | null>(null);
-
-  /** 打开投递面板：抽出这一幕里「能当微信消息发出去」的台词。 */
-  const openDeliverPicker = (turn: EnsembleTurn, member: EnsembleCastMember) => {
-    const lines = extractDeliverableLines(turn.content);
-    setDeliverPicker({ turn, member, lines });
-    setDeliverTargetStage(false);
-    // 默认选最后一句 —— 一般是最后一句最好走剧情
-    setDeliverLine(lines.length > 0 ? lines[lines.length - 1] : null);
-  };
-
-  /** 这一句到底是谁说的：优先按台词自带的说话人，其次退回「点投递的那个角色」。 */
-  const resolveSpeaker = (
-    member: EnsembleCastMember,
-    line: DeliverableLine | null,
-  ): EnsembleCastMember => {
-    const name = line?.speaker?.trim();
-    if (name && currentScript) {
-      const hit = currentScript.cast.find(c => c.name === name);
-      if (hit) return hit;
-    }
-    return member;
-  };
 
   /** 真正执行投递。target 决定了落在单聊还是群聊。 */
   const doDeliverToChat = (
     turn: EnsembleTurn,
     member: EnsembleCastMember,
     target: { kind: "direct"; characterId: string } | { kind: "group"; participantIds: string[] },
-    contentOverride?: string,
-    lineOverride?: DeliverableLine | null,
   ) => {
     if (!currentScript) return;
-    const line = lineOverride !== undefined ? lineOverride : deliverLine;
-    // 最后一道保险：即便台词来源有污染，投出去的一定是干净的微信格式
-    const content = sanitizeChatLine(contentOverride ?? line?.text ?? turn.content);
-    if (!content) {
-      setToast("这一句洗完之后是空的，换一句吧");
-      return;
-    }
-    // ⚠️ 必须按「这句是谁说的」投，不能一律用点投递的那个角色
-    const speaker = resolveSpeaker(member, line);
     const result = deliverToChat({
-      characterId: speaker.id,
-      characterName: speaker.name,
-      content,
+      characterId: member.id,
+      characterName: member.name,
+      content: turn.content,
       scriptId: currentScript.id,
       scriptTitle: currentScript.title || "未命名剧本",
       turnId: turn.id,
-      target:
-        target.kind === "direct" ? { kind: "direct", characterId: speaker.id } : target,
+      target,
     });
-    if (!result.ok) {
-      setToast(`投递失败：${result.error}`);
-      return;
-    }
-    setToast(`已投递 · ${speaker.name}`);
-    setDeliverPicker(null);
-    setDeliverLine(null);
-    setDeliverTargetStage(false);
-    onJumpToChatRef.current?.(result.chatSessionId, result.isGroup);
+    setToast(
+      result.ok
+        ? `已投递到${target.kind === "group" ? "群聊" : "聊天"} · ${member.name}`
+        : `投递失败：${result.error}`,
+    );
   };
   /** 世界书触发日志子弹窗（2026-10-09 M2-a） */
   const [showWorldBookLogSheet, setShowWorldBookLogSheet] = useState(false);
@@ -1462,11 +1293,6 @@ export function EnsembleApp({
   const [archiveWrappedIds, setArchiveWrappedIds] = useState<Set<string>>(
     () => new Set()
   );
-  /**
-   * 已录入聊天的幕 id（投递 → 返回剧情成功后打标）。
-   * 用户要求：返回后下一轮用户卡片上要能看到「已录入聊天记录」。
-   */
-  const [deliveredTurnIds, setDeliveredTurnIds] = useState<Record<string, number>>({});
   const [archiveStats, setArchiveStats] = useState<{
     total: number;
     wrapped: number;
@@ -1947,23 +1773,8 @@ export function EnsembleApp({
       );
       // 切剧本时重置历史分页
       setEarlierBatches(1);
-      setDeliveredTurnIds(getDeliveredTurnIds(currentScript.id));
     }
   }, [currentScript?.id]);
-
-  // 从聊天室返回后要立刻看到「已录入聊天记录」标记：
-  // 每次回到前台 / 窗口聚焦都重新读一次，避免必须重开剧本才刷新。
-  useEffect(() => {
-    if (view !== "workspace" || !currentScript) return;
-    const refresh = () => setDeliveredTurnIds(getDeliveredTurnIds(currentScript.id));
-    refresh();
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [view, currentScript?.id]);
 
   useEffect(() => {
     if (view === "workspace" && scrollRef.current) {
@@ -2414,13 +2225,6 @@ ${sceneBlock}${openingBlock}${memoryBlock}${crossMemoryBlock}${archiveBlock}${wo
     每个角色开口**之前**，建议先用一个 ［叙述］/［动作］ 块写他当下的动作或
     神态，再写 ［对白］。这样读者先看到「他在做什么」，再听到「他说什么」，
     画面感更强，也更利于系统排版。不要把动作塞进 ［对白］ 块里。
-
-    【节奏许可 · 但绝不能合并】
-        上一条只是建议。如果这一轮只想写动作＋一句话，可以**省略**［叙述］块，
-        但**台词必须仍然单独放在［对白］块里**。
-        ⚠️ 严禁把动作、神态、心理和台词写进同一个块 —— 尤其是严禁写成
-           （他停好车，扫了眼屏幕）【心里话】说出口的话 这种混排。
-           这个 APP 会把［对白］块原样发到聊天软件里，一旦混排就会被对方看见。
 
 ═══════════ 选角：这一幕谁上场，由你按剧情决定 ═══════════
 这是群像剧，核心是**多角色在同一幕里真实互动**，不是轮流独白。
@@ -2908,11 +2712,8 @@ ${lastSpeakerNote}
     setArchiveError(null);
   };
 
-  /**
-   * 提炼并杀青：总结最近未归档的前 N 条，追加为一条归档。
-   * withChat / skipChat 由「杀青前确认是否注入聊天记录」弹窗透传。
-   */
-  const handleWrap = async (count: number, withChat?: boolean, skipChat?: boolean) => {
+  /** 提炼并杀青：总结最近未归档的前 N 条，追加为一条归档。 */
+  const handleWrap = async (count: number) => {
     const s = currentScript;
     if (!s || archiveBusy) return;
     const n = Math.max(1, Math.floor(count) || 1);
@@ -2925,14 +2726,6 @@ ${lastSpeakerNote}
       return;
     }
     const target = pendingAll.slice(0, n);
-    // 杀青前先问一句：还没归入的聊天要不要一起注入
-    const openSessions = getPendingSessions(s.id);
-    if (withChat == null && skipChat == null && openSessions.length > 0) {
-      setWrapConfirm({ count: n });
-      return;
-    }
-    const injectChat = withChat === true;
-    const skippedChat = skipChat === true;
     setArchiveBusy(true);
     setArchiveError(null);
     try {
@@ -2959,55 +2752,27 @@ ${lastSpeakerNote}
         { rangeLabel, previousArchive: prevArchive }
       );
 
-      // 选了「一起注入」：把还没归入的聊天当成剧情的一部分一起交给模型总结，
-      // 由模型自然写成剧情，而不是让用户自己去对比拼接。
-      let chatInjection = "";
-      if (injectChat) {
-        const blocks = loadSessionTranscript()
-          .map(({ session, messages }) => {
-            if (messages.length === 0) return "";
-            const lines = messages.map(m => {
-              const who = m.role === "user" ? "「我」" : m.senderName || session.characterName;
-              return `${who}：${m.content}`;
-            });
-            return `【${new Date(session.startedAt).toLocaleString("zh-CN")} · 与 ${session.characterName} 的线上聊天】\n${lines.join("\n")}`;
-          })
-          .filter(Boolean);
-        if (blocks.length > 0) {
-          chatInjection =
-            `\n\n====================\n【线上聊天记录 · 必须并入剧情】\n` +
-            `以下是同一段时间线里发生在聊天软件上的对话，属于剧情的一部分。` +
-            `请把它当作剧情自然的一部分写进档案（用剧情叙述的笔法，不必逐条罗列），` +
-            `不要单独列成"聊天记录"清单。\n` +
-            blocks.join("\n\n");
-        }
-      }
-      const userPrompt = chatInjection ? `${prompt}${chatInjection}` : prompt;
-
       const res = await simpleLLMCall(apiConfig, [
         {
           role: "system",
           content:
             "你是一个剧本归档助手。只总结给到的剧情本身，不添加任何设定、指令或未来建议。",
         },
-        { role: "user", content: userPrompt },
+        { role: "user", content: prompt },
       ]);
       if (res.error) throw new Error(res.error);
       let content = (res.content ?? "").trim();
       if (!content) throw new Error("模型返回为空，请重试或换个模型。");
 
-      // 没归入的聊天必须在归档末尾留下缺漏标注，否则用户无法判断剧情是否连贯
+      // 有"投递了但没返回剧情"的聊天段 → 在归档里留一行缺漏警告，
+      // 避免用户误以为这段已经归档进去了。
       const pending = getPendingSessions(s.id);
       if (pending.length > 0) {
         const lines = pending.map(p => {
-          const start = new Date(p.startedAt).toLocaleString("zh-CN");
-          const end = new Date(p.startedAt + 1000 * 60).toLocaleString("zh-CN");
-          const msgCount = loadSessionTranscript(p.id)[0]?.messages.length ?? 0;
-          return `- ${start} ~ ${end} 与 ${p.characterName} 的聊天${skipChat ? "（本次未注入）" : ""}：${msgCount} 句，起点「${p.originContent.slice(0, 30)}…」`;
+          const when = new Date(p.startedAt).toLocaleString("zh-CN");
+          return `- ${when} 与 ${p.characterName} 的聊天（起点：${p.originContent.slice(0, 40)}…）`;
         });
-        content +=
-          `\n\n【归档缺漏提示】以下时间段的聊天记录未并入本档案，请检查剧情是否连贯：\n` +
-          lines.join("\n");
+        content += `\n\n【归档缺漏提示】以下聊天内容尚未归入本档案，可能造成剧情断层：\n${lines.join("\n")}`;
       }
 
       const entry: EnsembleArchiveEntry = {
@@ -3817,106 +3582,6 @@ ${lastSpeakerNote}
               const isNarrator = isNarrationTurn || turn.senderId === "narration";
               const castChar = currentScript.cast.find((c) => c.id === turn.senderId);
 
-              // ── 「来自聊天」卡：聊天室聊完返回剧情后的整段对话 ──
-              // 它是一个独立条目，不是旁白（以前误设 senderType="narration" 被整块隐藏了）
-              if (turn.senderName === "来自聊天" || turn.senderId === "from_chat") {
-                return (
-                  <div key={turn.id}>
-                    <div className="flex items-center gap-2 px-[10px] pt-3 pb-1.5">
-                      <span
-                        className="shrink-0 font-mono text-black/20 tabular-nums"
-                        style={{ fontSize: TYPE.MICRO }}
-                      >
-                        {formatMinute(turn.timestamp).slice(-5)}
-                      </span>
-                      <span
-                        className="flex-1 h-px"
-                        style={{
-                          backgroundImage:
-                            "repeating-linear-gradient(to right, rgba(0,0,0,0.07) 0 1px, transparent 1px 4px)",
-                        }}
-                      />
-                      <span
-                        className="shrink-0 font-mono text-black/20 tabular-nums"
-                        style={{ fontSize: TYPE.MICRO }}
-                      >
-                        {String(fullIndex).padStart(3, "0")}
-                      </span>
-                    </div>
-                    <div
-                      className="group bg-white rounded-[14px] px-0 border border-dotted border-black/[0.16] shadow-[0_1px_3px_rgba(0,0,0,0.03)]"
-                      style={{ paddingTop: 18, paddingBottom: 16 }}
-                    >
-                      <div
-                        className="flex items-center gap-2 pl-[9px] pr-[10px] pt-[26px] pb-4"
-                      >
-                        <span className="shrink-0 w-[20px] h-[20px] rounded-[5px] flex items-center justify-center"
-                          style={{ background: "rgba(34,120,80,0.85)" }}>
-                          <MessageCircle size={9} strokeWidth={0} className="fill-white text-white" />
-                        </span>
-                        <span
-                          className="shrink-0 font-medium tracking-[0.16em] text-black/45"
-                          style={{ fontSize: TYPE.MICRO - 2 }}
-                        >
-                          来自聊天
-                        </span>
-                        <span
-                          className="flex-1 h-px"
-                          style={{
-                            backgroundImage:
-                              "repeating-linear-gradient(to right, rgba(0,0,0,0.10) 0 1px, transparent 1px 4px)",
-                          }}
-                        />
-                        <span
-                          className="shrink-0 px-1.5 py-[2px] rounded-[4px] border border-dashed border-black/[0.18] text-black/30 tracking-[0.08em]"
-                          style={{ fontSize: TYPE.MICRO - 3 }}
-                        >
-                          CHAT
-                        </span>
-                      </div>
-                      <div
-                        className="whitespace-pre-wrap break-words text-black/70"
-                        style={{
-                          paddingLeft: tpx(FRAME_BODY_INSET),
-                          paddingRight: tpx(FRAME_TEXT_INSET),
-                          fontSize: tpx(15),
-                          lineHeight: 1.95,
-                        }}
-                      >
-                        {turn.content}
-                      </div>
-                      {/* 底部操作栏：只保留删除（这段对话不是模型生成，重roll/投递无意义） */}
-                      <div
-                        className="flex items-center justify-end pt-2"
-                        style={{ paddingLeft: tpx(FRAME_BODY_INSET), paddingRight: tpx(FRAME_TEXT_INSET) }}
-                      >
-                        <TurnActionBar
-                          turn={turn}
-                          versions={[]}
-                          index={0}
-                          isRerolling={false}
-                          canReroll={false}
-                          inline
-                          onReroll={() => {}}
-                          onSwitch={() => {}}
-                          onDelete={() => {
-                            setConfirmState({
-                              title: "删除这段聊天记录？",
-                              message: "这一段「来自聊天」的对话将从剧情里移除，无法恢复。聊天室里的原记录不受影响。",
-                              confirmLabel: "删除",
-                              onConfirm: () => {
-                                removeOneRoll(turn.id);
-                                setConfirmState(null);
-                              },
-                            });
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
               // ── 旁白卡：黑底 P 图标 + NARRATION 标签 ──
               // 仅用于「非帧模型」的历史旁白 turn（旧数据 / 用户手发旁白）。
               // 帧模型生成的整幕（含纯旁白幕）统一走下方帧流渲染。
@@ -4062,22 +3727,6 @@ ${lastSpeakerNote}
                         >
                           {turn.senderName}
                         </div>
-                        {/* 用户要求：投递→聊天→返回剧情之后，下一轮用户卡片上要能看到
-                            「已录入聊天记录」。只有真的把聊天内容归入了才显示。 */}
-                        {isUser && deliveredTurnIds[turn.id] && (
-                          <span
-                            className="shrink-0 ml-auto mr-3 px-1.5 py-[2px] rounded-[4px] border border-dashed"
-                            style={{
-                              fontSize: TYPE.MICRO - 3,
-                              borderColor: "rgba(34,120,80,0.45)",
-                              color: "rgba(24,110,70,0.9)",
-                              letterSpacing: "0.06em",
-                            }}
-                            title={`${new Date(deliveredTurnIds[turn.id]).toLocaleString("zh-CN")} 已录入聊天记录`}
-                          >
-                            已录入聊天记录
-                          </span>
-                        )}
                       </div>
 
                       {editingTurnId === turn.id ? (
@@ -4285,8 +3934,12 @@ ${lastSpeakerNote}
                                   setToast("找不到说话的角色");
                                   return;
                                 }
-                                // 单人 / 多人都要先选「哪一句」；多人在下一步才选单聊还是群聊
-                                openDeliverPicker(turn, member);
+                                // 单人群像：直接投单聊；多人群像：让用户选单聊还是群聊
+                                if (currentScript.cast.length <= 1) {
+                                  doDeliverToChat(turn, member, { kind: "direct", characterId: member.id });
+                                } else {
+                                  setDeliverPicker({ turn, member });
+                                }
                               }
                             : undefined
                         }
@@ -5001,20 +4654,16 @@ ${lastSpeakerNote}
               · 只存 id 引用（worldBookIds），内容实时从「设置 → 世界书」读，避免快照过期。
               · 未勾选任何 = 不注入（等价于关闭）。
               · 条目级的 constant / 关键词 / sticky 逻辑由 lib/ensemble-worldbook.ts 处理，本面板不涉及。 */}
-          {wrapConfirm && (
+          {deliverPicker && (
             <MiniSheet
-              title="杀青前确认"
-              subtitle="WRAP · 有未归入的聊天"
-              onClose={() => setWrapConfirm(null)}
+              title="投递到聊天"
+              subtitle="DELIVER · 选择落点"
+              onClose={() => setDeliverPicker(null)}
             >
-              <div className="bg-white rounded-[16px] p-4 space-y-2">
-                <div className="text-[12px] leading-relaxed text-black/70">
-                  还有 {getPendingSessions(currentScript?.id).length} 段聊天没有点「返回剧情」。
-                </div>
-                <div className="text-[11px] leading-relaxed text-black/45">
-                  一起注入 → 这些聊天会作为剧情的一部分被自然总结进档案。
-                  <br />
-                  不注入 → 直接杀青，并在档案末尾标注缺失的时间段。
+              <div className="bg-white rounded-[16px] p-4">
+                <div className="text-[10px] text-black/40 mb-1">{deliverPicker.member.name}</div>
+                <div className="text-[12px] leading-relaxed text-black/70 max-h-[110px] overflow-y-auto whitespace-pre-wrap">
+                  {deliverPicker.turn.content}
                 </div>
               </div>
               <div className="bg-white rounded-[16px] p-2">
@@ -5022,14 +4671,16 @@ ${lastSpeakerNote}
                   type="button"
                   className="w-full flex items-center justify-between gap-3 px-3 py-3"
                   onClick={() => {
-                    const c = wrapConfirm.count;
-                    setWrapConfirm(null);
-                    void handleWrap(c, true, false);
+                    doDeliverToChat(deliverPicker.turn, deliverPicker.member, {
+                      kind: "direct",
+                      characterId: deliverPicker.member.id,
+                    });
+                    setDeliverPicker(null);
                   }}
                 >
                   <span className="flex flex-col items-start">
-                    <span className="text-[13px] text-black/80">一起注入并总结</span>
-                    <span className="text-[11px] text-black/40">推荐 · 剧情更连贯</span>
+                    <span className="text-[13px] text-black/80">投到单聊</span>
+                    <span className="text-[11px] text-black/40">只给 {deliverPicker.member.name}</span>
                   </span>
                   <ChevronRight size={14} className="text-black/25" />
                 </button>
@@ -5038,153 +4689,20 @@ ${lastSpeakerNote}
                   type="button"
                   className="w-full flex items-center justify-between gap-3 px-3 py-3"
                   onClick={() => {
-                    const c = wrapConfirm.count;
-                    setWrapConfirm(null);
-                    void handleWrap(c, false, true);
+                    doDeliverToChat(deliverPicker.turn, deliverPicker.member, {
+                      kind: "group",
+                      participantIds: currentScript?.cast.map(c => c.id) ?? [],
+                    });
+                    setDeliverPicker(null);
                   }}
                 >
                   <span className="flex flex-col items-start">
-                    <span className="text-[13px] text-black/70">跳过，直接杀青</span>
-                    <span className="text-[11px] text-black/40">档案末尾会标注缺失时间段</span>
+                    <span className="text-[13px] text-black/80">投到群聊</span>
+                    <span className="text-[11px] text-black/40">剧本全员群（自动创建或复用）</span>
                   </span>
                   <ChevronRight size={14} className="text-black/25" />
                 </button>
               </div>
-            </MiniSheet>
-          )}
-
-          {deliverPicker && (
-            <MiniSheet
-              title={deliverTargetStage ? "投到哪里" : "选一句作为起点"}
-              subtitle={deliverTargetStage ? "DELIVER · 选择落点" : "DELIVER · 只发这一句"}
-              onClose={() => {
-                if (deliverTargetStage) {
-                  setDeliverTargetStage(false);
-                  return;
-                }
-                setDeliverPicker(null);
-                setDeliverLine(null);
-                setDeliverTargetStage(false);
-              }}
-            >
-              {!deliverTargetStage ? (
-                <>
-                  <div className="px-1 pb-1 text-[11px] leading-relaxed text-black/45">
-                    下面是从这一幕里抽出的对白（旁白、动作、心理已经去掉）。选一句，投到聊天室当第一条微信消息。
-                  </div>
-                  <div className="bg-white rounded-[16px] overflow-hidden max-h-[46vh] overflow-y-auto">
-                    {deliverPicker.lines.map((line, idx) => {
-                      const active = deliverLine?.text === line.text && deliverLine?.speaker === line.speaker;
-                      return (
-                        <button
-                          key={`${idx}-${line.text.slice(0, 12)}`}
-                          type="button"
-                          className="w-full text-left px-4 py-3 flex items-start gap-3"
-                          style={active ? { background: "rgba(0,0,0,0.04)" } : undefined}
-                          onClick={() => setDeliverLine(line)}
-                        >
-                          <span
-                            className="shrink-0 mt-[3px] w-4 h-4 rounded-full flex items-center justify-center"
-                            style={{
-                              border: active ? "none" : "1px solid var(--c-card-border, rgba(0,0,0,0.18))",
-                              background: active ? "var(--c-icon-active)" : "transparent",
-                            }}
-                          >
-                            {active && <Check size={11} color="#fff" strokeWidth={3} />}
-                          </span>
-                          <span className="flex-1 min-w-0">
-                            {line.speaker && (
-                              <span className="block text-[10px] text-black/35 mb-[2px]">{line.speaker}</span>
-                            )}
-                            <span className="block text-[13px] leading-relaxed text-black/80 whitespace-pre-wrap break-words">
-                              {line.text}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    className="mt-1 w-full rounded-[16px] py-3 text-[13px] font-medium"
-                    style={{
-                      background: deliverLine ? "var(--c-icon-active)" : "var(--c-card-border)",
-                      color: deliverLine ? "#fff" : "var(--c-text-tertiary, rgba(0,0,0,0.35))",
-                    }}
-                    disabled={!deliverLine}
-                    onClick={() => setDeliverTargetStage(true)}
-                  >
-                    下一步
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="bg-white rounded-[16px] p-4">
-                    <div className="text-[10px] text-black/40 mb-1">
-                      {resolveSpeaker(deliverPicker.member, deliverLine).name} · 将发送这一句
-                    </div>
-                    <div className="text-[13px] leading-relaxed text-black/80 max-h-[110px] overflow-y-auto whitespace-pre-wrap">
-                      {deliverLine?.text}
-                    </div>
-                  </div>
-                  <div className="bg-white rounded-[16px] p-2">
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between gap-3 px-3 py-3"
-                      onClick={() => {
-                        doDeliverToChat(
-                          deliverPicker.turn,
-                          deliverPicker.member,
-                          {
-                            kind: "direct",
-                            characterId: resolveSpeaker(deliverPicker.member, deliverLine).id,
-                          },
-                          deliverLine?.text ?? undefined,
-                          deliverLine,
-                        );
-                      }}
-                    >
-                      <span className="flex flex-col items-start">
-                        <span className="text-[13px] text-black/80">投到单聊</span>
-                        <span className="text-[11px] text-black/40">
-                          只给 {resolveSpeaker(deliverPicker.member, deliverLine).name}
-                        </span>
-                      </span>
-                      <ChevronRight size={14} className="text-black/25" />
-                    </button>
-                    {currentScript && currentScript.cast.length > 1 && (
-                      <>
-                        <div className="h-px bg-black/5 mx-3" />
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between gap-3 px-3 py-3"
-                          onClick={() => {
-                            doDeliverToChat(
-                              deliverPicker.turn,
-                              deliverPicker.member,
-                              {
-                                kind: "group",
-                                participantIds: currentScript.cast.map(c => c.id),
-                              },
-                              deliverLine?.text ?? undefined,
-                              deliverLine,
-                            );
-                          }}
-                        >
-                          <span className="flex flex-col items-start">
-                            <span className="text-[13px] text-black/80">投到群聊</span>
-                            <span className="text-[11px] text-black/40">剧本全员群（自动创建或复用）</span>
-                          </span>
-                          <ChevronRight size={14} className="text-black/25" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  <div className="px-1 text-[11px] leading-relaxed text-black/45">
-                    投出去会自动跳到那个聊天室。聊完长按任意一句 →【返回剧情】，这段就归入本剧本。
-                  </div>
-                </>
-              )}
             </MiniSheet>
           )}
 
@@ -5753,90 +5271,41 @@ ${lastSpeakerNote}
               </div>
 
               {(() => {
-                // 常驻显示：即使 0 段也露出来，方便一眼确认「都归入了」
                 const pending = getPendingSessions(currentScript.id);
-                const transcripts = loadSessionTranscript();
+                if (pending.length === 0) return null;
                 return (
                   <div className="bg-white rounded-[16px] p-3.5 space-y-2">
                     <div className="flex items-center gap-2">
-                      <span
-                        className="text-[12px] font-medium"
-                        style={{ color: pending.length > 0 ? "#c2410c" : "var(--c-text, #111111)" }}
-                      >
-                        未归入的聊天
-                      </span>
-                      <span
-                        className="px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium"
-                        style={
-                          pending.length > 0
-                            ? { background: "rgba(194,65,12,0.10)", color: "#c2410c" }
-                            : { background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.4)" }
-                        }
-                      >
+                      <span className="text-[12px] font-medium text-[#c2410c]">未归入的聊天</span>
+                      <span className="px-1.5 py-[2px] rounded-[5px] text-[9px] font-medium bg-[#c2410c]/10 text-[#c2410c]">
                         {pending.length} 段
                       </span>
-                      {pending.length === 0 && (
-                        <span className="text-[10px] text-black/35">全部已归入</span>
-                      )}
                     </div>
-                    {pending.length > 0 && (
-                      <div className="text-[10px] leading-relaxed text-black/40">
-                        这些聊天已投递但还没点「返回剧情」。点开可以查看内容，聊完回聊天室长按任意一句返回剧情，或在这里放弃。
-                      </div>
-                    )}
+                    <div className="text-[10px] leading-relaxed text-black/40">
+                      这些聊天已投递但还没点「返回剧情」。去聊天室找对应角色长按任意一句返回剧情，或在这里放弃。
+                    </div>
                     <div className="space-y-1.5">
-                      {pending.map((p) => {
-                        const messages = transcripts.find(t => t.session.id === p.id)?.messages ?? [];
-                        return (
-                          <div key={p.id} className="bg-black/[0.03] rounded-xl px-3 py-2">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="text-[11px] text-black/70">
-                                  {p.characterName}
-                                  <span className="ml-1.5 text-[10px] text-black/35">
-                                    {messages.length > 0 ? `${messages.length} 句` : "尚无消息"}
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-black/40 truncate">
-                                  {new Date(p.startedAt).toLocaleString("zh-CN")} · {p.originContent.slice(0, 24)}…
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  discardDeliverySession(p.id);
-                                  setCurrentScript({ ...currentScript });
-                                  setToast("已放弃这段聊天");
-                                }}
-                                className="shrink-0 text-[10px] text-black/35 px-2 py-1 rounded-lg bg-black/[0.04]"
-                              >
-                                放弃
-                              </button>
+                      {pending.map((p) => (
+                        <div key={p.id} className="bg-black/[0.03] rounded-xl px-3 py-2 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[11px] text-black/70">{p.characterName}</div>
+                            <div className="text-[10px] text-black/40 truncate">
+                              {new Date(p.startedAt).toLocaleString("zh-CN")} · {p.originContent.slice(0, 24)}…
                             </div>
-                            {messages.length > 0 ? (
-                              <details className="mt-1.5">
-                                <summary className="text-[10px] cursor-pointer list-none text-[#c2410c]/80">
-                                  点开查看这 {messages.length} 句
-                                </summary>
-                                <div className="mt-1.5 space-y-1 max-h-[220px] overflow-y-auto pr-1">
-                                  {messages.map((m) => (
-                                    <div key={m.id} className="text-[11px] leading-relaxed text-black/65">
-                                      <span className="text-black/35">
-                                        {m.role === "user" ? "我" : m.senderName || p.characterName}：
-                                      </span>
-                                      <span className="whitespace-pre-wrap break-words">{m.content}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </details>
-                            ) : (
-                              <div className="mt-1.5 text-[10px] text-black/35">
-                                还没在聊天室里说过话。
-                              </div>
-                            )}
                           </div>
-                        );
-                      })}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              discardDeliverySession(p.id);
+                              setCurrentScript({ ...currentScript });
+                              setToast("已放弃这段聊天");
+                            }}
+                            className="shrink-0 text-[10px] text-black/35 px-2 py-1 rounded-lg bg-black/[0.04]"
+                          >
+                            放弃
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );

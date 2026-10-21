@@ -129,25 +129,6 @@
   overflow: hidden;
   padding: 12px;
   isolation: isolate;
-  /*
-   * 这里曾经给 height 加过 120ms 过渡，想解决「键盘弹完输入框才跳上来」的观感。
-   * 实测副作用更大，已撤销：
-   *   1) 购物页整页容器跟着收缩 → 底部导航栏滑上来
-   *   2) 剧情室消息列表高度在动画期间算错 → 新消息底部被输入栏切掉且无法滚动
-   * 键盘延迟只能从「判定与布局」层面解决，不能靠给壳子加动画。
-   */
-}
-
-/* 键盘弹出时，底栏不该跟着壳子收缩往上跑（购物页等）——底栏原地不动、被键盘盖住即可。
-   用 JS 写入的 .kb-open 判断（监听 visualViewport 高度），不用 :focus。
-   :focus 在安卓 Firefox 上键盘收起后仍可能残留焦点，会导致底栏永久消失。 */
-body.kb-open .shopping-bottom-nav {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 100ms linear;
-}
-.shopping-bottom-nav {
-  transition: opacity 160ms linear;
 }
 
 .phone-shell::before {
@@ -1111,43 +1092,20 @@ body.kb-open .shopping-bottom-nav {
 
   :root {
     --phone-screen-width: 100vw;
-    /*
-     * ⚠️ 不要用 100lvh：
-     *    移动端 lvh 是「浏览器工具条收起时的最大高度」，比当前可见高度还大。
-     *    实测（Chrome / Edge Android）可视高度 668~716，而 100lvh 算出 772，
-     *    整个壳子比屏幕高 56~104px，贴底的输入栏直接被推出屏幕外。
-     *    --app-vh 由 JS 写入 visualViewport.height，键盘弹出时会同步缩小，
-     *    输入栏因此自然地贴住键盘上沿。
-     */
-    --app-vh: 100dvh;
-    /*
-     * 壳子高度固定在「键盘未弹出时」的可视高度，不跟着键盘收缩。
-     *
-     * 为什么不再让壳子收缩（10-19 的 66df11f / 09845d9 那套做法已废弃）：
-     *   壳子一收缩 → 购物页整页变矮（底栏被顶到键盘上方）
-     *              → 剧情室消息列表可用高度变化、滚动边界算错（新消息被输入栏切掉）
-     *              → 聊天室输入栏要等收缩完成才重排（键盘弹完才跳上来）
-     *   真实 App 里屏幕尺寸恒定，键盘是「盖在」内容上的，不会改变布局尺寸。
-     *
-     * 键盘遮挡改由输入栏自己跟随 visualViewport 解决（见 .kb-follow 系列）。
-     */
-    --phone-screen-height: 100dvh;
+    --phone-screen-height: 100lvh;
   }
 
   html,
   body {
     overflow: hidden;
     width: 100%;
-    /* 布局根固定满高：键盘只「盖」在内容上，不改变 App 的布局尺寸。
-       若这里跟 --app-vh（键盘弹出后变小）收缩，整页内容会被压缩，
-       底栏上浮、卡片被拉伸、消息列表裁切都会随之出现。 */
-    height: 100dvh;
+    height: 100lvh;
     background: var(--c-page-body-bg);
   }
 
   .app-root {
     width: 100vw;
-    height: 100dvh;
+    height: 100lvh;
     padding: 0;
     display: flex;
     justify-content: flex-start;
@@ -1173,6 +1131,9 @@ body.kb-open .shopping-bottom-nav {
        .app-root 被裁掉，底部栏随之顶回可视区。上移量可在「状态栏」弹窗里按设备调节，
        让它约等于真实状态栏高度即可铺满。0 = 不上移（iOS 等能全屏的浏览器保持 0）。 */
     margin-top: calc(-1 * var(--status-bar-drop, 0px));
+    transform: translate3d(0, calc(-1 * var(--mobile-keyboard-lift, 0px)), 0);
+    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
   }
 
   .phone-shell-wrap .phone-case {
@@ -1200,7 +1161,7 @@ body.kb-open .shopping-bottom-nav {
 
   .app-root.splash-root {
     width: 100vw;
-    height: 100dvh;
+    height: 100lvh;
     margin: 0;
     padding: 0;
     display: flex;

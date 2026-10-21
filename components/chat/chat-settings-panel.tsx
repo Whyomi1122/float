@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
@@ -963,7 +963,7 @@ export function ChatSettingsPanel({
                                 <button
                                     key={entry.key}
                                     className="menu-item"
-                                    style={{ paddingLeft: 24, ...(actionable ? {} : { cursor: "default" }) }}
+                                    style={{ paddingLeft: 72, ...(actionable ? {} : { cursor: "default" }) }}
                                     onClick={() => { if (actionable) setMemberActionKey(entry.key); }}
                                 >
                                     <div className="w-[24px] h-[24px] rounded-full overflow-hidden bg-[var(--c-input)] shrink-0 flex items-center justify-center">
@@ -1148,7 +1148,7 @@ export function ChatSettingsPanel({
                                     <div className="menu-label-group"><span className="menu-label">视频通话背景</span></div>
                                 </div>
                                 {groupChars.map(c => c && (
-                                    <label key={c.id} className="menu-item" style={{ paddingLeft: 24 }}>
+                                    <label key={c.id} className="menu-item" style={{ paddingLeft: 72 }}>
                                         <div className="w-[24px] h-[24px] rounded-full overflow-hidden bg-[var(--c-input)] shrink-0">
                                             {c.avatar ? <img src={c.avatar} className="w-full h-full object-cover" alt="" /> : <ChatFallbackAvatar />}
                                         </div>
@@ -1160,7 +1160,7 @@ export function ChatSettingsPanel({
                                         <input type="file" accept="image/*" onChange={e => handleGroupVideoBgUpload(e, c.id)} className="hidden" />
                                     </label>
                                 ))}
-                                <label className="menu-item" style={{ paddingLeft: 24 }}>
+                                <label className="menu-item" style={{ paddingLeft: 72 }}>
                                     <div className="w-[24px] h-[24px] rounded-full overflow-hidden bg-[var(--c-input)] shrink-0 flex items-center justify-center">
                                         {userIdentity?.avatarUrl ? (
                                             <img src={userIdentity.avatarUrl} className="w-full h-full object-cover" alt="" />
