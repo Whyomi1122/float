@@ -30,6 +30,11 @@ type Snap = {
     aTop: number | null;
     aBottom: number | null;
     docScroll: number;
+    /** 输入栏容器（聚焦输入框的祖先里、有 position:fixed/sticky 的第一个）的 top/bottom */
+    barTop: number | null;
+    barBottom: number | null;
+    /** 输入栏容器的计算样式里是否带 transition / animation */
+    barAnim: string;
 };
 
 function describeEl(el: Element | null): string {
@@ -48,6 +53,8 @@ export function KbProbe() {
     const [copied, setCopied] = useState(false);
     const activeRef = useRef<Element | null>(null);
     const lastKeyRef = useRef<string>("");
+    /** 最近变化的帧（环形缓冲），不再受界面日志长度限制 */
+    const ringRef = useRef<string[]>([]);
 
     // URL ?kb=1 才启用，避免误触
     useEffect(() => {
@@ -78,6 +85,22 @@ export function KbProbe() {
                 (active as HTMLElement).isContentEditable);
         const anchorEl: Element | null = (isField ? active : activeRef.current) ?? null;
         const ar = anchorEl?.getBoundingClientRect();
+        // 找输入框的「输入栏容器」：向上找第一个 position 为 fixed/sticky/absolute 的祖先，
+        // 用它来观察「整条输入栏」是不是在动
+        let barEl: HTMLElement | null = anchorEl as HTMLElement | null;
+        let barRect: DOMRect | null = null;
+        let barAnim = "-";
+        for (let i = 0; i < 8 && barEl; i++) {
+            const cs = window.getComputedStyle(barEl);
+            if (cs.position === "fixed" || cs.position === "sticky" || cs.position === "absolute") {
+                barRect = barEl.getBoundingClientRect();
+                const tr = cs.transition && cs.transition !== "all 0s ease 0s" ? cs.transition : "";
+                const an = cs.animationName && cs.animationName !== "none" ? cs.animationName : "";
+                barAnim = `${tr ? "T:" + tr : ""}${an ? " A:" + an : ""}` || "none";
+                break;
+            }
+            barEl = barEl.parentElement;
+        }
 
         const s: Snap = {
             vvH: vv ? Math.round(vv.height) : -1,
@@ -93,21 +116,26 @@ export function KbProbe() {
             aTop: ar ? Math.round(ar.top) : null,
             aBottom: ar ? Math.round(ar.bottom) : null,
             docScroll: Math.round(window.scrollY),
+            barTop: barRect ? Math.round(barRect.top) : null,
+            barBottom: barRect ? Math.round(barRect.bottom) : null,
+            barAnim,
         };
         setSnap(s);
 
         // 只在关键值变化时追加一行，避免刷屏
-        const key = `${s.vvH}|${s.vvTop}|${s.innerH}|${s.shellH}|${s.shellTop}|${s.aTop}|${s.aBottom}|${s.ae}`;
+        const key = `${s.vvH}|${s.vvTop}|${s.innerH}|${s.shellH}|${s.shellTop}|${s.shellBottom}|${s.aTop}|${s.aBottom}|${s.barTop}|${s.barBottom}|${s.ae}|${s.barAnim}|${s.docScroll}`;
         if (key !== lastKeyRef.current) {
             lastKeyRef.current = key;
             const t = Math.round(performance.now());
+            const line = `t=${t} vvH=${s.vvH} vvTop=${s.vvTop} inner=${s.innerH} shellH=${s.shellH} shellTop=${s.shellTop} shellBot=${s.shellBottom} a=[${s.aTop ?? "-"},${s.aBottom ?? "-"}] bar=[${s.barTop ?? "-"},${s.barBottom ?? "-"}] scroll=${s.docScroll} anim=${s.barAnim} | ${s.ae}`;
             setLog((prev) => {
-                const next = [
-                    ...prev,
-                    `t=${t} vvH=${s.vvH} vvTop=${s.vvTop} inner=${s.innerH} kb=${s.kbInset} shellH=${s.shellH} shellTop=${s.shellTop} a=[${s.aTop ?? "-"},${s.aBottom ?? "-"}] ${s.ae}`,
-                ];
-                return next.length > 120 ? next.slice(next.length - 120) : next;
+                const next = [...prev, line];
+                return next.length > 200 ? next.slice(next.length - 200) : next;
             });
+            // 环形缓冲：保留最近 400 帧全量数据
+            const ring = ringRef.current;
+            ring.push(line);
+            if (ring.length > 400) ring.splice(0, ring.length - 400);
         }
     }, []);
 
@@ -125,8 +153,13 @@ export function KbProbe() {
     if (!on) return null;
 
     const copy = async () => {
-        const header = "KB-PROBE v1  (VIVO S15 / Firefox Android)";
-        const text = [header, ...log].join("\n");
+        const header = [
+            "KB-PROBE v2  (VIVO S15 / Firefox Android)",
+            "字段说明：vvH=可视区高 vvTop=可视区顶偏移 inner=布局高 shellH=手机壳高 shellTop/shellBot=壳上下边",
+            "  a=[输入框上,下] bar=[输入栏容器上,下] scroll=页面scrollY anim=输入栏容器的transition/animation",
+        ].join("\n");
+        const src = ringRef.current.length ? ringRef.current : log;
+        const text = [header, ...src].join("\n");
         try {
             await navigator.clipboard.writeText(text);
         } catch {
@@ -143,7 +176,7 @@ export function KbProbe() {
         setTimeout(() => setCopied(false), 1600);
     };
 
-    // 折叠态：右下角小圆点，实时显示键盘高度
+    // 折叠态：左上角小圆点（避开输入栏和键盘，不挡视线），实时显示 vvH 变化
     if (!open) {
         return (
             <button
@@ -151,27 +184,28 @@ export function KbProbe() {
                 onClick={() => setOpen(true)}
                 style={{
                     position: "absolute",
-                    right: 10,
-                    bottom: 96,
+                    left: 10,
+                    top: 110,
                     zIndex: 99999,
-                    width: 46,
-                    height: 46,
-                    borderRadius: 23,
-                    background: "rgba(17,17,17,0.88)",
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    background: "rgba(17,17,17,0.72)",
                     color: "#fff",
-                    fontSize: 10,
+                    fontSize: 9,
                     fontWeight: 700,
                     lineHeight: 1.15,
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
                     justifyContent: "center",
-                    boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
+                    boxShadow: "0 3px 10px rgba(0,0,0,0.25)",
+                    opacity: 0.85,
                 }}
                 aria-label="打开键盘诊断"
             >
-                <span style={{ fontSize: 13 }}>⌨</span>
-                <span>{snap ? snap.kbInset : "-"}</span>
+                <span style={{ fontSize: 11 }}>vv</span>
+                <span>{snap ? snap.vvH : "-"}</span>
             </button>
         );
     }
