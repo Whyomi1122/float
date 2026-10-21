@@ -3,6 +3,7 @@
 import { Component, memo, useCallback, useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ErrorInfo, type ReactNode } from "react";
 
 import { EnsembleApp } from "@/components/ensemble/ensemble-app";
+import { KbProbe } from "@/components/kb-probe";
 import { BuildInfoPopup } from "@/components/build-info-popup";
 import { updateStatusBarTone } from "@/lib/bg-tone";
 import { startDiaryEntryTimerService, stopDiaryEntryTimerService } from "@/lib/diary-entry-timer-service";
@@ -5060,6 +5061,8 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
                   clone keeps theme variables + glass effect selectors
                   (.phone-shell[data-icon-effect] etc.); follows pointer via ref */}
               <div ref={ghostRef} className="drag-ghost" />
+              {/* 键盘诊断浮层：URL 带 ?kb=1 才出现，挂在 .phone-shell 内部才能量到壳子真实位置 */}
+              <KbProbe />
             </div>
           </div>
         </div>
