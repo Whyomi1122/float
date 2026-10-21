@@ -15,12 +15,21 @@ export type BuildEntry = {
 };
 
 export const BUILD_INFO = {
-    /** 当前构建标识：与 git commit 短 hash 对齐，便于核对部署 */
-    commit: "5394250",
+    /** 当前构建标识：优先取线上构建注入的真实 commit（next.config.mjs 的 env），本地回落到手写值 */
+    commit: process.env.NEXT_PUBLIC_BUILD_COMMIT || "d686f66",
     /** 当前版本（用于比较是否已看过） */
-    version: "2026.10.16-18",
+    version: "2026.10.21-1",
     /** 历史更新记录（最新的在最前） */
     entries: [
+        {
+            version: "2026.10.21-1",
+            title: "回退到 10-13 剧情 App 移植版本（排查键盘顶栏问题）",
+            items: [
+                "整体回退到 c920800（10-13 18:40 剧情 App 移植），暂时去掉 10-14 ~ 10-20 的全部功能改动",
+                "目的：确认聊天室/剧情室「点输入框后顶栏被抬高」是不是这几天的改动引起的",
+                "版本号改为常驻弹窗显示，底部显示本次构建 commit，方便和 Vercel 部署记录核对",
+            ],
+        } as BuildEntry,
         {
             version: "2026.10.16-18",
             title: "聊天设置页视觉重整",

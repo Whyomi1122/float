@@ -6,17 +6,10 @@ import { BUILD_INFO, SEEN_BUILD_KEY } from "@/lib/build-info";
 
 /**
  * 进入 float 时弹出「本次更新了什么」。
- * 仅在版本号与本地记录的已看版本不同时弹出（看过后不再打扰）。
+ * 改为常驻：每次进入都弹，方便确认线上到底是哪个版本（点「知道了」或遮罩关闭）。
  */
 export function BuildInfoPopup() {
-    const [open, setOpen] = useState(false);
-
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-        let seen = "";
-        try { seen = localStorage.getItem(SEEN_BUILD_KEY) || ""; } catch { /* ignore */ }
-        if (seen !== BUILD_INFO.version) setOpen(true);
-    }, []);
+    const [open, setOpen] = useState(true);
 
     const close = () => {
         try { localStorage.setItem(SEEN_BUILD_KEY, BUILD_INFO.version); } catch { /* ignore */ }
