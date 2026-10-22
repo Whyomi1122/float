@@ -1,6 +1,8 @@
 "use client";
 
 import { Info, ShieldAlert, Heart } from "lucide-react";
+import { BUILD_INFO } from "@/lib/build-info";
+import { LayoutDiagnostics } from "@/components/layout-diagnostics";
 
 export function AboutDeclaration() {
     return (
@@ -30,6 +32,19 @@ export function AboutDeclaration() {
             </div>
 
             <p className="card-section-label m-0 mx-2">相关信息</p>
+
+            <div className="g-card flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                    <span className="menu-label">版本</span>
+                    <span className="menu-desc !mt-0">{BUILD_INFO.version}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                    <span className="menu-label">构建 commit</span>
+                    <span className="menu-desc !mt-0" style={{ fontFamily: "ui-monospace, monospace" }}>{BUILD_INFO.commit || "本地构建"}</span>
+                </div>
+            </div>
+
+            <LayoutDiagnostics />
 
             <div className="flex flex-col gap-2">
                 <button className="g-card flex-row items-center">
