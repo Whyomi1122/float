@@ -2,7 +2,7 @@
 
 import { Info, ShieldAlert, Heart } from "lucide-react";
 import { BUILD_INFO } from "@/lib/build-info";
-import { LayoutDiagnostics } from "@/components/layout-diagnostics";
+import { KeyboardProbe } from "@/components/keyboard-probe";
 
 export function AboutDeclaration() {
     return (
@@ -44,7 +44,13 @@ export function AboutDeclaration() {
                 </div>
             </div>
 
-            <LayoutDiagnostics />
+            <p className="card-section-label m-0 mx-2">键盘布局探针</p>
+            <div className="g-card flex flex-col gap-2">
+                <span className="menu-desc ts-13 leading-relaxed !mt-0">
+                    已常驻开启。去聊天室或剧情室点输入框，屏幕左下角会自动出现小字数据，直接截图即可（点一下小字可收起）。
+                </span>
+                <KeyboardProbe />
+            </div>
 
             <div className="flex flex-col gap-2">
                 <button className="g-card flex-row items-center">
