@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 type Snap = {
     label: string;
@@ -62,6 +63,9 @@ function grab(label: string): Snap {
 export function KeyboardProbe() {
     const [last, setLast] = useState<Snap | null>(null);
     const [hidden, setHidden] = useState(false);
+    // 挂到 body 上，避免被页面/手机壳的层叠上下文或 overflow 裁掉
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
 
     useEffect(() => {
         let first = true;
@@ -92,39 +96,47 @@ export function KeyboardProbe() {
         };
     }, []);
 
-    if (!last) return null;
-    if (hidden) {
-        return (
-            <button
-                onClick={() => setHidden(false)}
-                style={{
-                    position: "fixed", right: 6, bottom: 6, zIndex: 99999,
-                    fontSize: 10, padding: "2px 6px", borderRadius: 6,
-                    background: "rgba(0,0,0,.5)", color: "#fff", border: "none",
-                }}
-            >探针</button>
-        );
-    }
-
+    if (!mounted) return null;
     const line = (k: string, v: string | number) => `${k}=${v}`;
-    return (
-        <div
-            onClick={() => setHidden(true)}
-            style={{
-                position: "fixed", left: 4, bottom: 4, zIndex: 99999,
-                background: "rgba(0,0,0,.72)", color: "#7CFFB2",
-                fontFamily: "ui-monospace, monospace", fontSize: 9.5,
-                lineHeight: 1.35, padding: "4px 6px", borderRadius: 6,
-                pointerEvents: "auto", maxWidth: "78vw",
-                whiteSpace: "pre-wrap", wordBreak: "break-all",
-            }}
-        >
-            {`[${last.label}]\n` +
-                line("html", last.html) + " " + line("app", last.app) + " " + line("shellH", last.shellH) + "\n" +
-                line("wrapTop", last.wrapTop) + " " + line("wrapH", last.wrapH) + " tf=" + last.tf + "\n" +
-                line("headerTop", last.headerTop) + "\n" +
-                line("inTop", last.inputTop) + " " + line("inBot", last.inputBottom) + "\n" +
-                line("vvH", last.vvH) + " vvTop=" + last.vvTop + " innerH=" + last.innerH}
-        </div>
+
+    const overlays = (
+        <>
+            {/* 常驻小圆点：页面一进来就能看到，确认探针是否在工作 */}
+            <div
+                onClick={() => setHidden((v) => !v)}
+                style={{
+                    position: "fixed", left: 4, top: 4, zIndex: 2147483000,
+                    fontSize: 10, lineHeight: 1, padding: "4px 6px", borderRadius: 8,
+                    background: last ? "rgba(0,0,0,.72)" : "rgba(200,0,0,.85)",
+                    color: last ? "#7CFFB2" : "#fff", border: "none",
+                    fontFamily: "ui-monospace, monospace", pointerEvents: "auto",
+                }}
+            >
+                {last ? (hidden ? "▸" : "▾") : "…"}
+            </div>
+
+            {last && !hidden && (
+                <div
+                    onClick={() => setHidden(true)}
+                    style={{
+                        position: "fixed", left: 4, top: 26, zIndex: 2147483000,
+                        background: "rgba(0,0,0,.78)", color: "#7CFFB2",
+                        fontFamily: "ui-monospace, monospace", fontSize: 10,
+                        lineHeight: 1.4, padding: "5px 7px", borderRadius: 6,
+                        pointerEvents: "auto", maxWidth: "86vw",
+                        whiteSpace: "pre-wrap", wordBreak: "break-all",
+                    }}
+                >
+                    {`[${last.label}]\n` +
+                        line("html", last.html) + " " + line("app", last.app) + " " + line("shellH", last.shellH) + "\n" +
+                        line("wrapTop", last.wrapTop) + " " + line("wrapH", last.wrapH) + " tf=" + last.tf + "\n" +
+                        line("headerTop", last.headerTop) + "\n" +
+                        line("inTop", last.inputTop) + " " + line("inBot", last.inputBottom) + "\n" +
+                        line("vvH", last.vvH) + " vvTop=" + last.vvTop + " innerH=" + last.innerH}
+                </div>
+            )}
+        </>
     );
+
+    return createPortal(overlays, document.body);
 }

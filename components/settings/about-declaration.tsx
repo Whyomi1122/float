@@ -47,7 +47,7 @@ export function AboutDeclaration() {
             <p className="card-section-label m-0 mx-2">键盘布局探针</p>
             <div className="g-card flex flex-col gap-2">
                 <span className="menu-desc ts-13 leading-relaxed !mt-0">
-                    已常驻开启。去聊天室或剧情室点输入框，屏幕左下角会自动出现小字数据，直接截图即可（点一下小字可收起）。
+                    屏幕左上角会常驻一个小方块（黑底绿字 ▾）。去聊天室或剧情室点输入框，等键盘完全弹出后，小方块下方会自动出现数据，直接截图即可。
                 </span>
                 <KeyboardProbe />
             </div>
