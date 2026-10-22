@@ -918,6 +918,14 @@ function getKeyboardTargetRect(element: HTMLElement): KeyboardTargetRect {
   };
 }
 
+// 【已停用】整块壳子上移机制。
+// 原逻辑：输入框获得焦点后用 visualViewport 算出键盘高度，把整个 .phone-screen
+// 通过 --mobile-keyboard-lift 向上平移。副作用是壳子连同「顶栏名字栏」一起上移，
+// 表现为聊天室/剧情室点输入框后顶栏被抬高、内容卡在屏幕中部。
+// 现在改为完全依赖浏览器自身的键盘避让（focus 后自动把输入框滚到键盘上方），
+// 壳子高度固定 100lvh 不随键盘变化。
+// 保留函数体仅作历史参考，不再被调用。
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function useAndroidCaretKeyboardLift() {
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
@@ -1045,7 +1053,7 @@ export function DesktopShell({ initialThemeProfile, initialThemeAssets }: Deskto
   const handleMusicOverlayControllerChange = useCallback((controller: MusicOverlayController | null) => {
     musicOverlayControllerRef.current = controller;
   }, []);
-  useAndroidCaretKeyboardLift();
+  // 已停用「整块壳子上移」：见 useAndroidCaretKeyboardLift 注释。
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [layout, setLayout] = useState<DesktopLayout>(DEFAULT_LAYOUT);
   // Dock is an ordered icon-id list (max DOCK_MAX), kept disjoint from `layout`.

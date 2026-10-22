@@ -1131,9 +1131,10 @@
        .app-root 被裁掉，底部栏随之顶回可视区。上移量可在「状态栏」弹窗里按设备调节，
        让它约等于真实状态栏高度即可铺满。0 = 不上移（iOS 等能全屏的浏览器保持 0）。 */
     margin-top: calc(-1 * var(--status-bar-drop, 0px));
-    transform: translate3d(0, calc(-1 * var(--mobile-keyboard-lift, 0px)), 0);
-    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: transform;
+    /* 【已停用】整块壳子上移：键盘弹出时不再平移壳子，
+       否则顶栏名字栏会连同整个界面一起被推上去（聊天室/剧情室的老问题）。
+       壳子高度固定 100lvh，键盘避让交给浏览器自身的 focus 滚动。 */
+    transform: none;
   }
 
   .phone-shell-wrap .phone-case {
